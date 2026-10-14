@@ -1457,6 +1457,40 @@ class ProductionRuntimeTest(unittest.TestCase):
             os.close(fd)
         self.assertFalse(self.runtime.root.exists())
 
+    def test_locked_owner_missing_process_returns_false(self):
+        state = {'ownerProof': self.m.production_owner_proof()}
+        self.path('/proc', state['ownerProof']['pid'], 'stat').unlink()
+        self.assertFalse(self.m.production_locked_owner(state))
+
+    def test_locked_owner_process_exit_during_validation_returns_false(self):
+        state = {'ownerProof': self.m.production_owner_proof()}
+        proc_stat = self.path('/proc', state['ownerProof']['pid'], 'stat')
+        original = self.m.regular
+        def exited(path):
+            if path == proc_stat:
+                path.unlink()
+            return original(path)
+        with mock.patch.object(self.m, 'regular', exited):
+            self.assertFalse(self.m.production_locked_owner(state))
+
+    def test_locked_owner_unsafe_stat_is_not_mistaken_for_dead_process(self):
+        state = {'ownerProof': self.m.production_owner_proof()}
+        proc_stat = self.path('/proc', state['ownerProof']['pid'], 'stat')
+        original = proc_stat.read_bytes()
+        proc_stat.unlink()
+        proc_stat.symlink_to(self.root / 'absent-owner-stat')
+        with self.assertRaisesRegex(ValueError, 'symlink refused'):
+            self.m.production_locked_owner(state)
+        proc_stat.unlink()
+        proc_stat.mkdir(mode=0o700)
+        with self.assertRaisesRegex(ValueError, 'single-link regular file required'):
+            self.m.production_locked_owner(state)
+        proc_stat.rmdir()
+        self.write(proc_stat, original)
+        os.link(proc_stat, self.root / 'linked-owner-stat')
+        with self.assertRaisesRegex(ValueError, 'single-link regular file required'):
+            self.m.production_locked_owner(state)
+
     def test_boot_precedes_launcher_and_never_recreates_retired_or_v11_files(self):
         self.adopt()
         source = self.path('/dev/shm/retired_v10')

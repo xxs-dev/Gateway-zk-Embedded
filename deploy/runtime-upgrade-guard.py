@@ -10,6 +10,7 @@ import struct
 import stat
 import subprocess
 import sys
+import time
 
 COMPATIBILITY = {"pointStoreAbi": 11, "clusterProtocol": 2,
                  "upgradeMode": "offline-all-participants"}
@@ -753,6 +754,37 @@ def production_context(home, segments=True, units=True):
     return baseline
 
 
+def production_bootstrap_owner(approval, state):
+    if (approval.get('operation') != 'bootstrap' or approval.get('previous') is not None or
+            state.get('format') != 'runtime-bootstrap-activation-state-v1' or state.get('phase') != 'STARTING' or
+            approval['candidate'].get('generation') != 1 or approval['candidate'].get('parentSha256') is not None or
+            type(approval.get('expiresAtUnix')) is not int or time.time() >= approval['expiresAtUnix'] or
+            approval['candidate']['bootId'] != Path('/proc/sys/kernel/random/boot_id').read_text().strip()):
+        raise ValueError('first-runtime provisional authority invalid or expired')
+    proof = state.get('ownerProof')
+    if not isinstance(proof, dict) or set(proof) != {'pid', 'startTicks', 'bootId', 'lockDev', 'lockInode'}:
+        raise ValueError('first-runtime owner proof missing')
+    if not isinstance(proof['pid'], str) or not re.fullmatch('[1-9][0-9]*', proof['pid']):
+        raise ValueError('invalid first-runtime owner PID')
+    lock = exact_file(Path('/run/gateway-offline-runtime.lock')).stat()
+    if lock.st_uid != 0 or lock.st_nlink != 1 or lock.st_size != 0 or stat.S_IMODE(lock.st_mode) != 0o600:
+        raise ValueError('first-runtime owner lock is not trusted')
+    proc = Path('/proc') / proof['pid']
+    ticks = exact_file(proc / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+    if ((lock.st_dev, lock.st_ino) != (proof['lockDev'], proof['lockInode']) or
+            ticks != proof['startTicks'] or proof['bootId'] != approval['candidate']['bootId']):
+        raise ValueError('first-runtime owner identity changed')
+    matches = 0
+    for line in exact_file(Path('/proc/locks')).read_text().splitlines():
+        row = line.split()
+        if len(row) >= 6 and row[1:5] == ['FLOCK', 'ADVISORY', 'WRITE', proof['pid']]:
+            major, minor, inode = row[5].split(':')
+            if (int(major, 16), int(minor, 16), int(inode)) == (os.major(lock.st_dev), os.minor(lock.st_dev), lock.st_ino):
+                matches += 1
+    if matches != 1:
+        raise ValueError('first-runtime provisional startup has no locked owner')
+
+
 def production_unit(home, unit):
     root = home / 'data' / PRODUCTION_DIR
     pending = root / 'pending.json'
@@ -771,6 +803,8 @@ def production_unit(home, unit):
             raise ValueError('production provisional approval digest changed')
         approval = production_json(approval_path)
         if state['phase'] in ('STARTING', 'RECOVERING_START'):
+            if approval.get('format') == 'runtime-bootstrap-activation-v1':
+                production_bootstrap_owner(approval, state)
             baseline = production_json(transaction / ('candidate.json' if state['phase'] == 'STARTING' else 'previous.json'))
             if sha(transaction / ('candidate.json' if state['phase'] == 'STARTING' else 'previous.json')) != state['startingBaselineSha256']:
                 raise ValueError('production provisional baseline changed')

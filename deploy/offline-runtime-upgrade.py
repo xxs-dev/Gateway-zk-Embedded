@@ -2066,10 +2066,20 @@ def production_locked_owner(state):
     proof = state['ownerProof']
     if proof['bootId'] != regular(Path('/proc/sys/kernel/random/boot_id')).read_text().strip():
         return False
-    try:
-        ticks = regular(Path('/proc') / proof['pid'] / 'stat').read_text().rsplit(')', 1)[1].split()[19]
-    except FileNotFoundError:
+    proc_stat = Path('/proc') / proof['pid'] / 'stat'
+    if not proc_stat.exists() and not proc_stat.is_symlink():
         return False
+    try:
+        ticks = regular(proc_stat).read_text().rsplit(')', 1)[1].split()[19]
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    except ValueError:
+        # regular() reports a missing file as ValueError; the process can exit
+        # between the existence probe and validation. Unsafe existing files
+        # must still fail closed instead of being mistaken for a dead owner.
+        if not proc_stat.exists() and not proc_stat.is_symlink():
+            return False
+        raise
     if ticks != proof['startTicks']:
         return False
     lock = regular(Path('/run/gateway-offline-runtime.lock')).stat()
@@ -3181,6 +3191,13 @@ def production_boot_stage_entry(runtime, authority):
     require(re.fullmatch(r'[A-Za-z0-9_-]{1,63}', boot) and NAME.fullmatch(authority['transaction']),
             'invalid boot entry identity')
     approval = production_boot_approval(runtime, authority)
+    baselines = [approval['previous'], approval['candidate']]
+    if approval.get('format') == 'runtime-bootstrap-activation-v1':
+        require(approval.get('operation') == 'bootstrap' and approval['previous'] is None and
+                approval['candidate']['format'] == 'runtime-baseline-v2' and
+                approval['candidate']['generation'] == 1 and approval['candidate']['parentSha256'] is None,
+                'invalid first-runtime boot provenance')
+        baselines = [approval['candidate']]
     directory = runtime.root / 'boots' / (boot + '-entry-' + authority['transaction'])
     names = ('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py')
     if not directory.exists() and not directory.is_symlink():
@@ -3193,7 +3210,7 @@ def production_boot_stage_entry(runtime, authority):
         require(all(source.stat().st_size <= 1024 * 1024 for source in sources.values()), 'boot helper exceeds bounded source size')
         pins = {name: digest(source) for name, source in sources.items()}
         require(any(all(pins[name] == baseline['files']['bin/' + name]['sha256'] for name in names)
-                    for baseline in (approval['previous'], approval['candidate'])), 'unpaired boot source entry')
+                    for baseline in baselines), 'unpaired boot source entry')
         for name, source in sources.items():
             destination = directory / name
             if destination.exists() or destination.is_symlink():
@@ -3211,7 +3228,7 @@ def production_boot_stage_entry(runtime, authority):
             'boot entry ownership/mode drift')
     pins = {name: digest(directory / name) for name in names}
     require(any(all(pins[name] == baseline['files']['bin/' + name]['sha256'] for name in names)
-                for baseline in (approval['previous'], approval['candidate'])), 'unapproved immutable boot entry')
+                for baseline in baselines), 'unapproved immutable boot entry')
     sync_dir(directory.parent)
     sync_dir(directory)
     return directory, pins
@@ -3362,6 +3379,18 @@ def production_boot(args):
             # proved live same-boot lock owner is NOT an interrupted transaction.
             guard.production_unit(home, 'gateway-services.service')
             return
+        if state.get('format') == 'runtime-bootstrap-activation-state-v1':
+            with production_lock():
+                transaction = runtime.root / 'transactions' / ref['transaction']
+                approval = checked_json(transaction / 'approval.json', ref['approvalSha256'])
+                require(approval.get('format') == 'runtime-bootstrap-activation-v1' and
+                        approval.get('operation') == 'bootstrap' and approval['previous'] is None and
+                        approval['transaction'] == ref['transaction'] and approval['gatewayHome'] == str(home),
+                        'first-runtime boot approval changed')
+                require(runtime.promoted(transaction, state),
+                        'first-runtime activation interrupted; run paired stopped recovery')
+                runtime.prepare_recovery_boot(transaction, ref['approvalSha256'])
+                runtime.finish_promoted(transaction, state, approval['candidate'])
     work_path = production_boot_work(runtime)
     existing_work = None
     if work_path.exists() or work_path.is_symlink():

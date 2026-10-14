@@ -69,6 +69,7 @@ class BootstrapTest(unittest.TestCase):
                 value['systemMonitor'] = {'enabled': True}
                 value['localDisplay'] = {'enabled': False}
             f.write(f.image / ('config/runtime/apps/' + name + '.json'), json.dumps(value).encode())
+        self.prepare_image()
         self.reprovision_transaction, self.reprovision_pin = f.install()
         self.source = f.root / 'config-payload'
         shutil.copytree(f.home / 'config/runtime', self.source)
@@ -94,6 +95,9 @@ class BootstrapTest(unittest.TestCase):
         result = patch.start()
         self.addCleanup(patch.stop)
         return result
+
+    def prepare_image(self):
+        pass
 
     def native(self, args, **kwargs):
         m = self.m

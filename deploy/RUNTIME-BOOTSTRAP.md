@@ -1,4 +1,4 @@
-# First Runtime Preparation
+# First Runtime Preparation And Activation
 
 `runtime-bootstrap.py` prepares a first runtime after a stopped whole-image
 reprovision. It is **not an activation command**. It does not start or enable
@@ -111,7 +111,98 @@ lock proof and mapping discovery remain fixture substitutions in that case.
 `tools/pointctl_create_empty_test.py` additionally verifies byte-identical refusal
 of existing objects and two concurrent creators with exactly one winner.
 
-Exception-injected interruption tests are not SIGKILL or power-loss acceptance.
-Full first-runtime activation, healthy baseline promotion, activation-failure
-recovery, reboot, running upgrade/rollback and sustained operation remain open.
-This helper is not yet part of the installed factory candidate on 22.7.
+Exception-injected preparation tests are not SIGKILL or power-loss acceptance.
+The separate activation helper below adds first-baseline promotion and stopped
+recovery. Neither helper is deployed in the installed factory candidate on 22.7.
+Actual canonical startup, reboot, running upgrade/rollback and sustained
+operation remain release gates.
+
+## Separate Activation Approval
+
+`runtime-bootstrap-activate.py` consumes a current, same-boot prepared receipt.
+It requires a second reviewed approval; preparation alone never opens gates.
+This is a first-install path, not legacy adoption: the baseline is genuinely
+`runtime-baseline-v2`, generation one, with `parentSha256: null` and no previous
+baseline or fabricated legacy activation record.
+
+Additional prerequisites:
+
+- The root-owned external bundle must also contain `runtime-bootstrap-activate.py`
+  and `ota-health-result.py`. Its lifecycle, guard, role-policy and health helpers
+  must match the installed bytes; the recovery unit must match its paired source.
+- `/opt/modbus-gateway/data` and `run` may contain directories only. Existing
+  runtime data or a production baseline prohibits this first-install path.
+- Config, data, run, the external bootstrap journal and unit directory must
+  support same-mount directory switching. No nested mounts or symlink paths.
+- The prepared stores must still match their exact empty receipts. The origin,
+  config, trust, helpers, stopped services, boot ID and expiry are rechecked.
+- Approval expiry must not exceed the preparation expiry. The health policy
+  uses the existing restricted loopback HTTP GET and bounded stability policy.
+  A simulator profile is still mandatory; no physical output is authorized.
+
+```sh
+python3 -B /reviewed/bundle/deploy/runtime-bootstrap-activate.py plan \
+  --prepared-transaction REVIEWED_PREPARE_TX \
+  --prepared-sha256 REVIEWED_READY_SHA256 \
+  --transaction REVIEWED_ACTIVATION_TX --expires-at REVIEWED_UNIX_EXPIRY \
+  --release REVIEWED_RELEASE --health /reviewed/health.json \
+  --output /reviewed/activation-approval.json
+
+python3 -B /reviewed/bundle/deploy/runtime-bootstrap-activate.py activate \
+  --approval /reviewed/activation-approval.json \
+  --approval-sha256 REVIEWED_ACTIVATION_APPROVAL_SHA256
+
+python3 -B /reviewed/bundle/deploy/runtime-bootstrap-activate.py recover \
+  --transaction REVIEWED_ACTIVATION_TX \
+  --approval-sha256 REVIEWED_ACTIVATION_APPROVAL_SHA256
+```
+
+The ready SHA is the digest of the preparation transaction's `ready.json`, not
+its approval. Review the activation plan and its separate digest before running
+`activate`. Keep the exact external bundle and both approvals for recovery.
+Never hot-patch an installed component or an old recovery bundle to make pins
+match; install a new reviewed factory candidate through stopped reprovision.
+
+## Activation Commit And Recovery
+
+The activation journal is `/opt/gateway-runtime-bootstrap/activations/<tx>`.
+It stages config and fresh data/run directories, retaining the original
+directories by rename under `old`. The new data contains the real production
+approval, candidate, reviewed profile and startup sentinel. Approved production
+gates and an explicit SystemMonitor SHM binding replace the known stop fences.
+The original reprovision STOP marker and historical images remain intact.
+
+Provisional service admission requires generation one, same boot, unexpired
+approval, the live owner PID/start ticks and exactly one matching kernel flock
+on the root-owned 0600 lock. Owner death, lock loss, expiry or a reboot cannot
+reuse provisional startup permission. The existing role health and promotion
+path publishes the healthy production pointer, which is the commit point.
+
+Before that commit, explicit recovery reinstalls manager-loaded stop fences,
+stops participants and restores original config/data/run directory identities.
+New runtime files and data are retained under `retired`; added unit overrides
+are retained under `retired-units`. No SHM is deleted, rewound or replayed,
+including stores changed during a failed start. Recovery is repeatable and does
+not require a still-live original owner or unexpired approval, but does require
+the exact paired helper authority and ownership of the installation.
+
+After healthy promotion, recovery only completes pending cleanup; it does not
+roll back the committed generation. A newer production pointer refuses an old
+activation's recovery. Subsequent upgrades use the existing production runtime
+lifecycle, not this first-install helper.
+
+Interrupted staging before switching retains a pending external transaction for
+explicit recovery. An interruption before a durable initial state has no
+recoverable activation authority; retain the unused evidence and use a fresh
+ID. Do not manually delete evidence or SHM to recycle a transaction.
+
+An unpromoted interrupted activation fails closed at boot and requires its
+paired stopped recovery. A committed first baseline uses native boot evidence
+and post-gate startup health, not old empty-store receipts or old health results.
+Retain the external journal until any pending external cleanup is reconciled.
+
+`tools/runtime_bootstrap_activation_test.py` uses private files, actual kernel
+flock and real guard/lifecycle code. The manager, endpoint health and native ABI
+constructor are substituted. Its SIGKILL cases test process interruption, not
+power loss or storage durability. Simulated boot-ID/SHM changes are not an OS
+reboot, hardware qualification, physical-output test or visual acceptance.

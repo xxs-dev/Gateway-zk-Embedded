@@ -631,8 +631,9 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
 - `PREPARED_STOPPED` and `activation: not-authorized` are deliberate limits.
   No production baseline is manufactured, no live config/unit changed and no
   STOP fence removed. See `deploy/RUNTIME-BOOTSTRAP.md` for input/CLI/recovery
-  details. Full first-runtime activation and activation failure recovery remain
-  unimplemented; preparation is not end-to-end bootstrap completion.
+  details. At this preparation checkpoint, first-runtime activation and its
+  failure recovery were unimplemented. The separate activation work below
+  supersedes that implementation gap, not the device-acceptance limits.
 - The new pointctl was cross-built on 22.11 in an isolated checkout based on
   `9318418` with exactly one reviewed dirty source, `tools/pointctl.cpp`, SHA256
   `1ccdbec3f88d99fa40d1853fb78bcd4fd962bb90bb75e6d5e4755c3d8e8b3fe6`.
@@ -709,6 +710,76 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
 - This is a software admission fix, not a 22.7 reboot, power-loss test, new
   installation or production startup. Previously approved transactions require
   their original paired helpers. No historical helper is patched in place.
+
+## First Runtime Activation
+
+- Added the separate `runtime-bootstrap-activate.py` plan/activate/recover path.
+  It consumes the exact current prepared receipt and a separately reviewed,
+  boot/expiry-bound activation approval. The baseline is real v2 generation one,
+  with no previous baseline, no fake legacy activation and no SHM migration.
+- Original config/data/run directory identities are retained by rename in an
+  external private journal. Only reviewed simulator-role gates are opened;
+  explicit SystemMonitor binding is part of the candidate. Installed lifecycle,
+  guard, role-policy and health bytes must match the external bundle. The
+  original reprovision STOP and all retained recovery images remain intact.
+- Startup permission requires a live matching PID/start tick, current boot,
+  unexpired approval and actual exclusive kernel flock on the trusted lock.
+  Health failure restores stopped original directories/units and retains new
+  runtime data/config/SHM. Healthy pointer publication commits the baseline;
+  cleanup recovery cannot roll it back or replace a later production baseline.
+- Interruption tests exposed dead-PID handling in `production_locked_owner`:
+  `regular()` reports a missing stat file as `ValueError`. Dead owners now
+  return false even if exit races validation; existing symlinks, directories
+  and linked files still fail closed. Focused regressions cover all three paths.
+- Added candidate-only boot-helper provenance for generation one. An
+  interrupted unpromoted activation requires paired stopped recovery. A
+  promoted-but-not-cleaned transaction prepares this boot's SHM proof before
+  reconciliation and dispatches post-gate health; it does not reuse prior-boot
+  empty-store/health evidence. The new cross-boot test reproduced the missing
+  boot-proof ordering defect before the correction.
+- Activation tests use private root-owned files, actual flock and real guard
+  and lifecycle code. Native construction, service management and health are
+  substituted. Process SIGKILL, simulated boot and config-upgrade coverage do
+  not constitute an actual OS reboot, power-loss, canonical startup or live
+  upgrade/rollback acceptance. Failed snapshots remain in the evidence tree.
+- See `deploy/RUNTIME-BOOTSTRAP.md` for approvals, CLI sequence, commit point,
+  explicit stopped recovery and the retained-evidence policy. This activation
+  helper is not a factory-image patch. A new paired factory package and stopped
+  deployment are required before use on the installed 22.7 candidate.
+- Final-source verification on 22.7: 84 production-baseline tests passed in
+  218.574s (`board7-bootstrap-activation-v7`); only the subsequent addition of
+  activation tests differs from that snapshot, not its tested dependencies.
+  `board7-bootstrap-activation-v8` passed 21 activation tests in 115.249s,
+  32 native-boot tests in 479.562s, 25 preparation, 33 role-policy, 40 stopped
+  reprovision, five mount, 17 monitor-binding, seven v2-config, 37 boot/index
+  publication and four boot-health/dispatch tests. Two opt-in discovery skips
+  were run separately: six mount, six native exclusive-creator and one native
+  preparation/recovery test passed in a private mount/network/IPC namespace.
+  This is 318 successful executions including five repeated mount tests; the
+  additional three targeted v7 boot runs are excluded from that count. It is
+  not a complete production/installer-suite rerun or a real device reboot.
+- Activation SIGKILL boundaries cover original config rename, first stop-fence
+  removal, provisional service start, healthy pointer publication and recovery
+  after retiring the new config. Repeat recovery, pre-switch staging failure,
+  stale provisional admission, boot failure/retry and ordinary config upgrade
+  and rollback from a true first baseline are covered. Mock-manager and mock
+  endpoint success are not canonical service-health acceptance.
+- Verified all 571 final-source pins, both source archives and all 19 v7/v8
+  result-file hashes. Activation helper SHA256:
+  `13c60851f3fe5fbf38d97b6383dc46df3cb5c3839138f43546123c2d6bbbc8d2`.
+  Lifecycle helper SHA256:
+  `f82115241638e343507b015ab2dfe6c8c0853e179139ff5683c705b8d438e550`.
+  Guard SHA256:
+  `a126774c238be808bf0b699be7cf4fa412feb3dd0bc67c6d749a2037073001f7`.
+  Evidence resides under `generated/production-20261014/` in the two directories
+  named above; unsuccessful v1/v3/v5/v6 snapshots are retained separately.
+- Final before/after installed-image proofs retain SHA256
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`.
+  All 18 installed components, original/previous images, STOP/fences and host
+  SHM metadata remain unchanged. No business process remains, no new AArch64
+  package was built or deployed, and 22.6 and physical outputs were untouched.
+  Approved production OTA public key and HTTPS origins are still outstanding;
+  fixture trust has not been installed as production trust.
 
 Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
 native-startup candidate under its own stopped reprovision transaction. All
