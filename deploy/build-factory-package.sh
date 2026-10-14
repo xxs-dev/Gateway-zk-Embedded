@@ -10,6 +10,7 @@ COMPONENT_VERSION="${COMPONENT_VERSION:-1.0}"
 EDGE_TOOLCHAIN_ID="${EDGE_TOOLCHAIN_ID:-unknown}"
 EDGE_PACKAGE_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-}"
 EDGE_PACKAGE_QT_BINARY="${EDGE_PACKAGE_QT_BINARY:-}"
+EDGE_PACKAGE_QT_DATA_SOURCE="${EDGE_PACKAGE_QT_DATA_SOURCE:-legacy-bridge}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-0}"
 # Public half of the OTA signing key (see doc/评审/OTA签名说明.md); shipped as
 # ota/ota.pub and installed to /etc/modbus-gateway/ota.pub by install-factory-config.sh.
@@ -19,12 +20,15 @@ OUT_TMP=""
 
 usage() {
   cat >&2 <<'EOF'
-Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT] [--ota-pubkey FILE] [--qt-binary FILE]
+Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT] [--ota-pubkey FILE] [--qt-binary FILE] [--qt-data-source legacy-bridge|native-point-store]
 
   --ota-pubkey FILE  OTA signature public key (PEM) to ship; env OTA_SIGNING_PUBKEY.
                      Without it, devices reject every OTA until ota.pub is provisioned.
   --qt-binary FILE   Selected AArch64 Qt executable (e.g. KY-SCADA), packaged as
                      ky-ems/KY-EMS; env EDGE_PACKAGE_QT_BINARY. Source stays unchanged.
+  --qt-data-source  Default legacy-bridge retains the old SysV/XML dependency.
+                     native-point-store requires an explicitly selected compatible
+                     Qt binary and stages a bridge-free ky-ems.service.
 
 Profiles:
   base     Package SystemMonitor, MqttDriver, MqttForwarder and pointctl.
@@ -63,6 +67,11 @@ while [ "$#" -gt 0 ]; do
       EDGE_PACKAGE_QT_BINARY="$2"
       shift 2
       ;;
+    --qt-data-source)
+      [ "$#" -ge 2 ] || { echo "--qt-data-source requires a value" >&2; exit 2; }
+      EDGE_PACKAGE_QT_DATA_SOURCE="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -77,6 +86,14 @@ done
 case "$PACKAGE_PROFILE" in
   base|project|full) ;;
   *) echo "invalid profile: $PACKAGE_PROFILE" >&2; usage; exit 2 ;;
+esac
+
+case "$EDGE_PACKAGE_QT_DATA_SOURCE" in
+  legacy-bridge) ;;
+  native-point-store)
+    [ -n "$EDGE_PACKAGE_QT_BINARY" ] || { echo "native-point-store requires --qt-binary" >&2; exit 2; }
+    ;;
+  *) echo "invalid Qt data source: $EDGE_PACKAGE_QT_DATA_SOURCE" >&2; exit 2 ;;
 esac
 
 COMPONENT_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-$ROOT_DIR/build-aarch64}"
@@ -154,7 +171,7 @@ finalize_package_manifest() {
     exit 2
   fi
   python3 - "$out" "$profile" "$payload_root" "$required_bins" "$packaged_bins" \
-    "$source_commit" "$source_dirty" "$COMPONENT_VERSION" "$EDGE_TOOLCHAIN_ID" <<'PY'
+    "$source_commit" "$source_dirty" "$COMPONENT_VERSION" "$EDGE_TOOLCHAIN_ID" "$EDGE_PACKAGE_QT_DATA_SOURCE" <<'PY'
 import datetime
 import hashlib
 import json
@@ -171,6 +188,7 @@ import sys
     source_dirty_raw,
     component_version,
     toolchain_id,
+    qt_data_source,
 ) = sys.argv[1:]
 
 try:
@@ -194,6 +212,12 @@ def component_version_for(binary):
 
 required = list(dict.fromkeys(required_raw.split()))
 packaged = list(dict.fromkeys(packaged_raw.split()))
+if qt_data_source == 'native-point-store' and 'KY-EMS' not in packaged:
+    raise SystemExit('native-point-store requires KY-EMS in the package selection')
+if 'KY-EMS' in packaged:
+    manifest['qtDataSource'] = qt_data_source
+else:
+    manifest.pop('qtDataSource', None)
 components = []
 for binary in packaged:
     relative = os.path.join("ky-ems", "KY-EMS") if binary == "KY-EMS" else os.path.join("build-aarch64", binary)
@@ -363,6 +387,10 @@ if [ -d "$ROOT_DIR/deploy" ]; then
     esac
     [ -f "$file" ] && cp "$file" "$TMP_DIR/gateway-factory-defaults/deploy/$name"
   done
+fi
+# Stage only the selected unit; the source and legacy default stay unchanged.
+if [ "$EDGE_PACKAGE_QT_DATA_SOURCE" = native-point-store ]; then
+  cp "$SCRIPT_DIR/ky-ems-native.service.in" "$TMP_DIR/gateway-factory-defaults/deploy/ky-ems.service"
 fi
 # No factory profile may initiate CORE_NODES test transactions. Preserve the
 # guard and saved-state paths; modify only the private staged entry, not source.

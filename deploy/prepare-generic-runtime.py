@@ -646,7 +646,11 @@ def preflight(args):
                 selection.setdefault("requiredDrivers", []).append({"binary": binary})
         environment = qt_environment(args.home)
         if args.start.lower() in ("1", "true", "yes", "y", "on"):
-            subprocess.run(["sh", str(args.deploy_dir / "gateway-qt-run.sh"), "--check"], check=True,
+            data_source = read(root / "edge-package-manifest.json").get("qtDataSource", "legacy-bridge")
+            if data_source not in ("legacy-bridge", "native-point-store"):
+                raise ValueError("unknown Qt data source")
+            launcher = "gateway-qt-native-run.sh" if data_source == "native-point-store" else "gateway-qt-run.sh"
+            subprocess.run(["sh", str(args.deploy_dir / launcher), "--check"], check=True,
                            env=dict(os.environ, **environment,
                                     GATEWAY_QT_BINARY=str(root / "ky-ems/KY-EMS"),
                                     GATEWAY_QT_BRIDGE=str(root / "build-aarch64/QtDisplayBridge")))

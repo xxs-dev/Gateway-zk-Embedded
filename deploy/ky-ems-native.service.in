@@ -1,0 +1,29 @@
+[Unit]
+Description=KY EMS Native Point Store Qt Local Display
+After=graphical.target
+Wants=graphical.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=ky-ems
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+WorkingDirectory=/opt/modbus-gateway/ky-ems
+Environment=DISPLAY=:0
+Environment=QT_QPA_PLATFORM=xcb
+Environment=XDG_RUNTIME_DIR=/run/ky-ems
+EnvironmentFile=-/opt/modbus-gateway/config/runtime/qt-display.env
+ExecStart=/bin/sh /opt/modbus-gateway/bin/gateway-qt-native-run.sh
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillSignal=SIGTERM
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

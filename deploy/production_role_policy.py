@@ -31,6 +31,7 @@ SHM_MULTI = frozenset(('sharedMemoryNames',))
 DEFAULT_APPS = {'mqtt': 'mqtt-service', 'monitor': 'monitor-service',
                 'camera': 'camera-service', 'agc': 'agc-avc-service'}
 TOOLS = {'pointctl': 'bin/pointctl', 'ems-parity-check': 'bin/EmsParityCheck'}
+NATIVE_QT_COMMAND = '/bin/sh /opt/modbus-gateway/bin/gateway-qt-native-run.sh'
 EXTRA_RUNTIME_FILES = {'ky-ems': ('bin/gateway-qt-run.sh',),
                        'local-kiosk': ('bin/local-kiosk.py',),
                        'qt-display-bridge': ('ky-ems/VarList.xml',)}
@@ -205,7 +206,7 @@ def _config_references(value, pins, app_paths):
             _config_references(item, pins, app_paths)
 
 
-def _template(template_root, family):
+def _template(template_root, family, details=False):
     name = family + ('@.service' if family not in ('qt-display-bridge', 'ky-ems',
             'gateway-services', 'gateway-health-watchdog') else '.service')
     data = _regular(template_root, template_root / name)
@@ -216,12 +217,13 @@ def _template(template_root, family):
         command = parser.get('Service', 'ExecStart')
     except (UnicodeError, configparser.Error) as error:
         raise RolePolicyError('invalid unit template: ' + name) from error
-    require(command == CATALOG[family][1], 'unit ExecStart differs from catalog: ' + name)
+    native_qt = family == 'ky-ems' and command == NATIVE_QT_COMMAND
+    require(command == CATALOG[family][1] or native_qt, 'unit ExecStart differs from catalog: ' + name)
     requires = set(parser.get('Unit', 'Requires', fallback='').split())
-    expected = {'ky-ems': {'qt-display-bridge.service'},
+    expected = {'ky-ems': set() if native_qt else {'qt-display-bridge.service'},
                 'local-kiosk': {'local-display@%i.service'}}.get(family, set())
     require(requires == expected, 'unit Requires differs from catalog: ' + name)
-    return _hash(data)
+    return (_hash(data), command, requires) if details else _hash(data)
 
 
 def _files(root):
@@ -433,6 +435,10 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
         unit = family + ('@' + instance if instance is not None else '') + '.service'
         require(unit not in roles, 'duplicate service role: ' + unit)
         executable, command, policy, reserve, phase = CATALOG[family]
+        template_sha, command, _ = _template(template_root, family, details=True)
+        extra_files = EXTRA_RUNTIME_FILES.get(family, ())
+        if family == 'ky-ems' and command == NATIVE_QT_COMMAND:
+            extra_files = ('bin/gateway-qt-native-run.sh',)
         require(family not in ('dio-driver', 'can-driver', 'qt-display-bridge') or
                 names['mqtt'] == 'mqtt-service', 'unit template binds canonical MQTT app')
         mapped = sorted(set(shm_names))
@@ -450,8 +456,8 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
                        ('gateway-services', 'gateway-health-watchdog') else 'supervisor',
                        'executable': executable, 'execStart': command.replace('%i', instance or ''),
                        'runtimeFiles': sorted(([executable] if not executable.startswith('/') else []) +
-                                              list(EXTRA_RUNTIME_FILES.get(family, ()))),
-                       'templateSha256': _template(template_root, family),
+                                              list(extra_files)),
+                       'templateSha256': template_sha,
                        'configPaths': sorted(set(configs)), 'dependencies': sorted(set(deps)),
                        'shm': {'policy': policy, 'names': sorted(mapped + optional),
                                'required': mapped, 'optional': optional}, 'startPhase': phase,
@@ -627,10 +633,22 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
     if display_enabled:
         require('display-simulator' in caps, 'display requires reviewed simulated output')
         renderer = display.get('renderer') or display.get('mode') or 'webkit'
+        require(isinstance(renderer, str), 'invalid display renderer')
+        renderer = renderer.strip().lower()
         if renderer in ('nativeqt', 'qt', 'ky-ems', 'kyems'):
-            add('qt-display-bridge', None, role_configs('mqtt'),
-                mqtt_base_names | camera_names | _shm_names(mqtt.get('localDisplay', {})))
-            add('ky-ems', None, role_configs('monitor'), _shm_names(display), ['qt-display-bridge.service'])
+            _, _, dependencies = _template(template_root, 'ky-ems', details=True)
+            display_shm = _shm_names(display)
+            if dependencies:
+                add('qt-display-bridge', None, role_configs('mqtt'),
+                    mqtt_base_names | camera_names | _shm_names(mqtt.get('localDisplay', {})))
+            else:
+                # Native Qt opens the monitor app's point stores directly.
+                driver, _ = _section(monitor, 'mqttDriver')
+                display_shm |= (_shm_list(driver, 'sharedMemoryNames') |
+                                _shm_single(driver, 'sharedMemoryName', 'gateway_point_store') |
+                                device_shm('monitor') | {authority['monitorShmName']})
+            require(names['monitor'] == 'monitor-service', 'Qt launcher binds canonical monitor app')
+            add('ky-ems', None, role_configs('monitor'), display_shm, dependencies)
         elif renderer == 'webkit':
             add('local-display', names['monitor'], role_configs('monitor'),
                 _shm_names(display) | _shm_names(monitor.get('mqttDriver', {})) | device_shm('monitor'))

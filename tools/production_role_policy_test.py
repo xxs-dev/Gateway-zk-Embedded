@@ -273,6 +273,17 @@ class ProductionRolePolicyTest(unittest.TestCase):
                          ['bin/gateway-qt-run.sh', 'ky-ems/KY-EMS'])
         self.assertEqual(roles['qt-display-bridge.service']['reserveMiB'], 64)
 
+    def test_qt_renderer_matches_installer_and_launcher_case_handling(self):
+        monitor = self.read('apps/monitor-service.json')
+        for renderer in ('nativeQt', 'NATIVEQT', ' QT ', 'KY-EMS', 'KyEms'):
+            with self.subTest(renderer=renderer):
+                monitor['localDisplay'] = {'enabled': True, 'renderer': renderer,
+                                          'sharedMemoryNames': ['store_1']}
+                self.write('apps/monitor-service.json', monitor)
+                roles = {r['unit']: r for r in self.resolve(capabilities=['display-simulator'])['roles']}
+                self.assertIn('ky-ems.service', roles)
+                self.assertIn('qt-display-bridge.service', roles)
+
     def test_agc_requires_simulated_control(self):
         self.write('apps/agc-avc-service.json', {
             'runtimeMode': 'agc_avc', 'identityConfigFile': TARGET + 'device_identity.json',
@@ -282,6 +293,25 @@ class ProductionRolePolicyTest(unittest.TestCase):
         self.rejects('AGC/AVC requires', capabilities=[])
         roles = self.resolve(capabilities=['control-simulator'])['roles']
         self.assertIn('agc-avc@agc-avc-service.service', [r['unit'] for r in roles])
+
+    def test_explicit_native_unit_has_no_legacy_bridge_role(self):
+        self.templates = Path(self.temp.name) / 'native-templates'
+        shutil.copytree(ROOT / 'deploy', self.templates, ignore=shutil.ignore_patterns('__pycache__'))
+        unit = self.templates / 'ky-ems.service'
+        shutil.copyfile(ROOT / 'deploy/ky-ems-native.service.in', unit)
+        monitor = self.read('apps/monitor-service.json')
+        monitor['localDisplay'] = {'enabled': True, 'renderer': 'nativeQt',
+                                  'sharedMemoryNames': ['store_1']}
+        self.write('apps/monitor-service.json', monitor)
+        roles = {r['unit']: r for r in self.resolve(capabilities=['display-simulator'])['roles']}
+        self.assertNotIn('qt-display-bridge.service', roles)
+        self.assertEqual([], roles['ky-ems.service']['dependencies'])
+        self.assertEqual(['gateway_point_store', 'monitor_store', 'store_1'],
+                         roles['ky-ems.service']['shm']['optional'])
+        self.assertTrue(roles['ky-ems.service']['execStart'].endswith('/gateway-qt-native-run.sh'))
+        self.assertEqual(['bin/gateway-qt-native-run.sh', 'ky-ems/KY-EMS'], roles['ky-ems.service']['runtimeFiles'])
+        unit.write_text(unit.read_text().replace('[Unit]', '[Unit]\nRequires=qt-display-bridge.service'))
+        self.rejects('Requires differs', capabilities=['display-simulator'])
 
     def test_agc_output_must_remain_shadow_only(self):
         self.write('apps/agc-avc-service.json', {

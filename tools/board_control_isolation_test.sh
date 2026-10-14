@@ -32,9 +32,9 @@ COMMON=(
   --property=ProtectKernelLogs=yes
   --property=ProtectControlGroups=yes
   --property=NoNewPrivileges=yes
-  --property=CapabilityBoundingSet=
+  '--property=CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SETPCAP'
   --property=AmbientCapabilities=
-  --property=RestrictNamespaces=yes
+  --property=RestrictNamespaces=ipc
   --property=RestrictRealtime=yes
   --property=LockPersonality=yes
   --property=SystemCallArchitectures=native
@@ -46,25 +46,34 @@ COMMON=(
   --property=MemoryMax=128M
   --property=TasksMax=32
 )
-systemd-run --unit="$ANCHOR" --collect "${COMMON[@]}" /bin/sleep 180
+# systemd 245 has no PrivateIPC; only these fixed tools run with setup caps.
+# Probe/business execution must follow setpriv and prove every cap set is zero.
+systemd-run --unit="$ANCHOR" --collect "${COMMON[@]}" /usr/bin/unshare --ipc /bin/sleep 180
 trap cleanup EXIT
 PID=$(systemctl show "$ANCHOR" --property=MainPID --value)
 test "$PID" -gt 1
 HOST_NET=$(readlink /proc/1/ns/net)
+HOST_IPC=$(readlink /proc/1/ns/ipc)
 for attempt in $(seq 1 50); do
   SHARED_NET=$(readlink "/proc/$PID/ns/net")
-  if [ "$HOST_NET" != "$SHARED_NET" ]; then break; fi
+  SHARED_IPC=$(readlink "/proc/$PID/ns/ipc")
+  if [ "$HOST_NET" != "$SHARED_NET" ] && [ "$HOST_IPC" != "$SHARED_IPC" ]; then break; fi
   sleep .1
 done
 test "$HOST_NET" != "$SHARED_NET"
+test "$HOST_IPC" != "$SHARED_IPC"
 MARKER_SHA=$(sha256sum "$ROOT/shm/gateway-ems2-isolation-marker" | cut -d ' ' -f 1)
 for index in 1 2; do
   systemd-run --unit="$LABEL-probe-$index.service" \
     --collect --wait --pipe "${COMMON[@]}" \
     --property=JoinsNamespaceOf="$ANCHOR" --property=After="$ANCHOR" \
     --property=Requires="$ANCHOR" \
-    /usr/bin/python3 "$ROOT/board_control_isolation_probe.py" \
+    /usr/bin/nsenter --ipc="/proc/$PID/ns/ipc" \
+    /usr/bin/setpriv --no-new-privs --bounding-set=-sys_admin,-setpcap \
+    --inh-caps=-sys_admin,-setpcap --ambient-caps=-sys_admin,-setpcap \
+    /usr/bin/python3 -B "$ROOT/board_control_isolation_probe.py" \
     --host-netns "$HOST_NET" --shared-netns "$SHARED_NET" \
+    --host-ipcns "$HOST_IPC" --shared-ipcns "$SHARED_IPC" \
     --shm-marker /dev/shm/gateway-ems2-isolation-marker --marker-sha256 "$MARKER_SHA" \
     --marker-dev "$(stat -c %d "$ROOT/shm/gateway-ems2-isolation-marker")" \
     --marker-ino "$(stat -c %i "$ROOT/shm/gateway-ems2-isolation-marker")"

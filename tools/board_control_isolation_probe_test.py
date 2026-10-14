@@ -5,10 +5,18 @@ import stat
 from unittest.mock import Mock, patch
 
 from board_control_isolation_probe import (blocked_host_root, check_links, check_mounts,
-                                          check_status, device_inventory, mount_rows)
+                                          check_namespace, check_status, device_inventory, mount_rows)
 
 
 class IsolationProofTest(unittest.TestCase):
+    def test_ipc_and_network_namespace_must_be_private_and_shared(self):
+        for kind in ('ipc', 'net'):
+            private, host, foreign = kind + ':[123]', kind + ':[456]', kind + ':[789]'
+            check_namespace(private, host, private, kind)
+            for current, expected in ((host, private), (private, foreign), ('', private), (None, private)):
+                with self.assertRaises(ValueError):
+                    check_namespace(current, host, expected, kind)
+
     def test_host_pseudoterminal_and_block_devices_rejected(self):
         path = Mock()
         root = Mock()

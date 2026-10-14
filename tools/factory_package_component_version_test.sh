@@ -72,6 +72,7 @@ required = {item["binary"]: item["version"] for item in manifest["requiredDriver
 components = {item["binary"]: item["version"] for item in manifest["components"]}
 assert required["KY-EMS"] == "2.0.9-compact", required
 assert components["KY-EMS"] == "2.0.9-compact", components
+assert manifest['qtDataSource'] == 'legacy-bridge'
 for binary in ("SystemMonitor", "MqttDriver", "MqttForwarder", "pointctl", "QtDisplayBridge"):
     assert required[binary] == "1.0", required
     assert components[binary] == "1.0", components
@@ -146,6 +147,50 @@ qt = next(item for item in manifest['components'] if item['binary'] == 'KY-EMS')
 assert qt['sha256'] == hashlib.sha256(selected).hexdigest(), qt
 print('selected Qt artifact and manifest hash verified; source binary unchanged')
 PY
+EDGE_PACKAGE_BUILD_DIR="$TMP_ROOT/source/build-aarch64" \
+  sh "$TMP_ROOT/source/deploy/build-factory-package.sh" "$TMP_ROOT/native.tar.gz" \
+  --profile project --manifest "$TMP_ROOT/manifest.json" --qt-binary "$TMP_ROOT/KY-SCADA" \
+  --qt-data-source native-point-store
+mkdir "$TMP_ROOT/native"
+tar -xzf "$TMP_ROOT/native.tar.gz" -C "$TMP_ROOT/native"
+python3 - "$TMP_ROOT" <<'PY'
+import configparser
+import json
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+payload = root / 'native/gateway-factory-defaults'
+unit = configparser.ConfigParser(strict=False, interpolation=None)
+unit.read(str(payload / 'deploy/ky-ems.service'))
+assert unit['Service']['ExecStart'].endswith('/gateway-qt-native-run.sh')
+assert not unit['Unit'].get('Requires')
+assert 'qt-display-bridge' not in unit['Unit']['After']
+assert (payload / 'deploy/ky-ems.service').read_bytes() == (root / 'source/deploy/ky-ems-native.service.in').read_bytes()
+assert 'Requires=qt-display-bridge.service' in (root / 'source/deploy/ky-ems.service').read_text()
+manifest = json.loads((payload / 'edge-package-manifest.json').read_text())
+assert manifest['qtDataSource'] == 'native-point-store'
+assert (root / 'gateway/bin/gateway-qt-native-run.sh').is_file()
+print('explicit native data source stages bridge-free unit; legacy source unchanged')
+PY
+GATEWAY_HOME="$TMP_ROOT/native-gateway" INIT_WORK_DIR="$TMP_ROOT/native-init-work" INSTALL_SYSTEMD=0 \
+  sh "$ROOT_DIR/deploy/production-init.sh" --auto --package "$TMP_ROOT/native.tar.gz" \
+  --runtime-mode gateway --package-profile project --machine-code TEST_FACTORY_NATIVE \
+  --no-mqtt-tls --no-start --no-smoke --no-direct-maintenance
+test -x "$TMP_ROOT/native-gateway/bin/gateway-qt-native-run.sh"
+cmp "$ROOT_DIR/deploy/gateway-qt-native-run.sh" "$TMP_ROOT/native-gateway/bin/gateway-qt-native-run.sh"
+cmp "$ROOT_DIR/deploy/gateway-qt-run.sh" "$TMP_ROOT/native-gateway/bin/gateway-qt-run.sh"
+if sh "$TMP_ROOT/source/deploy/build-factory-package.sh" "$TMP_ROOT/native-missing.tar.gz" \
+    --profile project --manifest "$TMP_ROOT/manifest.json" --qt-data-source native-point-store; then
+  echo 'native data source must require explicitly selected binary' >&2
+  exit 1
+fi
+[ ! -e "$TMP_ROOT/native-missing.tar.gz" ]
+if sh "$TMP_ROOT/source/deploy/build-factory-package.sh" "$TMP_ROOT/native-typo.tar.gz" \
+    --qt-data-source native; then
+  echo 'invalid native data source must reject packaging' >&2
+  exit 1
+fi
+[ ! -e "$TMP_ROOT/native-typo.tar.gz" ]
 if sh "$TMP_ROOT/source/deploy/build-factory-package.sh" "$TMP_ROOT/missing.tar.gz" \
     --profile project --manifest "$TMP_ROOT/manifest.json" --qt-binary "$TMP_ROOT/missing"; then
   echo 'missing selected Qt artifact must reject packaging' >&2

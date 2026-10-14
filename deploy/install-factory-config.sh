@@ -1106,6 +1106,7 @@ python3 "$SCRIPT_DIR/prepare-generic-runtime.py" install-kiosk-script \
   --source "$KIOSK_SCRIPT_SOURCE" --home "$GATEWAY_HOME"
 install_required_deploy_file "prepare-generic-runtime.py" "$GATEWAY_HOME/bin/prepare-generic-runtime.py"
 install_deploy_file_if_exists "gateway-qt-run.sh" "$GATEWAY_HOME/bin/gateway-qt-run.sh"
+install_deploy_file_if_exists "gateway-qt-native-run.sh" "$GATEWAY_HOME/bin/gateway-qt-native-run.sh"
 if [ "${INIT_LOCAL_QT_DISPLAY_ENABLED:-0}" = "1" ]; then
   python3 "$SOURCE_ROOT/deploy/prepare-generic-runtime.py" install-widgets \
     --package-root "$SOURCE_ROOT" --home "$GATEWAY_HOME"

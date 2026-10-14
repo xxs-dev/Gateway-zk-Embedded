@@ -347,6 +347,60 @@ from permission to use the boards as test devices.
   MQTT and monitor services were checked active/running with NRestarts=0 after
   the 22.7 operations.
 
+## IPC Isolation And Installed Runtime Smoke
+
+- The legacy display bridge uses System V SHM key `0x1234` as well as POSIX
+  point stores. On 22.7, systemd 245 rejects `PrivateIPC`; an explicit IPC
+  namespace is required. The test harness now creates it with a fixed
+  `unshare --ipc /bin/sleep` anchor, enters it with `nsenter`, then drops the
+  two setup capabilities before any probe or business executable runs.
+- Both probe services proved private/shared IPC and network identities,
+  initially empty SysV SHM, and zero inheritable/permitted/effective/bounding/
+  ambient capability sets. No physical devices or external network routes were
+  exposed. Evidence: `board7-ipc-isolation-v2.log` under the generated directory.
+- Installed-program smoke v4 ran the approved SystemMonitor, QtDisplayBridge
+  and KY-EMS for 45 observations. All exited zero without forced termination.
+  A private tmpfs, rather than a disk-backed directory, was required for libc
+  `shm_open`; the harness now checks that API and backing-device identity.
+- This test proved a release blocker: QtDisplayBridge rewrites packaged
+  `ky-ems/VarList.xml`. Original SHA256 was
+  `9eb62eebad2bdcc3a63c96fd97618eaf62ff33717bb1e40faadbbccd5b881a21`;
+  generated SHA256 was
+  `4f6bbbd7d9bf79d43a1dd9c41750e9a2d57fd8c867225fa91a0a8d401a5e54c1`.
+  Only a private per-file copy was writable during that experiment. The live
+  installation and recovery pins were not weakened or changed.
+- A separate native-direct probe ran installed SystemMonitor and KY-EMS without
+  the bridge. All 45 observations passed, both programs exited zero, SysV SHM
+  remained empty, and VarList stayed byte-identical on the read-only image.
+  Evidence: `generated/production-20261014/board7-native-direct-probe-v3/`.
+  The source manifest identifies the test snapshot; returned evidence hashes
+  were checked. Earlier failed preparation/probe attempts are retained.
+- These are bounded offscreen process tests, not canonical service activation,
+  simulated acquisition, restart, running upgrade, or sustained-operation passes.
+
+## Explicit Native Qt Startup
+
+- Factory packaging now accepts `--qt-data-source native-point-store` together
+  with an explicitly selected `--qt-binary`. It stages the native unit template
+  as `ky-ems.service` and records `qtDataSource` in the component manifest.
+  The native service uses `gateway-qt-native-run.sh`, with no
+  dependency on the legacy bridge. Installed resources remain immutable.
+- Default packaging remains `legacy-bridge`; old SysV/XML clients retain their
+  previous startup dependency. The bridge executable remains available in the
+  package. No mode is guessed from the renderer name, file name, or version.
+  Selecting native mode for an incompatible third-party Qt binary is unsupported.
+- The legacy launcher stays byte-identical: historical recovery pins its hash.
+  An initial shared-launcher change was rejected by legacy activation regression
+  tests; the native path is now a separate script instead of relaxing those pins.
+- Role resolution pins the selected unit and launcher and models native Qt's
+  actual point-store set, including monitor, device and MQTT-driver stores. It
+  also accepts the installer's `nativeQt` spelling, matching launcher case and
+  whitespace normalization. Existing admission, trust and recovery guards stay
+  enabled. This change does not authorize activation of the current stopped image.
+- The user confirmed that 22.7 has no connected display and asked to prioritize
+  software/deployment verification. Physical display/touch and visual fidelity
+  remain separately deferred acceptance gates, not failed software tests.
+
 Status: in progress, not production-ready. 22.7 has the new candidate installed
 but all gateway/EMS business services remain stopped; its new UI is not running.
 Controlled activation with fresh private SHM, actual startup/restart, runtime

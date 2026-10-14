@@ -17,6 +17,14 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def check_namespace(current, host, shared, label):
+    pattern = r'[a-z]+:\[[0-9]+\]'
+    require(all(isinstance(value, str) and re.fullmatch(pattern, value)
+                for value in (current, host, shared)), 'invalid ' + label + ' namespace proof')
+    require(current != host, 'service uses host ' + label + ' namespace')
+    require(current == shared, 'services do not share isolated ' + label + ' namespace')
+
+
 def mount_rows(text):
     rows = []
     for line in text.splitlines():
@@ -98,8 +106,11 @@ def blocked_host_root():
 
 def probe(args):
     current = os.readlink('/proc/self/ns/net')
-    require(current != args.host_netns, 'service uses host network namespace')
-    require(current == args.shared_netns, 'services do not share isolated network namespace')
+    check_namespace(current, args.host_netns, args.shared_netns, 'network')
+    current_ipc = os.readlink('/proc/self/ns/ipc')
+    check_namespace(current_ipc, args.host_ipcns, args.shared_ipcns, 'IPC')
+    require(len(Path('/proc/sysvipc/shm').read_text().splitlines()) == 1,
+            'unexpected existing System V shared memory')
     command = lambda argv: json.loads(subprocess.check_output(argv, universal_newlines=True,
                                                               timeout=10))
     links = command(['ip', '-j', 'link', 'show'])
@@ -128,6 +139,7 @@ def probe(args):
     host_root_denial = blocked_host_root()
     return {'format': 'board-control-isolation-proof-v1', 'passed': True,
             'networkNamespace': current, 'hostNetworkNamespace': args.host_netns,
+            'ipcNamespace': current_ipc, 'hostIpcNamespace': args.host_ipcns,
             'links': links, 'routes': routes, 'processSecurity': status,
             'devices': devices, 'socketDenials': denied, 'hostRootDenial': host_root_denial,
             'shmMarker': {'path': str(marker), 'sha256': args.marker_sha256,
@@ -139,6 +151,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host-netns', required=True)
     parser.add_argument('--shared-netns', required=True)
+    parser.add_argument('--host-ipcns', required=True)
+    parser.add_argument('--shared-ipcns', required=True)
     parser.add_argument('--shm-marker', required=True)
     parser.add_argument('--marker-sha256', required=True)
     parser.add_argument('--marker-dev', type=int, required=True)
