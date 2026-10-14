@@ -409,8 +409,12 @@ exec /bin/cp "$@"
             segments.append({'source': source, 'target': target, 'sha256': hashlib.sha256((Path('/dev/shm') / source).read_bytes()).hexdigest()})
         write(home / 'config/runtime/apps/compute.json', json.dumps({'computeEngine': {'sharedMemoryNames': [s['source'] for s in segments], 'outputDefaultSharedMemoryName': segments[0]['source']}, 'emsCluster': {'enabled': True, 'clusterId': 'OFFLINE_FIXTURE', 'expectedMembers': 2, 'maxMembers': 2, 'lockedCabinetNo': 1, 'controlEnabled': False, 'virtualSharedMemoryName': segments[0]['source']}}))
         payload = self.root / 'payload'
+        migration_cli = Path(os.environ.get('GATEWAY_TEST_MIGRATION_BINARY',
+                                            str(REPO / 'build-aarch64/memory_point_store_migrate')))
+        self.assertTrue(migration_cli.is_file() and os.access(migration_cli, os.X_OK),
+                        'set GATEWAY_TEST_MIGRATION_BINARY to a verified test-host executable')
         products = [('ComputeEngine', Path('/usr/bin/true')), ('MqttDriver', Path('/usr/bin/false')),
-                    ('memory_point_store_migrate', Path('/var/tmp/ems-production-candidate-20260924-build/memory_point_store_migrate'))]
+                    ('memory_point_store_migrate', migration_cli)]
         components = []
         for name, source in products:
             dest = payload / 'programs/bin' / name
@@ -420,7 +424,7 @@ exec /bin/cp "$@"
             components.append({'kind': 'product', 'target': name, 'archivePath': 'programs/bin/' + name,
                                'bytes': dest.stat().st_size, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest()})
         write(EVIDENCE / 'native-fixture-provenance.json', json.dumps({
-            'runtimeExecution': 'native CLI only, not AArch64 qualification',
+            'runtimeExecution': 'test-host CLI only, not installed program acceptance',
             'migrationCli': components[-1],
             'fixtureSourceSha256': hashlib.sha256((REPO / 'tools/offline_upgrade_fixture.cpp').read_bytes()).hexdigest(),
             'fixtureBinarySha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
