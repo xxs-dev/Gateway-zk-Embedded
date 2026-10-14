@@ -169,6 +169,19 @@ render_configs() {
     compute_config_file=$ROOT/config/devices/device_compute.json
     sed -e "s|__SHARED_MEMORY_NAME__|$shared_memory|g" \
         "$ROOT/templates/device_compute.json" > "$compute_config_file"
+    # All routes share this lab's durable ledger, never the installed gateway's.
+    python3 - "$ROOT" "$device_file" "$compute_config_file" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+ledger = str(Path(sys.argv[1]).resolve() / 'data/control-dedup.db')
+for name in sys.argv[2:]:
+    path = Path(name)
+    config = json.loads(path.read_text(encoding='utf-8'))
+    config['memoryStore']['controlDedupPath'] = ledger
+    path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+PY
     sed -e "s|__TEST_LAB_ROOT__|$ROOT|g" \
         -e "s|__MONITOR_HOST__|$monitor_host|g" \
         -e "s|__MONITOR_PORT__|$monitor_port|g" \

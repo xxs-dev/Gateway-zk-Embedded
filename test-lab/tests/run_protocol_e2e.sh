@@ -48,6 +48,17 @@ chmod +x "$LAB_SCRIPT"
 
 check_points() {
     point_code=$1
+    python3 - "$ROOT" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+app = json.loads((root / 'config/apps/monitor-service.json').read_text())
+for name in app['deviceConfigFiles']:
+    config = json.loads(Path(name).read_text())
+    assert config['memoryStore']['controlDedupPath'] == str(root / 'data/control-dedup.db'), name
+PY
     attempt=0
     while [ "$attempt" -lt 40 ]; do
         attempt=$((attempt + 1))
@@ -142,6 +153,7 @@ curl --noproxy '*' --max-time 5 -fsS \
     -d "{\"machineCode\":\"SIM_COMM202600999\",\"passwordSha256\":\"$PASSWORD_SHA256\",\"requestId\":\"CAN_E2E_WRITE\",\"commands\":[{\"cmdId\":\"CAN_E2E_RELAY\",\"meterCode\":\"SIM_CAN_01\",\"pointCode\":\"SIM_CAN_RELAY\",\"index\":990004,\"value\":1,\"source\":\"test-lab-e2e\"}]}" \
     "http://127.0.0.1:$MONITOR_PORT/api/v1/control/batch" > "$ROOT/can-write.json"
 grep -q '"success":true' "$ROOT/can-write.json"
+[ -s "$ROOT/data/control-dedup.db" ]
 attempt=0
 while [ "$attempt" -lt 20 ]; do
     attempt=$((attempt + 1))
