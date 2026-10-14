@@ -54,9 +54,9 @@ from pathlib import Path
 import sys
 
 root = Path(sys.argv[1]).resolve()
-app = json.loads((root / 'config/apps/monitor-service.json').read_text())
+app = json.loads((root / 'config/apps/monitor-service.json').read_text(encoding='utf-8'))
 for name in app['deviceConfigFiles']:
-    config = json.loads(Path(name).read_text())
+    config = json.loads(Path(name).read_text(encoding='utf-8'))
     assert config['memoryStore']['controlDedupPath'] == str(root / 'data/control-dedup.db'), name
 PY
     attempt=0
