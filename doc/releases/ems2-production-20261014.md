@@ -515,11 +515,59 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   --approval-sha256 ef86e13a04e8624e5cc361a31d257fd09782c0a3a02b7174d15fedabcbde1126
 ```
 
+## Installed Service And Acquisition Fixture
+
+- `tools/board_native_service_acceptance.py` runs the installed Modbus driver,
+  SystemMonitor and native Qt launcher in separately supervised systemd transient
+  services. A fresh private config overlay selects three Modbus TCP simulators,
+  disables device writes and external MQTT, and exposes the monitor endpoint
+  only on isolated loopback. Canonical units and their STOP fences are untouched.
+- The repository's `GatewayTestLabSim` was cross-built on 22.11 from the clean
+  `3e0c45b` source and returned with SHA256
+  `ba40bae8be4b9c2b2d11d6b9e953b764f971d359e4cde2fbb43710d212d311c6`.
+  This is a test-only simulator, not an added production package component.
+  Initial build invocations used the wrong owner and output name instead of
+  the CMake target; both refusals are retained, with no global Git trust change.
+- Normal collection, changed input (register 4321 -> scaled point 432.1), slave
+  2 timeout, and recovery all passed through the actual driver, shared-memory
+  router and monitor HTTP point endpoint. During the injected timeout, index
+  920002 had quality 0 while indices 910002 and 930002 stayed fresh at quality 1.
+- Deliberate SIGKILL of the driver and then UI caused systemd to restart each:
+  both obtained a new PID and NRestarts=1. The subsequent acquisition checks
+  passed. A 181.15-second observation returned 36 good-quality, nonstale samples
+  with advancing device timestamps. No additional service restart occurred.
+- All business/observer entrypoints proved private network/IPC/SHM, private
+  devices, zero capabilities, seccomp, blocked raw/CAN sockets and inaccessible
+  host control sockets/root. Installed binaries/resources remained read-only.
+  Cleanup stopped all fixture units and unmounted only the owned private tmpfs.
+  The final installed-image/original-backup/STOP/fence/host-SHM postcheck passed.
+- Tests: three fixture assertion tests passed locally and on 22.7; seven
+  isolation-policy tests passed on 22.7. Evidence and per-file return hashes:
+  `generated/production-20261014/board7-native-services-v1/`.
+- This covers simulated acquisition and transient-service recovery, not
+  canonical service admission, production configuration, physical device I/O,
+  visual binding of fixture indices to EMS screens, MQTT/compute/cluster
+  integration, long-duration stability, reboot or running upgrade/rollback.
+
+## First Runtime Bootstrap Gap
+
+- The existing production adoption path requires a verified historical active
+  baseline. It cannot legitimately adopt this whole-image reprovision's empty
+  runtime state. An explicit journaled first-runtime transition is still needed;
+  do not manufacture historical activation records or remove STOP manually.
+- That transition must bind the installed reprovision approval, reviewed role
+  profile, exact config/unit/image inventories and trust policy; create fresh
+  native SHM without touching retained host segments; and retain stopped-only
+  recovery through failures before a proved healthy production promotion.
+- An approved OTA verification public key and allowed HTTPS artifact origins
+  have been requested from the user. No temporary test key has been installed
+  as production trust. Missing trust is separate from the bootstrap code gap.
+
 Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
 native-startup candidate under its own stopped reprovision transaction. All
 canonical gateway/EMS business services remain stopped; the installed UI is
 not running outside bounded isolated tests.
-Controlled activation with fresh private SHM, actual startup/restart, runtime
+Controlled canonical activation with fresh SHM, runtime
 upgrade/rollback, reboot/power-loss, sustained operation, physical display/touch,
 multi-vehicle/HIL and >=95% visual acceptance remain open. Do not remove STOP or
 legacy guards to force startup. Incremental Qt validation binaries are not the
