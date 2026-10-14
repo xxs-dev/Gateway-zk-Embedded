@@ -235,7 +235,7 @@ def _files(root):
             continue
         relative = path.relative_to(root).as_posix()
         require(relative.split('/')[0] in ('apps', 'devices', 'logic', 'tls', 'network') or
-                relative in ('device_identity.json', 'qt-display.env'),
+                relative in ('device_identity.json', 'qt-display.env', 'edge-package-manifest.json'),
                 'unknown configuration location: ' + relative)
         pins[relative] = _hash(_regular(root, path))
     return dict(sorted(pins.items()))

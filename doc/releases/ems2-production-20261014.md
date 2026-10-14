@@ -553,7 +553,8 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
 
 - The existing production adoption path requires a verified historical active
   baseline. It cannot legitimately adopt this whole-image reprovision's empty
-  runtime state. An explicit journaled first-runtime transition is still needed;
+  runtime state. Stopped preparation is now implemented as described below;
+  an explicit journaled first-runtime activation transition is still needed;
   do not manufacture historical activation records or remove STOP manually.
 - That transition must bind the installed reprovision approval, reviewed role
   profile, exact config/unit/image inventories and trust policy; create fresh
@@ -610,6 +611,64 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   All 18 installed components, both retained images, STOP/fences and host SHM
   metadata remain unchanged; no gateway business process or probe unit remains.
   No AArch64 binary rebuild, package replacement or physical output occurred.
+
+## First Runtime Stopped Preparation
+
+- Added `pointctl create-empty --shm <new-name>` using native exclusive creation
+  before any config/default-store construction. Arguments and names are strict;
+  existing initialized, zero, partial, legacy, linked or directory objects are
+  refused without changing their contents or attaching them.
+- Added `runtime-bootstrap.py` with plan, prepare and stopped-only recovery.
+  It binds the stopped reprovision origin, installed/recovery images and units,
+  identity/package/network/TLS, installed signature trust, reviewed simulator
+  roles, helper/creator hashes, boot/expiry and retained SHM metadata. It only
+  stages config externally and creates fresh empty native v11 objects.
+- New approval, pointer and ready receipts use atomic no-replace publication;
+  progress checkpoints use atomic replacement. Recovery handles interruption
+  after durable approval but before initial progress only when no pointer or
+  native object exists. It retains partial/completed new stores and evidence,
+  never rewinds old stores and only removes matching owned bootstrap pointers.
+- `PREPARED_STOPPED` and `activation: not-authorized` are deliberate limits.
+  No production baseline is manufactured, no live config/unit changed and no
+  STOP fence removed. See `deploy/RUNTIME-BOOTSTRAP.md` for input/CLI/recovery
+  details. Full first-runtime activation and activation failure recovery remain
+  unimplemented; preparation is not end-to-end bootstrap completion.
+- The new pointctl was cross-built on 22.11 in an isolated checkout based on
+  `9318418` with exactly one reviewed dirty source, `tools/pointctl.cpp`, SHA256
+  `1ccdbec3f88d99fa40d1853fb78bcd4fd962bb90bb75e6d5e4755c3d8e8b3fe6`.
+  Returned AArch64 artifact SHA256:
+  `6cc35fc834fc6be46bc7bb2ba22fedb97fdb4909d1865959b2ea83e35d489d3d`.
+  It is a test artifact, not an installed component or a new factory package.
+- Final snapshot validation on 22.7: 25 preparation fixtures passed (one native
+  case skipped by ordinary discovery), 33 role-policy and 40 reprovision tests
+  passed. In a private mount/network/IPC namespace, all six native CLI tests
+  and the opt-in preparation/recovery test passed: 105 successful executions
+  overall. The integration uses the real creator and kernel mount/capacity
+  checks, but fixture service-manager, lock and mapping-discovery substitutions;
+  it is not a canonical CLI/service activation test.
+- Native integration first exposed strict-file rejection of `/proc/self`, then
+  an overmounted-path false rejection. Capacity now reads numeric-PID procfs and
+  selects the visible directory's mount ID. The regression also rejects a
+  visible non-tmpfs layer even if a hidden tmpfs has the same path. Failed v2/v3
+  evidence is retained. Interruption tests for this preparation helper inject
+  exceptions, not SIGKILL/power failure; reprovision's existing SIGKILL tests
+  must not be counted as preparation crash qualification.
+- Separate known reboot gap: `ProductionRuntime.prepare_boot` still reads
+  `/proc/self/mountinfo` through strict `regular()` and uses a path-count mount
+  check. It needs a dedicated fix and real-kernel regression before reboot
+  qualification. This preparation-only change does not fix that shared path.
+- Evidence: `generated/production-20261014/board7-bootstrap-fixtures-v4/` and
+  `bootstrap-pointctl-artifacts/`. Final before/after stopped-image proofs both
+  retain SHA256
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`.
+  All 18 installed components, previous/original images, loaded STOP/fences and
+  host SHM metadata are unchanged; no business process remains. The private
+  tmpfs was unmounted. 22.6 was untouched; no physical output occurred.
+- Approved production OTA public key/origins remain outstanding. No fixture
+  trust was installed. New package construction/stopped deployment is required
+  before this creator or the earlier monitor-binding admission fix can be used
+  against the real installed image. Screen/touch and visual acceptance remain
+  deferred because 22.7 has no connected display.
 
 Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
 native-startup candidate under its own stopped reprovision transaction. All

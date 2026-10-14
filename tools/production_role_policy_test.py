@@ -107,6 +107,16 @@ class ProductionRolePolicyTest(unittest.TestCase):
             policy.resolve(self.root, private, self.authority(), self.trust,
                            simulator_bindings=self.bindings)
 
+    def test_factory_manifest_is_pinned_metadata_not_a_service_config(self):
+        before = self.resolve()
+        self.write('edge-package-manifest.json', {'components': [], 'mqtt': {'enabled': True},
+                                                  'deviceConfigFiles': ['/unreviewed/device.json']})
+        after = self.resolve()
+        self.assertEqual(after['roles'], before['roles'])
+        self.assertEqual(set(after['configSha256']) - set(before['configSha256']), {'edge-package-manifest.json'})
+        self.assertEqual(after['configSha256']['edge-package-manifest.json'],
+                         hashlib.sha256((self.root / 'edge-package-manifest.json').read_bytes()).hexdigest())
+
     def test_entire_catalog_matches_real_unit_templates(self):
         for family in policy.CATALOG:
             with self.subTest(family=family):

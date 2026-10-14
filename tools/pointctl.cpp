@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,6 +27,7 @@ void printUsage() {
         << "  pointctl get --index <index> [--shm <name>|--app-config <path>]\n"
         << "  pointctl dump [--limit <n>] [--owners] [--shm <name>|--app-config <path>]\n"
         << "  pointctl stats [--shm <name>|--app-config <path>]\n"
+        << "  pointctl create-empty --shm <new-name>\n"
         << "  pointctl pending [--limit <n>] [--shm <name>]\n"
         << "  pointctl pending-peek [--limit <n>] [--shm <name>|--app-config <path>]\n";
 }
@@ -132,6 +134,15 @@ int main(int argc, char* argv[]) {
     const auto appConfigPath = getOption(args, "--app-config");
 
     try {
+        if (command == "create-empty") {
+            if (args.size() != 3 || args[1] != "--shm" || args[2].empty() || args[2].size() > 127 ||
+                args[2].find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos) {
+                throw std::runtime_error("create-empty requires exactly --shm <new-name>");
+            }
+            MemoryPointStore fresh(args[2], MemoryStoreOpenMode::CreateExclusive);
+            printStats(fresh.getStats());
+            return 0;
+        }
         if (!appConfigPath.empty()) {
             auto context = createRouterContext(appConfigPath);
 
