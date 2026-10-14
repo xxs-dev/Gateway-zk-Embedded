@@ -414,7 +414,7 @@ from permission to use the boards as test devices.
   the old launcher still has its historical SHA256
   `9c0bf58d8002f76407b1a40bbf26a8957e63dc5bfc2df2fe13f9eb04332d5f52`.
 - Evidence and package: `generated/production-20261014/artifacts-3e0c45b/`.
-  This is a built candidate, not a replaced or activated installation on 22.7.
+  These build checks alone do not establish replacement or activation on 22.7.
 - Matching AArch64 Qt access and Lanhu tests passed on 22.7 in a zero-capability,
   private-network/IPC/device transient service. Eleven synthetic screenshots and
   the isolation proof were returned and hash-verified in
@@ -436,9 +436,89 @@ from permission to use the boards as test devices.
   the expanded package fixture exceeded its old timeout. Retained logs identify
   each failure. Final installer backing uses a dedicated root-owned 0755 path
   under `/srv`; no global directory permissions or protection checks were changed.
+- The complete updated `production_*test.py` suite passed all 193 tests on 22.7
+  in 726.895 seconds. The test-harness correction is committed as
+  `8daf8b5629f6bec3a29591700130a9e5ae1136b7`; product binaries remain from
+  `3e0c45b`. Full output is retained in
+  `generated/production-20261014/board7-native-startup-regressions-v2/production-all.log`.
+- The read-only postcheck passed after those regressions: installed and retained
+  original trees are unchanged, STOP and manager-loaded fences remain, no
+  gateway runtime process or active smoke unit remains, and host SHM metadata
+  matches the before-reprovision inventory. Evidence: `postcheck.json` in the
+  same directory, SHA256
+  `ab49377fb1ed879dbd36d16807ad1032559802f11356427b42426d6599e3b360`.
 
-Status: in progress, not production-ready. 22.7 has the new candidate installed
-but all gateway/EMS business services remain stopped; its new UI is not running.
+## Native Candidate Private Install And Process Restart
+
+- The exact `3e0c45b` package passed the real production installer and EMS 2.0
+  project installer in a private `/opt/modbus-gateway` bind mount on 22.7.
+  All 18 installed hashes and dynamic-library dependencies matched. Manifest
+  `qtDataSource`, staged native unit, historical launcher hash and the installed
+  `2.0.14-lanhu` project were verified.
+- The unchanged native launcher passed preflight, then ran with SystemMonitor
+  against read-only program/configuration/resources and private writable data,
+  run and tmpfs SHM. Two 20-observation UI runs passed, with a graceful UI stop
+  and process restart between them. Monitor and both UI processes exited zero;
+  the image stayed byte-identical and no legacy SysV segment appeared.
+- Both installer and runtime proved private network, IPC, PID and procfs scope;
+  private devices; zero capabilities; seccomp; and blocked CAN, packet and raw
+  sockets. No physical interface or host service-manager socket was accessible.
+- Observed RSS: monitor 124012-125892 KiB, first UI 65544-118296 KiB, restarted
+  UI 66392-118884 KiB. These short startup windows are not a steady-state memory
+  bound, leak test, page-switch benchmark or sustained-operation acceptance.
+- The two earlier fixture attempts were correctly rejected: the private home
+  had mode 0700 instead of the required 0755, then zero-capability installer
+  processes could not inspect host procfs. Only the private fixture permissions
+  and namespace setup changed. Product guards and host directory modes did not.
+- Evidence: `generated/production-20261014/board7-native-package-3e0c45b-v3/`.
+  Twelve remote files were returned with SHA256 verification; source pins and
+  the final stopped-image postcheck are retained alongside them. Failed v1/v2
+  evidence is preserved. This is an isolated installation and process-restart
+  pass, not canonical service activation, acquisition or a running upgrade.
+
+## Native Candidate Stopped Deployment
+
+- Both original backup archives were SHA256-verified again locally and on 22.7
+  before replacement. The unchanged paired `d71730e` maintenance helpers were
+  verified against their previously approved hashes. Device identity bytes and
+  mode were preserved; the candidate contained no saved runtime work.
+- Transaction `ems2-native-3e0c45b-trial-20261014` installed the exact native
+  image and 20 service files, then restored the previous `e977b80` installation.
+  Approval SHA256:
+  `be6460bac787363b8a2be4e3176fb97976702b38713257871767d80a177d4dcd`.
+  Both installed and recovered states passed complete image/unit verification,
+  stopped-service/fence checks and unchanged host SHM metadata checks.
+- Transaction `ems2-native-3e0c45b-final-20261014` installed the same candidate
+  again and remains **INSTALLED_STOPPED**. Its plan differed from the trial only
+  in transaction ID and expiry. Approval SHA256:
+  `ef86e13a04e8624e5cc361a31d257fd09782c0a3a02b7174d15fedabcbde1126`.
+- Final verification passed for all 18 installed component hashes, native Qt
+  manifest/unit selection, native launcher dependency preflight, historical
+  launcher hash, both retained previous images, loaded STOP fences and absence
+  of business processes or active temporary test services. No SHM was restored,
+  deleted or rewound. No service was enabled or started by these transactions.
+- The immediate previous `e977b80` image is retained in the new transaction's
+  `previous-home`. The original pre-maintenance image remains in
+  `ems2-d71730e-final-20261014/previous-home`; its inventory is unchanged.
+  Keep both transaction directories and the paired helper bundle.
+- Evidence: `generated/production-20261014/board7-native-reprovision-3e0c45b/`.
+  Final postcheck SHA256:
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`.
+  22.6's installed programs and configuration were not modified in this stage.
+
+Stopped-only recovery to the immediately previous `e977b80` image uses the
+retained paired helper, not an arbitrarily newer script:
+
+```sh
+python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-tools/deploy/gateway-reprovision.py recover \
+  --transaction ems2-native-3e0c45b-final-20261014 \
+  --approval-sha256 ef86e13a04e8624e5cc361a31d257fd09782c0a3a02b7174d15fedabcbde1126
+```
+
+Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
+native-startup candidate under its own stopped reprovision transaction. All
+canonical gateway/EMS business services remain stopped; the installed UI is
+not running outside bounded isolated tests.
 Controlled activation with fresh private SHM, actual startup/restart, runtime
 upgrade/rollback, reboot/power-loss, sustained operation, physical display/touch,
 multi-vehicle/HIL and >=95% visual acceptance remain open. Do not remove STOP or
