@@ -14,7 +14,7 @@ SOURCE = Path(__file__).resolve().parents[1] / 'deploy/offline-runtime-upgrade.p
 class BootHealthPublicationTest(unittest.TestCase):
     def test_published_attempt_survives_sync_error_retry_proves_new_pid(self):
         names = {'production_boot_begin_start', 'production_boot_start_current', 'production_boot_record_health',
-                 'production_boot_repair_gates', 'production_inhibit'}
+                 'production_boot_repair_gates', 'production_inhibit', 'production_start_units'}
         tree = ast.parse(SOURCE.read_bytes())
         functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
         self.assertEqual(len(functions), len(names))
@@ -25,7 +25,7 @@ class BootHealthPublicationTest(unittest.TestCase):
             gate.write_bytes(b'approved owned gate')
             work = dict(format='runtime-boot-resume-v1', bootId='BOOT', transaction='TX', phase='PREPARED')
             work_path.write_text(json.dumps(work))
-            baseline = dict(units=['gateway-services.service'], allowedUnits=['gateway-services.service'],
+            baseline = dict(format='runtime-baseline-v1', units=['gateway-services.service'], allowedUnits=['gateway-services.service'],
                             segments=[], retiredSources={}, gates={'gateway-services.service': str(gate)},
                             unitFiles={str(gate): dict(sha256=hashlib.sha256(gate.read_bytes()).hexdigest(), mode=0o644, bytes=gate.stat().st_size)})
             running, pid, fail_sync = [False], [100], [True]

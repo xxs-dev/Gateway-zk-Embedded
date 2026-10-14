@@ -570,6 +570,15 @@ class ProductionRuntimeTest(unittest.TestCase):
 
         self.approval['transaction'] = 'V2_RETRY'
         retry = self.args()
+        old_record = self.runtime.root / 'baselines' / (self.approval['candidate']['baselineId'] + '.json')
+        old_record_bytes = old_record.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'candidate baseline ID already occupied'):
+            with self.m.production_lock():
+                self.m.production_install(retry)
+        self.assertFalse((self.runtime.root / 'transactions/V2_RETRY').exists())
+        self.assertEqual(self.g.production_context(self.home), previous)
+        self.approval['candidate']['baselineId'] = 'V2_RETRY'
+        retry = self.args()
         original_promote = self.m.ProductionRuntime.promote
         original_publish = self.m.publish_new
         in_promote = False
@@ -596,6 +605,7 @@ class ProductionRuntimeTest(unittest.TestCase):
             with self.m.production_lock():
                 self.m.production_install(retry)
         self.assertTrue(published)
+        self.assertEqual(old_record.read_bytes(), old_record_bytes)
         self.assertEqual(self.g.production_context(self.home), self.approval['candidate'])
 
     def test_v2_health_refuses_missing_required_role_mapping(self):

@@ -37,6 +37,7 @@ PRODUCTION_TARGETS=(
   QtDisplayBridge
   CameraService
   pointctl
+  memory_point_store_migrate
   stress_runner
 )
 

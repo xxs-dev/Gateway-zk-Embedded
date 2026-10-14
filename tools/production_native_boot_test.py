@@ -329,13 +329,24 @@ class NativeBootTest(unittest.TestCase):
         candidate_sha = f.m.digest(f.runtime.root / 'transactions/V2_CONFIG/candidate.json')
         old_receipt = f.runtime.root / 'boot-lineage' / (candidate_sha + '-V2_CONFIG.json')
         old_bytes = old_receipt.read_bytes()
+        old_record = f.runtime.root / 'baselines' / (f.approval['candidate']['baselineId'] + '.json')
+        old_record_bytes = old_record.read_bytes()
         f.approval['transaction'] = 'V2_CONFIG_RETRY'
+        retry = f.args()
+        with self.assertRaisesRegex(ValueError, 'candidate baseline ID already occupied'):
+            with f.m.production_lock():
+                f.m.production_install(retry)
+        self.assertFalse((f.runtime.root / 'transactions/V2_CONFIG_RETRY').exists())
+        self.assertEqual(f.g.production_context(f.home), self.config_previous)
+        f.approval['candidate']['baselineId'] = 'V2_CONFIG_RETRY'
         retry = f.args()
         with f.m.production_lock():
             f.m.production_install(retry)
+        candidate_sha = f.m.digest(f.runtime.root / 'transactions/V2_CONFIG_RETRY/candidate.json')
         new_receipt = f.runtime.root / 'boot-lineage' / (candidate_sha + '-V2_CONFIG_RETRY.json')
         self.assertTrue(new_receipt.is_file())
         self.assertEqual(old_receipt.read_bytes(), old_bytes)
+        self.assertEqual(old_record.read_bytes(), old_record_bytes)
         self.assertEqual(f.g.production_context(f.home), f.approval['candidate'])
 
     def assert_pointer_window(self, after_replace):
