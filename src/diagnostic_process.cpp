@@ -22,13 +22,13 @@
 #include <time.h>
 #include <unistd.h>
 
-// The fixed AArch64 sysroot predates pidfd headers; syscall numbers are part
-// of the AArch64 Linux ABI. Runtime ENOSYS/EPERM still fails before exec.
+// Older AArch64 and x86-64 headers predate pidfd. These syscall numbers are
+// shared by the two native Linux ABIs; runtime ENOSYS/EPERM still fails before exec.
 #if defined(EDGE_DIAGNOSTIC_PROCESS_TEST_HOOKS) && defined(EDGE_DIAG_SIMULATE_OLD_AARCH64_HEADERS)
 #undef SYS_pidfd_send_signal
 #undef SYS_pidfd_open
 #endif
-#if defined(__aarch64__)
+#if defined(__aarch64__) || (defined(__x86_64__) && !defined(__ILP32__))
 #ifndef SYS_pidfd_send_signal
 #define SYS_pidfd_send_signal 424
 #endif

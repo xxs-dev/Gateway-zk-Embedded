@@ -62,12 +62,18 @@ void seedRuntimeHandoffQueries(edge_gateway::OtaConfig& config, const std::strin
         if (i == 20) continue;
         writeFixtureFile(config.stagingDir + "/ota_handoff_" + job + ".json",
             "{\"format\":\"ota-handoff-v1\",\"jobId\":\"" + job + "\",\"version\":\"2.0\",\"token\":\"" + token +
+            "\",\"intentSha256\":\"" + edge_gateway::ota_query_detail::sha256Hex(
+                readFile(config.stagingDir + "/ota_job_" + job + ".json")) +
             "\",\"phase\":\"CANCELLED\",\"runtimeMayChange\":false,\"cancelProof\":{\"noWriter\":true,\"mainPid\":\"0\","
             "\"job\":\"\",\"unit\":\"ota-runtime-" + job + "-" + token + ".service\"}}\n");
         writeFixtureFile(config.stagingDir + "/health_" + job + ".txt",
             "{\"format\":\"ota-health-v1\",\"jobId\":\"" + job + "\",\"version\":\"2.0\",\"token\":\"" + token +
             "\",\"status\":\"failed\",\"rollback\":\"unchanged\",\"ts\":\"1000\"}\n");
         writeFixtureFile(config.stagingDir + "/ota_final_" + job + ".txt", "jobId=" + job + "\ntoken=" + token + "\nstatus=failed\n");
+        writeFixtureFile(config.stagingDir + "/ota_reconcile_" + job + ".json",
+            "{\"format\":\"ota-reconcile-v1\",\"reason\":\"ota-terminal-outbox-v1\",\"jobId\":\"" + job +
+            "\",\"token\":\"" + token + "\",\"version\":\"2.0\",\"finalState\":\"committed\","
+            "\"phase\":\"terminal-journal\",\"evidence\":\"verified-health\",\"ts\":\"1000\"}\n");
     }
     writeFixtureFile(config.stagingDir + "/ota_active_job.txt", "jobId=PENDING\ntoken=00000000-0000-4000-8000-000000000002\n");
 }
@@ -290,7 +296,8 @@ void verifyRuntimeHandoffAvailability() {
         for (int i = 0; i < 3; ++i) {
             const auto reply = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
                 direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
-            require(reply.find("HTTP/1.1 200") == 0 && reply.find("CLOSED_19") != std::string::npos,
+            require(reply.find("HTTP/1.1 200") == 0 && reply.find("\"count\":20") != std::string::npos &&
+                reply.find("CLOSED_19") != std::string::npos && reply.find("PENDING") == std::string::npos,
                 "Direct query must preserve durable historical finals");
         }
         require(std::chrono::steady_clock::now() - started < std::chrono::seconds(1),

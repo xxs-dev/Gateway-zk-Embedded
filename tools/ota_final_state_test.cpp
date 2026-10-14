@@ -3,6 +3,7 @@
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/ota_request_json.hpp"
+#include "../src/ota_query_sha256.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 
 #include <fstream>

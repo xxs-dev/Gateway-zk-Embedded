@@ -61,7 +61,7 @@
       "listenHost": "__MONITOR_HOST__",
       "listenHosts": ["__MONITOR_HOST__"],
       "listenPort": __MONITOR_PORT__,
-      "allowedClientCidrs": [],
+      "allowedClientCidrs": ["127.0.0.1/32"],
       "identityConfigFile": "__TEST_LAB_ROOT__/config/device_identity.json",
       "appConfigFile": "__TEST_LAB_ROOT__/config/apps/monitor-service.json",
       "otaAppConfigFile": "__TEST_LAB_ROOT__/config/apps/monitor-service.json",
