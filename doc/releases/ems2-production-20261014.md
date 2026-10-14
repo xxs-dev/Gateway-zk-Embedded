@@ -277,5 +277,32 @@ from permission to use the boards as test devices.
   existing same-inventory upgrade commands with incompatible inventory is not a
   substitute. The user's full-replacement authorization is already recorded.
 
+## Stopped-Only Reprovision Implementation
+
+- Added a separate whole-image `plan` / `apply` / `recover` helper. It pins the
+  helper set, candidate, original immutable files, unit inventory and unchanged
+  device identity; keeps the original directory and recovery history; and never
+  starts a service or touches SHM. Operational limits are in
+  `gateway-reprovision.md`.
+- 40/40 tests passed on 22.7 (28.684 seconds), including nine child-process
+  SIGKILL boundaries across both replacement and recovery. The test that checks
+  the stop condition now rejects any empty `Condition...=` reset, not only
+  `ConditionPathExists=`.
+- The real-CLI sandbox initially exposed EXDEV across different bind mounts on
+  the same filesystem. Preflight now requires matching kernel mount IDs, and the
+  CLI test verifies this rejection occurs before STOP/pending publication.
+- The unmodified CLI passed inside private chroot/mount/network/PID/IPC
+  namespaces: wrong SHA rejection, separate-bind-mount rejection, whole-image
+  replacement, repeated restoration and recovery after injected stop failure.
+  This fixture uses a fake manager; no business executable is started.
+- A separate real-systemd fixture passed template/instance fence inheritance and
+  daemon-reload checks using unique runtime-only services that only touch a test
+  marker. All fixture units were stopped and removed. Its initial post-success
+  check observed an already-collected oneshot; `RemainAfterExit=yes` now retains
+  the unit for that assertion. No production service was altered by the fixture.
+- Logs: `reprovision-tests.log`, `reprovision-cli.log`, `reprovision-fence.log`
+  under `generated/production-20261014/`. These are not power-loss, reboot,
+  business activation or sustained-run acceptance.
+
 Status: in progress, not production-ready. No installed device program has yet
 been replaced. Incremental Qt validation binaries are not the final release artifact.
