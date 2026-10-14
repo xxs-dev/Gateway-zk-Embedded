@@ -66,6 +66,7 @@
       "appConfigFile": "__TEST_LAB_ROOT__/config/apps/monitor-service.json",
       "otaAppConfigFile": "__TEST_LAB_ROOT__/config/apps/monitor-service.json",
       "authStateFile": "__TEST_LAB_ROOT__/run/direct-maintenance-state.json",
+      "credentialFile": "__TEST_LAB_ROOT__/run/direct-maintenance-credential.json",
       "otaStatusFile": "__TEST_LAB_ROOT__/run/ota-status.jsonl",
       "includeKyEmsSnapshot": false,
       "maxRealtimePoints": 5000

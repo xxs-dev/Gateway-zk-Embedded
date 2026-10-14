@@ -187,8 +187,18 @@ void verifySuccessfulFinalization(const std::string& mode) {
             require(countStage(restarted.loadFinalStatuses(), request.jobId, "completed") == 1 &&
                 restarted.validateRequest(next, &rejection), "trusted healthy recovery must survive a transient finalization fault");
             const auto repaired = edge_gateway::json::JsonParser(readFile(config.stagingDir + "/ota_reconcile_FINAL_JOB.json")).parse();
-            require(repaired.find("finalState")->asString() == "committed" && readFile(root + "/calls") == "apply\n",
-                "healthy recovery must update audit without reapply or rollback");
+            require(repaired.find("finalState")->asString() == "delivery-pending" &&
+                repaired.find("reason")->asString() == "ota-terminal-outbox-v1" &&
+                countStage(restarted.loadPendingStatuses(), request.jobId, "completed") == 1 &&
+                readFile(root + "/calls") == "apply\n",
+                "healthy recovery must retain terminal delivery without reapply or rollback");
+            restarted.clearPendingStatuses();
+            const auto acknowledged = edge_gateway::json::JsonParser(
+                readFile(config.stagingDir + "/ota_reconcile_FINAL_JOB.json")).parse();
+            require(acknowledged.find("finalState")->asString() == "committed" &&
+                restarted.loadPendingStatuses().empty() &&
+                countStage(restarted.loadFinalStatuses(), request.jobId, "completed") == 1,
+                "delivery acknowledgement must commit the outbox without erasing the final");
             std::cout << "finalization " << mode << ": recovered via matched health only\n";
         } else if (!committed && mode != "audit" && mode != "intent" && mode != "identity" && mode != "active") {
             const bool syncTail = mode == "final" || mode == "directory-sync" ||
@@ -352,14 +362,17 @@ void verifySynchronousRecoveryEvidence() {
             if (allowed) {
                 require(readFile(path("applied_version.txt")) == "2.0.0\n" &&
                     readFile(path("current_version.txt")).find("2.0.0") != std::string::npos &&
-                    readFile(path("ota_reconcile_FINAL_JOB.json")).find("\"finalState\":\"committed\"") != std::string::npos,
-                    "sync recovery must finish metadata and audit");
+                    readFile(path("ota_reconcile_FINAL_JOB.json")).find("\"finalState\":\"delivery-pending\"") != std::string::npos,
+                    "sync recovery must finish metadata and retain pending terminal delivery");
                 const auto history = readFile(path("upgrade_history.log"));
                 require(history.find("result=success") != std::string::npos &&
                     history.find("result=success", history.find("result=success") + 1) == std::string::npos,
                     "repeated recovery must not duplicate success history");
-                require(countStage(service.loadPendingStatuses(), "FINAL_JOB", "completed") ==
-                    (mode == "retry-journal" ? 0 : 1), "reconciliation retains bounded journal contract");
+                require(countStage(service.loadPendingStatuses(), "FINAL_JOB", "completed") == 1,
+                    "reconciliation must retry failed journal delivery exactly once");
+                service.clearPendingStatuses();
+                require(readFile(path("ota_reconcile_FINAL_JOB.json")).find("\"finalState\":\"committed\"") != std::string::npos &&
+                    service.loadPendingStatuses().empty(), "delivery acknowledgement must finish the outbox");
                 require(readFile(path("health_FINAL_JOB.txt")).empty(), "sync recovery cannot invent health");
             } else {
                 require(readFile(path("ota_reconcile_FINAL_JOB.json")) == audit && readFile(finalPath) == originalFinal &&

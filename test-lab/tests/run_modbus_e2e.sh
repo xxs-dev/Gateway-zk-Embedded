@@ -48,6 +48,9 @@ run_lab() {
 }
 
 run_lab start normal --port "$SIM_PORT" --monitor-host 127.0.0.1 --monitor-port "$MONITOR_PORT" >/dev/null
+printf '%s\n' 'gateway-e2e-only-2026' | "$BUILD_DIR/SystemMonitor" \
+    --app-config "$ROOT/config/apps/monitor-service.json" --set-maintenance-password >/dev/null
+PASSWORD_SHA256=$(printf '%s' 'gateway-e2e-only-2026' | sha256sum | cut -d ' ' -f 1)
 sleep 2
 curl --noproxy '*' --max-time 5 -fsS "http://127.0.0.1:$MONITOR_PORT/api/v1/health" | grep -q '"success":true'
 curl --noproxy '*' --max-time 5 -fsS "http://127.0.0.1:$MONITOR_PORT/api/v1/realtime/points" > "$ROOT/realtime-before.json"
@@ -56,7 +59,7 @@ grep -q 'SIM_MODBUS_02' "$ROOT/realtime-before.json"
 grep -q 'SIM_MODBUS_03' "$ROOT/realtime-before.json"
 curl --noproxy '*' --max-time 5 -fsS \
     -H 'Content-Type: application/json' \
-    -d '{"machineCode":"SIM_COMM202600999","passwordSha256":"5c2358ee05dbd6bc6d52939f51a45c315533ad9191eecf1631fd788ec8ab76b3"}' \
+    -d "{\"machineCode\":\"SIM_COMM202600999\",\"passwordSha256\":\"$PASSWORD_SHA256\"}" \
     "http://127.0.0.1:$MONITOR_PORT/api/v1/config/snapshot" > "$ROOT/config-snapshot.json"
 grep -q '"success":true' "$ROOT/config-snapshot.json"
 grep -q 'device_modbus_tcp.json' "$ROOT/config-snapshot.json"

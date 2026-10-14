@@ -248,24 +248,29 @@ void verifyDirectOtaReplayIsolation(const std::string& fault) {
         try { reply = get(); } catch (...) { escaped = true; }
         std::cout << "Direct OTA " << fault << ": escaped=" << escaped << '\n';
         require(!escaped && reply.find("HTTP/1.1 200") == 0, "Direct OTA I/O fault must preserve readable existing status response");
-        require(reply.find("\"reconciliationFailed\":true") != std::string::npos &&
+        const auto degraded = fault == "config" ? "true" : "false";
+        require(reply.find(std::string("\"reconciliationFailed\":") + degraded) != std::string::npos &&
             reply.find("\"stage\":\"applying\"") != std::string::npos && reply.find("\"stage\":\"failed\"") == std::string::npos,
-            "Direct degradation must be top-level diagnostic, not synthesized task failure");
+            "read-only Direct query must ignore mutation locks and never synthesize task failure");
         require(reply.find("secret-credential") == std::string::npos && reply.find(root) == std::string::npos,
             "Direct degraded response must not expose original exception or credentials");
-        if (fault == "metadata") require(reply.find("\"jobId\":\"OLD\"") != std::string::npos,
-            "failed reconciliation must not prevent reading other trusted finals");
+        if (fault != "config") require(reply.find("\"jobId\":\"OLD\"") != std::string::npos,
+            "mutation faults must not prevent reading other trusted finals");
         require(readFile(direct.otaStatusFile) == status && readFile(config.stagingDir + "/ota_final_RECOVER.txt").empty(),
             "Direct failure must not append status or fabricate completed");
         if (fault == "state") require(rmdir((config.stagingDir + "/ota_state.lock").c_str()) == 0, "cannot clear Direct lock fault");
         writeFixtureFile(direct.otaAppConfigFile, app);
         require(rmdir((config.stagingDir + "/current_version.txt").c_str()) == 0, "cannot clear Direct version fault");
+        require(get().find("\"stage\":\"applying\"") != std::string::npos &&
+            readFile(config.stagingDir + "/ota_final_RECOVER.txt").empty(),
+            "clearing faults cannot turn a GET into recovery execution");
+        edge_gateway::OtaService(config).reconcilePendingJobs();
         const auto recovered = get();
         require(recovered.find("\"reconciliationFailed\":false") != std::string::npos &&
             recovered.find("\"stage\":\"applying\"") == std::string::npos &&
             countStage(edge_gateway::OtaService(config).loadFinalStatuses(), "RECOVER", "completed") == 1,
-            "Direct existing healthy recovery must resume after fixture fault clears");
-        std::cout << "Direct OTA " << fault << ": existing items/finals retained, explicit degradation, recovered\n";
+            "Direct must expose a final only after the owner reconciles matched health");
+        std::cout << "Direct OTA " << fault << ": read-only queries, historical finals retained, explicit owner recovery\n";
     } catch (...) { removeEventStoreTestTree(root); throw; }
     removeEventStoreTestTree(root);
 }

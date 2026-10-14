@@ -24,12 +24,16 @@ import zipfile
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    if isinstance(text, bytes):
+        path.write_bytes(text)
+    else:
+        path.write_text(text, encoding="utf-8")
 
 
 class InstallIsolationTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="gateway-install-test-", dir="/var/tmp"))
+        self.root.chmod(0o755)
         self.addCleanup(shutil.rmtree, self.root)
         # These directories are private tmpfs mounts, never the host directories.
         for directory in PROTECTED:
@@ -2913,11 +2917,20 @@ exec /bin/cp "$@"
                     self.assertEqual(0, result.returncode, result.stdout)
 
     def test_service_stop_failure_does_not_start_or_touch_shm(self):
-        result = self.run_script("gateway-services.sh", ["apply"],
-                                 {"GATEWAY_HOME": str(self.root / "gateway"), "FAIL_SYSTEMCTL_ACTION": "stop"})
-        self.assertNotEqual(0, result.returncode)
-        self.assertNotIn("start ", self.log.read_text())
-        self.assertEqual(b"keep-shm\n", Path("/dev/shm/gateway_point_store_fixture").read_bytes())
+        home = self.root / "gateway"
+        write(home / "config/runtime/apps/monitor-service.json",
+              '{"localDisplay":{"enabled":true,"renderer":"nativeQt"}}\n')
+        for action in ("list-units", "list-unit-files", "stop"):
+            with self.subTest(action=action):
+                write(self.log, "")
+                result = self.run_script("gateway-services.sh", ["apply"],
+                                         {"GATEWAY_HOME": str(home), "FAIL_SYSTEMCTL_ACTION": action})
+                self.assertNotEqual(0, result.returncode)
+                self.assertNotIn("start ", self.log.read_text())
+                self.assertNotIn("disable ", self.log.read_text())
+                self.assertNotIn("reset-failed ", self.log.read_text())
+                self.assertTrue(Path("/run/gateway-health-watchdog/manual-stop").is_file())
+                self.assertEqual(b"keep-shm\n", Path("/dev/shm/gateway_point_store_fixture").read_bytes())
 
     def test_factory_isolated_preflight_failure(self):
         env = self.factory()

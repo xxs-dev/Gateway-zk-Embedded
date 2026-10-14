@@ -68,9 +68,7 @@ stop_units() {
   fi
   # Cellular and route-failover services do not map the point store. Keep them
   # running so an OTA/runtime restart cannot tear down the maintenance path.
-  units=$(
-    {
-      systemctl list-units --all --plain --no-legend \
+  set -- \
         'modbus-rtu@*.service' \
         'dlt645-driver@*.service' \
         'dio-driver@*.service' \
@@ -89,35 +87,15 @@ stop_units() {
         'camera-service@*.service' \
         'mqtt-tls-tunnel@*.service' \
         'mqtt-driver@*.service' \
-        'mqtt-forwarder@*.service' 2>/dev/null |
-        awk '{print $1}'
-      systemctl list-unit-files --plain --no-legend \
-        'modbus-rtu@*.service' \
-        'dlt645-driver@*.service' \
-        'dio-driver@*.service' \
-        'can-driver@*.service' \
-        'iec-driver@*.service' \
-        'compute-engine@*.service' \
-        'agc-avc@*.service' \
-        'ems-cluster@*.service' \
-        'event-engine@*.service' \
-        'local-display@*.service' \
-        'local-display-qt@*.service' \
-        'qt-display-bridge.service' \
-        'local-kiosk@*.service' \
-        'ky-ems.service' \
-        'system-monitor@*.service' \
-        'camera-service@*.service' \
-        'mqtt-tls-tunnel@*.service' \
-        'mqtt-driver@*.service' \
-        'mqtt-forwarder@*.service' 2>/dev/null |
-        awk '{print $1}'
-    } | awk '(($0 == "ky-ems.service" || $0 == "qt-display-bridge.service") || ($0 !~ /@\.service$/ && $0 ~ /@.*\.service$/)) && !seen[$0]++'
-  )
+        'mqtt-forwarder@*.service'
+  active_units=$(systemctl list-units --all --plain --no-legend "$@") || return $?
+  installed_units=$(systemctl list-unit-files --plain --no-legend "$@") || return $?
+  units=$(printf '%s\n' "$active_units" "$installed_units" |
+    awk '(($1 == "ky-ems.service" || $1 == "qt-display-bridge.service") || ($1 !~ /@\.service$/ && $1 ~ /@.*\.service$/)) && !seen[$1]++ {print $1}')
   [ -z "$units" ] && return 0
   # Stop all instances together so OTA/config switching is bounded by the slowest
   # driver, not by the sum of every serial port timeout.
-  systemctl stop $units
+  systemctl stop $units || return $?
   if [ -e "$BASE_DIR/data/runtime-upgrade-stop" ] || [ -L "$BASE_DIR/data/runtime-upgrade-stop" ]; then
     return 0
   fi
@@ -601,9 +579,13 @@ run_with_apply_marker() {
         reset_point_store_segments
         start_units || apply_result=$?
       else
-        stop_units || { echo "[gateway-services] stopping previous units failed" >&2; apply_result=1; }
-        reset_point_store_segments
-        start_units || apply_result=$?
+        if stop_units; then
+          reset_point_store_segments
+          start_units || apply_result=$?
+        else
+          echo "[gateway-services] stopping previous units failed" >&2
+          apply_result=1
+        fi
       fi
       ;;
     start)

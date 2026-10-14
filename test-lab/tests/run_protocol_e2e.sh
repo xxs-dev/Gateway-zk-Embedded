@@ -129,9 +129,12 @@ run_lab start normal --protocol can --host 127.0.0.1 \
     --can-driver-udp-port 29011 --can-simulator-udp-port 29012 \
     --monitor-host 127.0.0.1 --monitor-port "$MONITOR_PORT" >/dev/null
 check_points SIM_CAN_SPEED
+printf '%s\n' 'gateway-e2e-only-2026' | "$BUILD_DIR/SystemMonitor" \
+    --app-config "$ROOT/config/apps/monitor-service.json" --set-maintenance-password >/dev/null
+PASSWORD_SHA256=$(printf '%s' 'gateway-e2e-only-2026' | sha256sum | cut -d ' ' -f 1)
 curl --noproxy '*' --max-time 5 -fsS \
     -H 'Content-Type: application/json' \
-    -d '{"machineCode":"SIM_COMM202600999","passwordSha256":"5c2358ee05dbd6bc6d52939f51a45c315533ad9191eecf1631fd788ec8ab76b3","requestId":"CAN_E2E_WRITE","commands":[{"cmdId":"CAN_E2E_RELAY","meterCode":"SIM_CAN_01","pointCode":"SIM_CAN_RELAY","index":990004,"value":1,"source":"test-lab-e2e"}]}' \
+    -d "{\"machineCode\":\"SIM_COMM202600999\",\"passwordSha256\":\"$PASSWORD_SHA256\",\"requestId\":\"CAN_E2E_WRITE\",\"commands\":[{\"cmdId\":\"CAN_E2E_RELAY\",\"meterCode\":\"SIM_CAN_01\",\"pointCode\":\"SIM_CAN_RELAY\",\"index\":990004,\"value\":1,\"source\":\"test-lab-e2e\"}]}" \
     "http://127.0.0.1:$MONITOR_PORT/api/v1/control/batch" > "$ROOT/can-write.json"
 grep -q '"success":true' "$ROOT/can-write.json"
 attempt=0
