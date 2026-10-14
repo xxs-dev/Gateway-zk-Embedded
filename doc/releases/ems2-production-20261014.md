@@ -856,12 +856,72 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`:
   installed components, original/previous images, loaded STOP/fences and host
   SHM metadata are unchanged, with no remaining business process. The new
-  factory candidate has not replaced the installed `3e0c45b` image. 22.6 was
+  factory candidate had not yet replaced the installed `3e0c45b` image at this
+  CLI/Qt verification stage. 22.6 was
   untouched and no physical-control output occurred. Approved production OTA
   trust remains outstanding.
 
-Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
-native-startup candidate under its own stopped reprovision transaction. All
+## Stopped Bootstrap Deployment
+
+- Revalidated the real 22.7 `3e0c45b` installation before maintenance. Its
+  directory tree, predecessor/original images, loaded stop fences and host SHM
+  metadata matched the previous `d2c454fb...` proof; no business process ran.
+- Captured a supplemental stopped backup of the installed home, the complete
+  reprovision journal/images, original paired recovery-tool directory and
+  systemd unit directory. The archive is 98,908,806 bytes with 1763 members and
+  1494 regular files. SHA256:
+  `a5526f2f8e1fdf6c1b183938a7885424519247e6ac503edd8cbe67976d38a3b6`.
+  A private extraction verified file content, ownership, modes and symlinks;
+  no restored program was executed. Before/after source inventories matched.
+  The archive was returned locally and every regular-file hash checked again.
+  Original baseline/authority archives were rehashed on both hosts. SHM was not
+  archived, restored or replayed.
+- Installed the verified paired tools into the new, separate root
+  `/opt/gateway-bootstrap-tools-dfb8108-20261014/gateway-bootstrap-tools`.
+  All 367 pins and the four factory-helper matches passed. Historical
+  `/opt/gateway-reprovision-tools-d71730e-20261014` remains unchanged and must
+  still be used for its own earlier transactions. No helper was patched in
+  place and no test key was installed as production trust.
+- Built a pristine deployment image by installing the already accepted factory
+  archive and EMS 2.0.14-lanhu project in a private, zero-capability systemd
+  namespace. All 18 installed component hashes and dynamic dependencies passed.
+  The only subsequent image change was copying the exact existing device
+  identity. Local approval review checked all 289 image entries, 20 unit files,
+  22 participants, factory component/unit hashes and empty runtime-state paths.
+- Real stopped trial transaction `ems2-bootstrap-dfb8108-trial-20261014`
+  installed successfully, then paired recovery restored `3e0c45b`, its original
+  home directory identity, entire tree and service inventory. Trial approval
+  SHA256: `cda8ea58283b52732e1b2468c4fffcf8a9641b4f40ee7a8d8315bbbb6f135b65`.
+  The independent prior-version postcheck returned the exact previous SHA256
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`.
+- Final transaction `ems2-bootstrap-dfb8108-final-20261014` installed clean
+  source `dfb8108f1ca96e6e79508096ed33fdcb6c2ea9ac` in the canonical gateway
+  directory. Approval SHA256:
+  `cdd978681c9c19863aa26104e7d9c4b4b9d90f59ed94f18615354db12ad88ecf`.
+  State is `INSTALLED_STOPPED`, not a production runtime activation. Retain its
+  immediate `3e0c45b` predecessor, the earlier `e977b80` image and original
+  pre-maintenance recovery chain. Recovery of this new transaction requires
+  the new dfb8108 bundle and exact approval pin, not the historical d71730e tool.
+- Independent final read-only verification checked all installed component
+  hashes/dependencies, all 367 external-tool files, installed/helper pairing,
+  disabled CORE test admission, retained historical helpers, exact unit files,
+  every participant's persistent fence and manager-loaded inactive services.
+  Native launcher dependency preflight passed; no UI/business process started.
+  Host SHM metadata still matches the original baseline. Final proof SHA256:
+  `d6c6c9c03fd289885de32e944dd13baa348c0b7ee47018879362de80a957d1f0`.
+- Evidence is `generated/production-20261014/board7-bootstrap-deployment-dfb8108/`:
+  57 files are pinned in its manifest, including the returned archive, source
+  snapshots, approvals, private restore proof, trial/final verification and
+  `deployment-summary.json`. 22.6 was queried read-only after the operation:
+  acquisition, MQTT and Monitor are active/running with NRestarts=0. Its
+  installation was not changed. No physical-control action occurred.
+- Canonical OTA public key is still absent. Approved release verification key,
+  HTTPS artifact origins and reviewed first-runtime configuration remain
+  prerequisites for activation. The user was asked for the public key only,
+  never a private key. Do not use fixture trust or remove STOP to force startup.
+
+Status: in progress, not production-ready. 22.7 now contains the `dfb8108`
+first-runtime candidate under its own stopped reprovision transaction. All
 canonical gateway/EMS business services remain stopped; the installed UI is
 not running outside bounded isolated tests.
 Controlled canonical activation with fresh SHM, runtime
