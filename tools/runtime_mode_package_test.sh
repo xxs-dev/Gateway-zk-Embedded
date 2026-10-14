@@ -29,7 +29,7 @@ if tar -tzf "$FACTORY_PACKAGE" | grep -Ei 'agc.avc|AgcAvc' >/dev/null; then
   exit 1
 fi
 
-mkdir -p "$TEST_ROOT" "$MOCK_BIN"
+mkdir -p "$TEST_ROOT" "$MOCK_BIN" "$TEST_ROOT/tmp"
 cat >"$MOCK_BIN/systemctl" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"

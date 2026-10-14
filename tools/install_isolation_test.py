@@ -32,10 +32,10 @@ def write(path, text):
 
 class InstallIsolationTest(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="gateway-install-test-", dir="/var/tmp"))
+        self.root = Path(tempfile.mkdtemp(prefix="gateway-install-test-", dir=PRIVATE_BACKING))
         self.root.chmod(0o755)
         self.addCleanup(shutil.rmtree, self.root)
-        # These directories are private tmpfs mounts, never the host directories.
+        # These are private mounts, never the host directories.
         for directory in PROTECTED:
             for entry in Path(directory).iterdir():
                 if entry.is_dir() and not entry.is_symlink():
@@ -507,7 +507,7 @@ exec /bin/cp "$@"
         template = Path('/etc/systemd/system/system-monitor@.service')
         shutil.copyfile(REPO / 'deploy/system-monitor@.service', template)
         approval['units'].append('system-monitor@.service')
-        archive = REPO.parent.parent / 'acceptance-evidence-20260924/evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz'
+        archive = ACCEPTANCE / 'evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz'
         with tarfile.open(archive) as bundle:
             binary = bundle.extractfile('programs/bin/SystemMonitor').read()
         self.assertEqual('91f5ab7fd6a1221931defa8f4531b1734f0d2c9b17da9bc0ae6b677d121f0928',
@@ -860,7 +860,7 @@ exec /bin/cp "$@"
     def a_joint_monitor_fixture(self):
         home, approval = self.a_implicit_monitor_fixture()
         approval['units'].append('qt-display-bridge.service')
-        archive = REPO.parent.parent / 'acceptance-evidence-20260924/evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz'
+        archive = ACCEPTANCE / 'evidence/raw/GW-20260809-002/helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz'
         manifest = json.loads((self.root / 'program-manifest.json').read_text())
         with tarfile.open(archive) as bundle:
             for target, member, path in (
@@ -2555,7 +2555,7 @@ exec /bin/cp "$@"
 
     def real_offline_fixture(self, scope='r4'):
         home, approval = self.offline_fixture()
-        actual = REPO.parent.parent / 'acceptance-evidence-20260924/tests/e2e/GW-20260809-002/ems-shadow-20260924/pair-recovery-r4/actual-inputs'
+        actual = ACCEPTANCE / 'tests/e2e/GW-20260809-002/ems-shadow-20260924/pair-recovery-r4/actual-inputs'
         roster_raw = (actual / 'membership.json').read_bytes()
         self.assertEqual('da8b016f579bdb6436d9569bf8234a26f4ac1c90d298840bb4080b554537361c', hashlib.sha256(roster_raw).hexdigest())
         roster = json.loads(roster_raw)
@@ -2852,11 +2852,11 @@ exec /bin/cp "$@"
 
     def test_offline_r5_actual_twenty_component_preflight(self):
         home, approval = self.offline_fixture()
-        coordinator = Path('/mnt/d/workspace/GatewaySuite-workspaces/realese1.0/coordinator/evidence/GW-20260809-002/ems-cluster-20260924/stage16-recovery-arm/program-manifest.json')
+        coordinator = Path(os.environ.get('GATEWAY_TEST_PROGRAM_MANIFEST', '/mnt/d/workspace/GatewaySuite-workspaces/realese1.0/coordinator/evidence/GW-20260809-002/ems-cluster-20260924/stage16-recovery-arm/program-manifest.json'))
         manifest_pin = '75c7018d4d78d93e67f8239c041b5f1003d460f0266f549e0c25053cc9795ca6'
         self.assertEqual(manifest_pin, hashlib.sha256(coordinator.read_bytes()).hexdigest())
         manifest = json.loads(coordinator.read_text())
-        raw = REPO.parent.parent / 'acceptance-evidence-20260924/evidence/raw/GW-20260809-002'
+        raw = ACCEPTANCE / 'evidence/raw/GW-20260809-002'
         archives = [(raw / 'helper-r4-20260924T102700Z/r3-candidate-cd6b529.recovered.tar.gz', '0232f029a66b9df5a502ee8d10e3e24eac807edea82ee7346ae1042c8901a2d9'),
                     (raw / 'arm-r5-20260924/r5-reelection-9ccfce8-delta.tar.gz', '2dc8582535ea8358c839eec95ba509df2001915b91989132793164866ca3a652')]
         products = [c for c in manifest['components'] if c['kind'] == 'product']
@@ -3179,22 +3179,37 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--parent-mount-ns")
+    parser.add_argument("--persistent-root", type=Path, default=Path("/var/tmp"),
+                        help="private test backing parent on an ext-family/XFS/Btrfs filesystem")
+    parser.add_argument("--private-backing", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--test", action="append", help="run only named regression methods")
     options = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("requires root for private mounts; never run installers outside the namespace")
     EVIDENCE = options.evidence.resolve()
     REPO = Path(__file__).resolve().parent.parent
+    ACCEPTANCE = Path(os.environ.get('GATEWAY_TEST_ACCEPTANCE_ROOT',
+                                    REPO.parent.parent / 'acceptance-evidence-20260924'))
     if not options.parent_mount_ns:
         selection = [item for name in options.test or [] for item in ("--test", name)]
-        sys.exit(subprocess.call(["unshare", "--mount", "--net", "--ipc", "--fork", sys.executable, str(Path(__file__).resolve()),
-                                  "--evidence", str(EVIDENCE), "--parent-mount-ns", os.readlink("/proc/self/ns/mnt"),
-                                  *selection]))
+        with tempfile.TemporaryDirectory(prefix="gateway-install-private-", dir=options.persistent_root) as backing:
+            Path(backing).chmod(0o755)
+            sys.exit(subprocess.call(["unshare", "--mount", "--net", "--ipc", "--fork", sys.executable, str(Path(__file__).resolve()),
+                                      "--evidence", str(EVIDENCE), "--parent-mount-ns", os.readlink("/proc/self/ns/mnt"),
+                                      "--private-backing", backing, *selection]))
     if options.parent_mount_ns == os.readlink("/proc/self/ns/mnt"):
         parser.error("private mount namespace was not created")
+    if not options.private_backing:
+        parser.error("private persistent backing was not created")
+    PRIVATE_BACKING = options.private_backing.resolve(strict=True)
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
     for directory in PROTECTED:
-        subprocess.run(["mount", "-t", "tmpfs", "-o", "mode=755", "tmpfs", directory], check=True)
+        if directory == "/opt":
+            private_opt = PRIVATE_BACKING / "opt"
+            private_opt.mkdir(mode=0o755)
+            subprocess.run(["mount", "--bind", str(private_opt), directory], check=True)
+        else:
+            subprocess.run(["mount", "-t", "tmpfs", "-o", "mode=755", "tmpfs", directory], check=True)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     output = io.StringIO()
     suite = (unittest.TestSuite(InstallIsolationTest(name) for name in options.test) if options.test else
