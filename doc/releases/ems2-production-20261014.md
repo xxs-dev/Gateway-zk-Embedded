@@ -563,6 +563,54 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   have been requested from the user. No temporary test key has been installed
   as production trust. Missing trust is separate from the bootstrap code gap.
 
+## Monitor Shared-Memory Admission
+
+- Bootstrap investigation confirmed that both SystemMonitor and native Qt use
+  `GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME`. The native default is not an
+  immutable binding: omitting this variable can select the old retained store.
+  The configured-role authority previously described the expected store but
+  did not prove the effective service environment before process creation.
+- V2 production admission now checks SystemMonitor and native Qt against the
+  protected `monitorShmName`. Both must have an explicit nonempty binding,
+  including when selecting the native default. It rejects missing/stale names,
+  unreviewed environment sources/removal/PAM and ambiguous assignments.
+  V1 historical admission and the byte-pinned legacy Qt launcher are unchanged.
+- Native Qt may load only its pinned `config/runtime/qt-display.env`. Literal
+  assignments, comments, plain or quoted values and LF/CRLF are supported;
+  duplicate keys, escapes, continuations, malformed quoting and files over
+  64 KiB refuse admission. Environment-file values override unit environment
+  values, matching systemd. The guard does not execute or source the file.
+- Checks run during effective-unit verification and before a V2 candidate
+  transaction is created. Candidate checks read the approved staged config,
+  while checking the manager's live environment-file path. No default global
+  manager environment is treated as explicit approval.
+- This is a prerequisite fix, not a bootstrap implementation or activation.
+  The installed `3e0c45b` package and paired recovery helpers are not patched
+  in place. A new candidate package is required before deploying this change.
+  No C++ binary or SHM layout changed in this step.
+- On the intermediate source snapshot, the full production Python suite on
+  22.7 passed 211 tests in 722.075 seconds; three opt-in systemd tests were
+  skipped by discovery and passed separately. After tightening explicit default
+  binding and hashing the actual environment bytes being parsed, the final
+  snapshot passed 17 binding tests, six lifecycle admission/promotion/recovery
+  tests, one native-boot test and all three real-systemd tests (27 total).
+  This is not a claim that the full suite was rerun after those final two changes.
+- Real-systemd tests run only uniquely named, sandboxed `/bin/sleep` units.
+  Their executed process environments proved explicit binding, file precedence
+  and missing-binding rejection. The first probe sampled MainPID before exec
+  and failed its environment assertion; the corrected probe waits for the actual
+  sleep executable. Failed v1 evidence is retained, not counted as a pass.
+- Evidence: `generated/production-20261014/board7-monitor-binding-v2/` for the
+  broad suite and `board7-monitor-binding-v3/` for final-source tests. Source
+  snapshots, per-file hashes, test logs and before/after postchecks are retained.
+  Final guard SHA256:
+  `5185bcef5ba934109e11fe5e9d85f2d9dcf4a97396082542f1a2c68914e90e60`.
+- Final before/after postcheck SHA256 is unchanged:
+  `d2c454fba05ff9780396c2872c5fa16acb4586bb3be17d94dfa2a6df2becae02`.
+  All 18 installed components, both retained images, STOP/fences and host SHM
+  metadata remain unchanged; no gateway business process or probe unit remains.
+  No AArch64 binary rebuild, package replacement or physical output occurred.
+
 Status: in progress, not production-ready. 22.7 now contains the `3e0c45b`
 native-startup candidate under its own stopped reprovision transaction. All
 canonical gateway/EMS business services remain stopped; the installed UI is

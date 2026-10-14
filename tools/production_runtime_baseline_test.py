@@ -105,6 +105,8 @@ class ProductionRuntimeTest(unittest.TestCase):
             self.write(path, 'historical pinned gate ' + unit, 0o644)
             gates[unit] = str(path)
         self.write(mapped('/etc/systemd/system/gateway-ota-recover.service'), '[Service]\nType=oneshot\n', 0o644)
+        self.write(mapped('/etc/systemd/system') / (self.g.MONITOR_UNIT + '.d/998-shm.conf'),
+                   '[Service]\nEnvironment=GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=live_v11\n')
         historical = self.root / 'historical'
         for name in ('state.json', 'approval.json', 'activation-ready.json'):
             self.write(historical / name, '{}\n', 0o600)
@@ -179,6 +181,9 @@ class ProductionRuntimeTest(unittest.TestCase):
         (proc / 'fd').mkdir(mode=0o700, exist_ok=True)
 
     def property(self, unit, prop):
+        if prop == 'Environment':
+            return 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=live_v11' if unit == self.g.MONITOR_UNIT else ''
+        if prop in ('EnvironmentFiles', 'PassEnvironment', 'UnsetEnvironment', 'PAMName'): return ''
         if prop == 'ActiveState': return 'active' if unit in self.live else 'inactive'
         if prop == 'SubState': return 'running' if unit in self.live else 'dead'
         if prop == 'MainPID': return self.pid if unit == self.g.MONITOR_UNIT and unit in self.live else '0'
@@ -613,6 +618,34 @@ class ProductionRuntimeTest(unittest.TestCase):
         self.write(self.path('/proc') / self.pid / 'maps', b'')
         with self.assertRaisesRegex(ValueError, 'required/optional SHM mismatch'):
             self.runtime.health(previous)
+
+    def test_v2_monitor_environment_drift_rejected_before_install_intent(self):
+        args, _ = self.v2_code_only_release()
+        before = (self.runtime.root / 'current.json').read_bytes()
+        def changed(unit, prop):
+            if unit == self.g.MONITOR_UNIT and prop == 'Environment':
+                return 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME=retired_v10'
+            return self.property(unit, prop)
+        with mock.patch.object(self.g, 'systemctl_value', changed):
+            with self.assertRaisesRegex(ValueError, 'SHM environment mismatch'):
+                with self.m.production_lock():
+                    self.m.production_install(args)
+        self.assertEqual((self.runtime.root / 'current.json').read_bytes(), before)
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertFalse((self.runtime.root / 'transactions/V2_CODE_ONLY').exists())
+
+    def test_v1_to_v2_wrong_monitor_binding_rejected_before_candidate_intent(self):
+        args, _, _ = self.v1_to_v2_release()
+        before = (self.runtime.root / 'current.json').read_bytes()
+        def changed(unit, prop):
+            return '' if prop == 'Environment' else self.property(unit, prop)
+        with mock.patch.object(self.g, 'systemctl_value', changed):
+            with self.assertRaisesRegex(ValueError, 'SHM environment mismatch'):
+                with self.m.production_lock():
+                    self.m.production_install(args)
+        self.assertEqual((self.runtime.root / 'current.json').read_bytes(), before)
+        self.assertFalse((self.runtime.root / 'pending.json').exists())
+        self.assertFalse((self.runtime.root / 'transactions/V1_TO_V2').exists())
 
     def v2_config_release(self, without_logic_parent=False, with_tls=False, adopt_first=True,
                           tls_bytes=b'PRIVATE FIXTURE CA V1\n'):

@@ -2552,6 +2552,7 @@ class ProductionRuntime:
                                 'staged production config metadata drift')
             guard.production_roles(self.home, candidate, config_root=staged,
                                    helper=payload / 'bin/production_role_policy.py')
+            guard.production_monitor_bindings(self.home, candidate, config_root=staged)
         total = sum(pin['bytes'] for pin in previous['files'].values()) + sum(pin['bytes'] for pin in candidate['files'].values())
         require(total <= 512 * 1024 * 1024 and os.statvfs(self.home).f_bavail * os.statvfs(self.home).f_frsize >= total + 64 * 1024 * 1024,
                 'insufficient production backup/install disk')

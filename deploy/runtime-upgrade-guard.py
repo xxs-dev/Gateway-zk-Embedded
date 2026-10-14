@@ -4,6 +4,7 @@ import json
 import hashlib
 import os
 import re
+import shlex
 from pathlib import Path
 import struct
 import stat
@@ -359,6 +360,98 @@ def production_effective(baseline):
             drops.add(p)
         if drops != expected:
             raise ValueError('production effective overrides differ from inventory')
+    production_monitor_bindings(Path(baseline['gatewayHome']), baseline)
+
+
+def production_literal_environment(text, source):
+    # Accept only literal assignments, not systemd's escape/continuation grammar.
+    # A refusal is safer than interpreting the same bytes differently at exec.
+    if len(text) > 65536 or any(ord(c) < 32 or ord(c) > 126 or c == '\\' for c in text):
+        raise ValueError('unsupported production environment syntax: ' + source)
+    try:
+        tokens = shlex.split(text, comments=False, posix=True)
+    except ValueError as error:
+        raise ValueError('invalid production environment quoting: ' + source) from error
+    result = {}
+    for token in tokens:
+        key, separator, value = token.partition('=')
+        if not separator or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key) or key in result:
+            raise ValueError('ambiguous production environment assignment: ' + source)
+        result[key] = value
+    return result
+
+
+def production_environment_file(path, expected_sha):
+    source = exact_file(path)
+    with source.open('rb') as stream:
+        raw = stream.read(65537)
+    if len(raw) > 65536:
+        raise ValueError('production environment file exceeds bound')
+    if hashlib.sha256(raw).hexdigest() != expected_sha:
+        raise ValueError('native Qt environment file pin drift while reading')
+    result = {}
+    for line in raw.decode('ascii').split('\n'):
+        if line.endswith('\r'):
+            line = line[:-1]
+        if any(ord(c) < 32 and c != '\t' for c in line):
+            raise ValueError('unsupported production environment file syntax')
+        line = line.strip(' \t')
+        if not line or line.startswith(('#', ';')):
+            continue
+        key, separator, value = line.partition('=')
+        value = value.strip(' \t')
+        if not separator or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key) or key in result:
+            raise ValueError('ambiguous production environment file assignment')
+        if value.startswith(('"', "'")):
+            quote = value[0]
+            if len(value) < 2 or value[-1] != quote or quote in value[1:-1]:
+                raise ValueError('unsupported production environment file quoting')
+            value = value[1:-1]
+        elif '"' in value or "'" in value:
+            raise ValueError('unsupported production environment file quoting')
+        if any(ord(c) < 32 or ord(c) > 126 or c == '\\' for c in value):
+            raise ValueError('unsupported production environment file syntax')
+        result[key] = value
+    return result
+
+
+def production_monitor_bindings(home, baseline, config_root=None):
+    if baseline['format'] != 'runtime-baseline-v2':
+        return
+    resolved = baseline['roleAuthority']['resolved']
+    expected = resolved['protected']['monitorShmName']
+    if not isinstance(expected, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,127}', expected):
+        raise ValueError('invalid production monitor SHM binding')
+    key = 'GATEWAY_SYSTEM_MONITOR_SHARED_MEMORY_NAME'
+    for role in resolved['roles']:
+        native = role['family'] == 'ky-ems' and 'bin/gateway-qt-native-run.sh' in role['runtimeFiles']
+        if role['family'] != 'system-monitor' and not native:
+            continue
+        unit = role['unit']
+        for prop in ('PassEnvironment', 'UnsetEnvironment', 'PAMName'):
+            if systemctl_value(unit, prop):
+                raise ValueError('unreviewed production environment source: ' + unit + ' ' + prop)
+        environment = production_literal_environment(systemctl_value(unit, 'Environment'), unit)
+        files = systemctl_value(unit, 'EnvironmentFiles')
+        if native:
+            live = home / 'config/runtime/qt-display.env'
+            if files not in (str(live) + ' (ignore_errors=yes)', str(live) + ' (ignore_errors=no)'):
+                raise ValueError('native Qt environment file differs from approved path')
+            path = (config_root if config_root is not None else home / 'config/runtime') / 'qt-display.env'
+            pin = baseline['configSha256'].get('qt-display.env')
+            if pin is None:
+                if path.exists() or path.is_symlink() or files.endswith('(ignore_errors=no)'):
+                    raise ValueError('unapproved native Qt environment file')
+            else:
+                if production_pin(path)['sha256'] != pin:
+                    raise ValueError('native Qt environment file pin drift')
+                environment.update(production_environment_file(path, pin))
+        elif files:
+            raise ValueError('unreviewed SystemMonitor environment file')
+        # Require an explicit binding even for the native default: manager-wide
+        # defaults must never supply an unapproved SHM name at process creation.
+        if environment.get(key) != expected:
+            raise ValueError('production monitor SHM environment mismatch: ' + unit)
 
 
 def production_architecture(path):
