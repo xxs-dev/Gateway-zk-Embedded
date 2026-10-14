@@ -8,6 +8,11 @@ ROOT=$(mktemp -d /tmp/gateway-test-lab-protocol-e2e.XXXXXX)
 LAB_SCRIPT=$SOURCE_DIR/test-lab/scripts/gateway-test-lab.sh
 
 print_logs() {
+    for receipt in health.json realtime.json can-write.json run/simulator-status.json status-final.txt; do
+        [ -f "$ROOT/$receipt" ] || continue
+        echo "--- $ROOT/$receipt" >&2
+        cat "$ROOT/$receipt" >&2
+    done
     for log in "$ROOT"/logs/*.log; do
         [ -f "$log" ] || continue
         echo "--- $log" >&2
