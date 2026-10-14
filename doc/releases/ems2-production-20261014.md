@@ -25,9 +25,9 @@ compilation, or a subset of tests does not satisfy this objective.
   IPC/SHM, persistence, upgrade/rollback and display paths; resolve verified defects.
 - [ ] Run full applicable Linux native regression tests and deployment fixtures;
   investigate failures rather than excluding them to obtain a green result.
-- [ ] Run UI generator, package, authentication, navigation, value-quality,
+- [x] Run UI generator, package, authentication, navigation, value-quality,
   multi-vehicle and legacy compatibility tests on the integrated source.
-- [ ] Build production binaries and Qt runtime on 192.168.22.11 from an identified
+- [x] Build production binaries and Qt runtime on 192.168.22.11 from an identified
   isolated snapshot. Verify architecture, dynamic dependencies, provenance and hashes.
 - [ ] Inspect and back up both devices; prove rollback artifacts before replacement.
 - [ ] Validate the candidate on 22.7: startup/restart, real configuration loading,
@@ -99,10 +99,99 @@ from permission to use the boards as test devices.
   Test-lab maintenance admits only loopback, and historical OTA query samples now
   carry the required intent hash and reconciliation record. Verification pending.
 
+## Installer And Regression Follow-Up
+
+- `70b751b` aborts gateway apply on service enumeration/stop failures. It preserves
+  the manual-stop fence and does not disable/reset units or start replacements.
+- The full 191 production Python fixtures passed on 22.7 at `ddcbd27`.
+- Native runs at `70b751b` and `2817afb` each passed 107/108 tests. The earlier
+  OTA assertions used outdated delivery state, JSON field order and incomplete
+  device identity. After those corrections the OTA final-state test passed.
+- The remaining protocol E2E failure was reproduced with diagnostics: a repeated
+  fixed CAN command ID replayed a prior successful receipt from the default
+  installed control ledger. `da86239` assigns one ledger inside each test-lab
+  root to all its device routes; `608646d` makes fixture JSON reads UTF-8 under
+  older Python/C locales. At `608646d`, three consecutive protocol runs passed
+  (90.30 seconds), followed by all 108 native tests (327.82 seconds). Complete
+  logs and zero exit receipts were returned to `generated/production-20261014/`.
+- The first expanded installer run was not accepted: 153 tests had 36 failures
+  and 71 errors. Missing pinned historical assets, tmpfs-backed durable state and
+  group-writable source extraction prevented many tests reaching their assertions.
+  `6d32fd1` supports explicit evidence roots and private persistent backing for
+  the test home/state. The original historical SHA256 assertions remain intact.
+- Four targeted installer tests subsequently passed on 22.7: isolated factory
+  install, real ARM migration/stopped recovery, runtime modes and historical
+  20-component preflight. The full installer rerun at `df7102b` completed
+  150/153 successfully in 1207.032 seconds. Two tests correctly refused because
+  a concurrently running isolated Qt process was still visible through host
+  `/proc`; the third lacked the explicit ARM `scada_runtime_test` binary.
+  `04929d2` gives the installer fixture its own PID namespace/procfs and supports
+  an explicit SCADA test binary. The binary was cross-built on 22.11 and returned
+  with SHA256 `9f238fbc148452357be1e765b08748b1e9f080d425e66626b0aa4d4f83668d21`.
+  All three formerly failing cases passed in the targeted rerun (22.895 seconds),
+  followed by the six nonroot credential and seven core-isolation cases. The
+  complete 153-case rerun is still required before accepting the installer gate.
+  Credential tests must run nonroot; the first root invocation was rejected by
+  their own guard and is not counted as successful verification.
+- Nonroot credential tests passed 6/6 at `9cd83af` after supplying the fixture's
+  required generic widget resource and verifying it remains unchanged. Factory
+  core-isolation tests passed 7/7 at `df7102b`. The Lanhu 56-page and legacy
+  XMind 34-page generators were rerun locally at `9cd83af` and both passed.
+- `df7102b` fixes a real packaging defect: nonroot builds retained the build
+  user's UID/GID, causing the root-owned kiosk installation policy to reject
+  them. Factory archives now normalize owner/group to root and remove group/world
+  write permissions, with metadata assertions and an untrusted-owner fixture.
+  The earlier `70b751b` package is superseded and must not be deployed.
+- Candidate `e977b8060c58923278797184e87a4679720fb9d3` was rebuilt on 22.11 from a
+  clean identified Git checkout and returned to
+  `generated/production-20261014/artifacts-e977b80/`. Its package SHA256 is
+  `d7d4e23dec80ae7d0bbde9659b6958a75cc7fcec65cd16626f3bd405a931c358`.
+  All 18 component hashes, sizes and AArch64 ELF identities, resource hashes,
+  archive paths, root ownership and non-writable group/world modes were checked.
+  The selected KY-EMS is `2.0.14-lanhu`, SHA256
+  `bff01f6c61a681659112b71e296e1cc0f73fd7a79b2af97e5d2905db6df71929`.
+- No OTA verification key is provisioned by this candidate. OTA remains fail-closed
+  until the operator provisions the production key; this is not a provisioning pass.
+- Exact-package installation with the generated EMS 2.0 project passed
+  in a private persistent `/opt` on 22.7. The service has a private network and
+  devices, read-only sysfs, no host `/run` or `/tmp`, restricted socket families
+  and no SYS_ADMIN/NET_ADMIN/NET_RAW/SYS_RAWIO capability. This is isolated test
+  installation, not replacement of the board's installed gateway. All 18
+  installed binary hashes and dynamic dependencies passed, the `2.0.14-lanhu`
+  project activated successfully, and the installed Qt renderer stayed running
+  for the bounded offscreen startup test. The generic-package-only
+  `--local-qt-display` flag is not used for this EMS-specific package: native
+  display is enabled by the validated SCADA project installation.
+- The matching AArch64 access and Lanhu test executables both passed on 22.7
+  against the installed project. Eleven offscreen fixture screenshots cover
+  0/1/2/3/5 members, offline combinations, second-page topology, stale state and
+  the logged-out gate; the five-member second-page image was visually inspected.
+  These are simulated values, not field measurements or 95% visual acceptance.
+
+## Current Verification Job
+
+- Host: `192.168.22.7`; unit: `gateway-install-full-04929d2.service`.
+- Source: `04929d26ccd46124ae8c0571ce3c0d64118dfa73`, a verified uploaded Git archive.
+- Remote evidence root: `/var/tmp/gateway-production-install-6d32fd1/`.
+- Complete log/exit receipt: `04929d2-full.log` / `04929d2-full.exit`; per-case
+  evidence: `04929d2-full-evidence/`. Do not replace source while this job runs.
+- The test source after candidate `e977b80` changes only test-lab/test fixtures;
+  candidate production binary, deploy and UI sources are unchanged.
+- Next gate: retrieve the completed result, investigate any failures, then prove
+  live-service control isolation and the formal install/start/upgrade/rollback
+  sequence before replacing installed 22.7 files. Retain the original backup.
+- A user question about an attached touchscreen/resolution remains unanswered.
+  Offscreen tests do not establish physical screen/touch acceptance.
+
 ## Device Recovery Evidence
 
 - 22.7 baseline: `/opt/gateway-suite-backups/ems2-production-20261014-1bb7f65/baseline.tar.gz`,
   SHA256 `deaea755524e84a5193236cd9256499c41f5278467aa682d8cad7f5461c9daf0`.
+  A copy is now at `generated/production-20261014/board7-baseline/baseline.tar.gz`;
+  its hash matched and all 380 archive members were inspected/read successfully.
+  A private restore rehearsal on 22.7 verified all 380 restored entries,
+  including the byte hashes of 235 regular files, ownership, modes and symlink
+  targets. No restored program was executed and no live gateway path changed.
 - 22.6 code/config baseline: same backup directory, `code-config-baseline.tar.gz`,
   SHA256 `1e61f769ea18d1ca592655ecfb4e1fdc9b4118bbe80120579c7dc8343f7fde2c`.
   Its initial live-data archive was inconsistent and is not accepted for rollback.
