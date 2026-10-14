@@ -6,7 +6,9 @@ param(
     [string]$OutputPackage,
     [string]$MachineCode = "COMM202600999",
     [string]$DisplayName = "凯源移动储能车",
-    [string]$PackageVersion = "2.0.10-xmind-v2",
+    [string]$PackageVersion = "2.0.14-lanhu",
+    [ValidateSet("XMindV2", "Lanhu")]
+    [string]$LayoutProfile = "Lanhu",
     [string]$NodeId = "edge-1",
     [string]$LocalOperatorUsername = "operator",
     [Security.SecureString]$LocalOperatorPassword,
@@ -36,7 +38,7 @@ if ([string]::IsNullOrWhiteSpace($OutputProjectDirectory)) {
     $OutputProjectDirectory = Join-Path $repoRoot "generated\artifacts\releases\storage-ems-2.0-compact\scada-project"
 }
 if ([string]::IsNullOrWhiteSpace($OutputPackage)) {
-        $OutputPackage = Join-Path $repoRoot "generated\artifacts\releases\storage-ems-2.0-compact\storage-ems-2.0.10-xmind-v2.kyscada"
+        $OutputPackage = Join-Path $repoRoot "generated\artifacts\releases\storage-ems-2.0-compact\storage-ems-$PackageVersion.kyscada"
 }
 
 $sourceRoot = (Resolve-Path -LiteralPath $SourceProjectDirectory).Path
@@ -2006,6 +2008,11 @@ function Build-CompactMaintenanceScreen {
 # information architecture can evolve without mixing it into point ingestion,
 # packaging and checksum logic.
 . (Join-Path $PSScriptRoot "xmind-v2-layout.ps1")
+if ($LayoutProfile -eq "Lanhu") {
+    . (Join-Path $PSScriptRoot "lanhu-layout.ps1")
+    . (Join-Path $PSScriptRoot "lanhu-fidelity-layout.ps1")
+    . (Join-Path $PSScriptRoot "lanhu-monitor-layout.ps1")
+}
 
 $alarmSpecs = [System.Collections.Generic.List[object]]::new()
 foreach ($entry in $runtimePointByIndex.GetEnumerator()) {
@@ -2061,7 +2068,7 @@ foreach($spec in $trendSpecs) {
     })
 }
 
-$screens = @(Get-XMindV2Screens)
+$screens = if ($LayoutProfile -eq "Lanhu") { @(Get-LanhuScreens) } else { @(Get-XMindV2Screens) }
 
 [void](New-Item -ItemType Directory -Path $outputRoot -Force)
 $screensDirectory = Join-Path $outputRoot "screens"
@@ -2077,11 +2084,12 @@ foreach ($oldScreen in Get-ChildItem -LiteralPath $resolvedScreensDirectory -Fil
 $manifest = [pscustomobject][ordered]@{
     schemaVersion = "2.0"
     projectId = "ky-mobile-ems-$MachineCode"
-    projectName = "$projectDisplayName EMS 2.0 XMind V2"
+    projectName = "$projectDisplayName EMS 2.0"
     packageVersion = $PackageVersion
     productVersion = "2.0"
     createdAt = [DateTimeOffset]::UtcNow.ToString("o")
-    createdBy = "Gateway EMS 2.0 XMind V2 generator"
+    createdBy = "Gateway EMS 2.0 generator"
+    layoutProfile = $LayoutProfile
     entryScreen = "Meters-Overview"
     packageRole = "project"
 }
@@ -2129,14 +2137,20 @@ Write-Json (Join-Path $outputRoot "permissions.json") ([pscustomobject][ordered]
 foreach ($screen in $screens) {
     Write-Json (Join-Path $screensDirectory ($screen.screenId + ".json")) $screen
 }
+if ($LayoutProfile -eq "Lanhu") {
+    [void](New-Item -ItemType Directory -Path (Join-Path $outputRoot "assets") -Force)
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "..\scada\lanhu-assets") -Destination (Join-Path $outputRoot "assets") -Recurse -Force
+}
 
-$expectedScreens = @($XMindV2ExpectedScreens)
+$expectedScreens = if ($LayoutProfile -eq "Lanhu") { @($LanhuExpectedScreens) } else { @($XMindV2ExpectedScreens) }
 $actualScreens = @(Get-ChildItem -LiteralPath $screensDirectory -Filter "*.json" -File | ForEach-Object BaseName | Sort-Object)
 if (@(Compare-Object ($expectedScreens | Sort-Object) $actualScreens).Count -ne 0) {
     throw "EMS 2.0 XMind V2 output does not contain the required $($expectedScreens.Count) screens"
 }
 foreach ($screen in $screens) {
-    if ($screen.width -ne 1920 -or $screen.height -ne 1080) { throw "screen is not 1920x1080: $($screen.screenId)" }
+    $canvasWidth = if ($LayoutProfile -eq 'Lanhu') { 1440 } else { 1920 }
+    $canvasHeight = if ($LayoutProfile -eq 'Lanhu') { 810 } else { 1080 }
+    if ($screen.width -ne $canvasWidth -or $screen.height -ne $canvasHeight) { throw "screen has an unexpected canvas: $($screen.screenId)" }
     $ids = @($screen.widgets | ForEach-Object widgetId)
     if (@($ids | Group-Object | Where-Object Count -gt 1).Count -gt 0) { throw "duplicate widget id: $($screen.screenId)" }
     $displayNameWidgets = @($screen.widgets | Where-Object {
@@ -2150,6 +2164,7 @@ foreach ($screen in $screens) {
 
 $overviewScreen = @($screens | Where-Object screenId -eq "Meters-Overview")
 if ($overviewScreen.Count -ne 1) { throw "XMind V2 instrument overview screen is missing" }
+if ($LayoutProfile -eq "XMindV2") {
 $energyFlows = @($overviewScreen[0].widgets | Where-Object type -eq "energyFlow")
 if ($energyFlows.Count -ne 2) { throw "XMind V2 instrument overview must contain two realtime energy-flow widgets" }
 $overviewMetricValues = @($overviewScreen[0].widgets | Where-Object {
@@ -2168,11 +2183,13 @@ if ($overviewStatusValues.Count -lt 4 -or @($overviewStatusValues | Where-Object
 }).Count -gt 0) {
     throw "XMind V2 instrument overview status cards must be centered and borderless"
 }
+}
 
 $strategyScreens = @($screens | Where-Object screenId -like "Strategy-*")
 if ($strategyScreens.Count -ne 4) { throw "compact strategy area must contain four focused pages" }
 $controlScreens = @($screens | Where-Object screenId -like "Control-*")
-if ($controlScreens.Count -ne 2) { throw "compact control area must contain PCS and DI/DO pages" }
+$expectedControls = if ($LayoutProfile -eq "Lanhu") { 6 } else { 2 }
+if ($controlScreens.Count -ne $expectedControls) { throw "control area is incomplete" }
 $pcsControl = @($screens | Where-Object screenId -eq "Control-Pcs")
 $hasWritablePcsPoint = @([uint32[]]@(1200,1201,1202,1207,1318,1319,1320,1321,1322,1323) | Where-Object { Is-WritableIndex $_ }).Count -gt 0
 if ($hasWritablePcsPoint -and @($pcsControl[0].widgets | Where-Object type -eq "pcsPhasePowerControl").Count -ne 1) {
@@ -2202,7 +2219,8 @@ foreach ($screen in $screens) {
             throw "writable widget is outside a protected screen: $($screen.screenId)/$($widget.widgetId)"
         }
         if ($widget.type -eq "qtChart") {
-            if ([int]$widget.properties.chartDefaultWindowMinutes -ne 60) {
+            $expectedWindow = if ($LayoutProfile -eq 'Lanhu' -and $widget.widgetId -eq 'meter-power-chart') { 120 } else { 60 }
+            if ([int]$widget.properties.chartDefaultWindowMinutes -ne $expectedWindow) {
                 throw "compact trend must default to the latest hour: $($screen.screenId)/$($widget.widgetId)"
             }
         }
@@ -2270,7 +2288,7 @@ try {
 }
 
 $packageHash = (Get-FileHash -LiteralPath $OutputPackage -Algorithm SHA256).Hash.ToLowerInvariant()
-Write-Host "EMS 2.0 XMind V2 SCADA project generated"
+Write-Host "EMS 2.0 $LayoutProfile SCADA project generated"
 Write-Host "  name: $projectDisplayName"
 Write-Host "  machineCode: $MachineCode"
 Write-Host "  tags/routes: $($tags.Count)/$($runtimeMappings.Count)"

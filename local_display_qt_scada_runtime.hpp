@@ -32,6 +32,9 @@ public:
     virtual ~ScadaSceneRuntimeSource() = default;
 
     virtual const std::string& nodeId() const = 0;
+    // Optional read-only EMS membership snapshot; unsupported transports stay unknown.
+    virtual std::string clusterStatusJson() const { return {}; }
+    virtual std::int64_t clusterStatusTtlMs() const { return 5000; }
     virtual edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const = 0;
     virtual edge_gateway::Optional<edge_gateway::StoredPointValue> readTag(
         const std::string& tagId,

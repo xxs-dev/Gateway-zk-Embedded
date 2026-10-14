@@ -76,6 +76,8 @@ try {
     $expectedVersionPattern = if ($Product -eq "stationary") { '^1\.0\.' } else { '^2\.0\.' }
     $expectedScreenCount = if ($Product -eq "stationary") {
         15
+    } elseif ($null -ne $manifest.PSObject.Properties["layoutProfile"] -and [string]$manifest.layoutProfile -eq "Lanhu") {
+        if ([string]$manifest.packageVersion -match '^2\.0\.(?<patch>[0-9]+)' -and [int]$Matches.patch -ge 12) { 56 } else { 39 }
     } elseif ([string]$manifest.packageVersion -match '^2\.0\.(?<patch>[0-9]+)' -and
         [int]$Matches.patch -ge 10) {
         34
@@ -91,6 +93,23 @@ try {
     $screens = @(Get-ChildItem -LiteralPath $screensDirectory -Filter "*.json" -File)
     if ($screens.Count -ne $expectedScreenCount) {
         throw "package screen count mismatch: expected $expectedScreenCount, got $($screens.Count)"
+    }
+    $screenIds = @($screens.BaseName)
+    foreach ($screenFile in $screens) {
+        $screen = Read-Json $screenFile.FullName
+        foreach ($widget in @($screen.widgets)) {
+            if ($null -ne $widget.action -and [string]$widget.action.type -eq "navigate" -and
+                [string]$widget.action.targetScreen -notin $screenIds) {
+                throw "navigation target does not exist: $($screen.screenId)/$($widget.widgetId)"
+            }
+            if ($null -ne $widget.properties.PSObject.Properties['qtMenuScreensJson']) {
+                foreach ($entry in @([string]$widget.properties.qtMenuScreensJson | ConvertFrom-Json)) {
+                    if ([string]$entry.screen -notin $screenIds) {
+                        throw "menu target does not exist: $($screen.screenId)/$($widget.widgetId)"
+                    }
+                }
+            }
+        }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $screensDirectory ("$($manifest.entryScreen).json")))) {
         throw "package entry screen does not exist: $($manifest.entryScreen)"

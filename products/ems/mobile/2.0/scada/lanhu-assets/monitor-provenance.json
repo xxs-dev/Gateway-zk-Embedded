@@ -1,0 +1,462 @@
+{
+  "sources": {
+    "network": {
+      "file": "凯源移动储能车拓扑监控-监测-网络监测.png",
+      "sha256": "81da4969874ad354021012c130376a44fd42a8e786f52b72e89f61ab16901008"
+    },
+    "emu": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测.png",
+      "sha256": "ac2f2aad68a2849534fd4baaf0cd4d4daf9dce60405c808f5c0362c90533a847"
+    },
+    "pcs": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测-EMU.png",
+      "sha256": "e3d972e6713e48123923bb8332e2609918c6c7770051507190b002883860f6dd"
+    },
+    "bms": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测-BMS.png",
+      "sha256": "c1a0c461d6de564ff77c4e636365cb3a846cfb410d2a281e94b0f7bcbcc85e5f"
+    },
+    "cells": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测-1#电池簇.png",
+      "sha256": "a15d2c016011b8a804b493722bda616427d934a597800249d0429d9e608b2bf7"
+    },
+    "tms": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测-TMS.png",
+      "sha256": "a8262a5d189e1625a597e558959787bbbba30ad449c173d521647aa2da91ecfd"
+    },
+    "mccb": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测MCCB.png",
+      "sha256": "efde5bce2dd247141c0c6014ff1779702500b61277636671501c4aa6238ab09c"
+    },
+    "meters": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测电表.png",
+      "sha256": "33c3a29bd28196fd441d1f15f77ff2a3dd894fb2af68a0a54fe54b9d24c1bb6f"
+    },
+    "diesel": {
+      "file": "凯源移动储能车拓扑监控-监测-设备监测发电机.png",
+      "sha256": "9d184f9a21e883c0e7428b62be9344b2d68b3f45631dd28ddbddc6287f23a135"
+    }
+  },
+  "crops": [
+    {
+      "asset": "monitor-network-0.png",
+      "board": "network",
+      "box1440": [
+        153,
+        181,
+        190,
+        218
+      ]
+    },
+    {
+      "asset": "monitor-network-1.png",
+      "board": "network",
+      "box1440": [
+        582,
+        181,
+        619,
+        218
+      ]
+    },
+    {
+      "asset": "monitor-network-2.png",
+      "board": "network",
+      "box1440": [
+        1011,
+        181,
+        1048,
+        218
+      ]
+    },
+    {
+      "asset": "monitor-emu.png",
+      "board": "emu",
+      "box1440": [
+        162,
+        233,
+        207,
+        278
+      ]
+    },
+    {
+      "asset": "monitor-emu-info-0.png",
+      "board": "emu",
+      "box1440": [
+        187,
+        317,
+        235,
+        365
+      ]
+    },
+    {
+      "asset": "monitor-emu-info-1.png",
+      "board": "emu",
+      "box1440": [
+        442,
+        317,
+        490,
+        365
+      ]
+    },
+    {
+      "asset": "monitor-emu-info-2.png",
+      "board": "emu",
+      "box1440": [
+        637,
+        317,
+        685,
+        365
+      ]
+    },
+    {
+      "asset": "monitor-emu-info-3.png",
+      "board": "emu",
+      "box1440": [
+        809,
+        317,
+        857,
+        365
+      ]
+    },
+    {
+      "asset": "monitor-emu-info-4.png",
+      "board": "emu",
+      "box1440": [
+        992,
+        317,
+        1040,
+        365
+      ]
+    },
+    {
+      "asset": "monitor-emu-info-5.png",
+      "board": "emu",
+      "box1440": [
+        1186,
+        317,
+        1234,
+        365
+      ]
+    },
+    {
+      "asset": "monitor-emu-resource-0.png",
+      "board": "emu",
+      "box1440": [
+        200,
+        449,
+        254,
+        503
+      ]
+    },
+    {
+      "asset": "monitor-emu-resource-1.png",
+      "board": "emu",
+      "box1440": [
+        509,
+        449,
+        563,
+        503
+      ]
+    },
+    {
+      "asset": "monitor-emu-resource-2.png",
+      "board": "emu",
+      "box1440": [
+        818,
+        449,
+        872,
+        503
+      ]
+    },
+    {
+      "asset": "monitor-emu-resource-3.png",
+      "board": "emu",
+      "box1440": [
+        1127,
+        449,
+        1181,
+        503
+      ]
+    },
+    {
+      "asset": "monitor-measurement.png",
+      "board": "pcs",
+      "box1440": [
+        185,
+        278,
+        207,
+        300
+      ]
+    },
+    {
+      "asset": "monitor-signal.png",
+      "board": "pcs",
+      "box1440": [
+        516,
+        278,
+        538,
+        300
+      ]
+    },
+    {
+      "asset": "monitor-alarm.png",
+      "board": "pcs",
+      "box1440": [
+        960,
+        278,
+        982,
+        300
+      ]
+    },
+    {
+      "asset": "monitor-energy.png",
+      "board": "bms",
+      "box1440": [
+        607,
+        564,
+        630,
+        587
+      ]
+    },
+    {
+      "asset": "monitor-cell-link.png",
+      "board": "bms",
+      "box1440": [
+        203,
+        720,
+        245,
+        762
+      ]
+    },
+    {
+      "asset": "monitor-dc-0.png",
+      "board": "pcs",
+      "box1440": [
+        194,
+        543,
+        236,
+        585
+      ]
+    },
+    {
+      "asset": "monitor-dc-1.png",
+      "board": "pcs",
+      "box1440": [
+        358,
+        543,
+        400,
+        585
+      ]
+    },
+    {
+      "asset": "monitor-dc-2.png",
+      "board": "pcs",
+      "box1440": [
+        194,
+        624,
+        236,
+        666
+      ]
+    },
+    {
+      "asset": "monitor-dc-3.png",
+      "board": "pcs",
+      "box1440": [
+        358,
+        624,
+        400,
+        666
+      ]
+    },
+    {
+      "asset": "monitor-dc-4.png",
+      "board": "pcs",
+      "box1440": [
+        194,
+        706,
+        236,
+        748
+      ]
+    },
+    {
+      "asset": "monitor-energy-0.png",
+      "board": "bms",
+      "box1440": [
+        622,
+        614,
+        664,
+        656
+      ]
+    },
+    {
+      "asset": "monitor-energy-1.png",
+      "board": "bms",
+      "box1440": [
+        815,
+        614,
+        857,
+        656
+      ]
+    },
+    {
+      "asset": "monitor-energy-2.png",
+      "board": "bms",
+      "box1440": [
+        1008,
+        614,
+        1050,
+        656
+      ]
+    },
+    {
+      "asset": "monitor-energy-3.png",
+      "board": "bms",
+      "box1440": [
+        1198,
+        614,
+        1240,
+        656
+      ]
+    },
+    {
+      "asset": "monitor-energy-total-0.png",
+      "board": "bms",
+      "box1440": [
+        660,
+        698,
+        702,
+        740
+      ]
+    },
+    {
+      "asset": "monitor-energy-total-1.png",
+      "board": "bms",
+      "box1440": [
+        918,
+        698,
+        960,
+        740
+      ]
+    },
+    {
+      "asset": "monitor-energy-total-2.png",
+      "board": "bms",
+      "box1440": [
+        1170,
+        698,
+        1212,
+        740
+      ]
+    },
+    {
+      "asset": "monitor-cells-0.png",
+      "board": "cells",
+      "box1440": [
+        153,
+        173,
+        213,
+        233
+      ]
+    },
+    {
+      "asset": "monitor-cells-1.png",
+      "board": "cells",
+      "box1440": [
+        474,
+        173,
+        534,
+        233
+      ]
+    },
+    {
+      "asset": "monitor-cells-2.png",
+      "board": "cells",
+      "box1440": [
+        796,
+        173,
+        856,
+        233
+      ]
+    },
+    {
+      "asset": "monitor-cells-3.png",
+      "board": "cells",
+      "box1440": [
+        1117,
+        173,
+        1177,
+        233
+      ]
+    },
+    {
+      "asset": "monitor-liquid.png",
+      "board": "tms",
+      "box1440": [
+        180,
+        236,
+        202,
+        258
+      ]
+    },
+    {
+      "asset": "monitor-dehumidifier.png",
+      "board": "tms",
+      "box1440": [
+        180,
+        415,
+        202,
+        437
+      ]
+    },
+    {
+      "asset": "monitor-fan.png",
+      "board": "tms",
+      "box1440": [
+        180,
+        521,
+        202,
+        543
+      ]
+    },
+    {
+      "asset": "monitor-fire.png",
+      "board": "tms",
+      "box1440": [
+        180,
+        610,
+        202,
+        632
+      ]
+    },
+    {
+      "asset": "monitor-breaker.png",
+      "board": "mccb",
+      "box1440": [
+        179,
+        253,
+        221,
+        296
+      ]
+    },
+    {
+      "asset": "monitor-meter.png",
+      "board": "meters",
+      "box1440": [
+        181,
+        234,
+        235,
+        288
+      ]
+    },
+    {
+      "asset": "monitor-diesel.png",
+      "board": "diesel",
+      "box1440": [
+        162,
+        226,
+        228,
+        292
+      ]
+    }
+  ]
+}

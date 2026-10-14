@@ -6,6 +6,7 @@
 #include "edge_gateway/scada_models.hpp"
 
 class QWidget;
+class QDialog;
 
 class ScadaLocalAccessSession final {
 public:
@@ -44,3 +45,8 @@ bool requestScadaLocalLogin(
     ScadaLocalAccessSession& session,
     std::int64_t nowMs
 );
+
+// The caller owns the dialog. No credentials are persisted by the themed form.
+QDialog* createLanhuLocalLogin(QWidget* parent, ScadaLocalAccessSession& session,
+                              const std::string& assetDirectory);
+edge_gateway::ScadaScreen makeLanhuAccessGate(const edge_gateway::ScadaScreen& protectedScreen);
