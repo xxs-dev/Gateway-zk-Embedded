@@ -11,6 +11,7 @@ SYSROOT="${KY_EMS_SYSROOT:-/opt/ky-cross/allwinner-sysroot}"
 TOOLCHAIN_BIN="${TOOLCHAIN_BIN:-/home/tronlong/Linux/SZR/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin}"
 CXX="$TOOLCHAIN_BIN/aarch64-linux-gnu-g++"
 CLEAN=0
+WITH_TESTS=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -19,8 +20,9 @@ while [ "$#" -gt 0 ]; do
     --sysroot) SYSROOT="${2:-}"; shift 2 ;;
     --toolchain-bin) TOOLCHAIN_BIN="${2:-}"; CXX="$TOOLCHAIN_BIN/aarch64-linux-gnu-g++"; shift 2 ;;
     --clean) CLEAN=1; shift ;;
+    --with-tests) WITH_TESTS=1; shift ;;
     -h|--help)
-      echo "Usage: build_scada_qt_aarch64.sh [--clean] [--build-dir DIR] [--edge-build-dir DIR]"
+      echo "Usage: build_scada_qt_aarch64.sh [--clean] [--with-tests] [--build-dir DIR] [--edge-build-dir DIR]"
       exit 0
       ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -98,3 +100,17 @@ lib_dir="$SYSROOT/usr/lib/aarch64-linux-gnu"
 "$TOOLCHAIN_BIN/aarch64-linux-gnu-strip" --strip-unneeded "$BUILD_DIR/KY-SCADA"
 file "$BUILD_DIR/KY-SCADA"
 ls -lh "$BUILD_DIR/KY-SCADA"
+
+if [ "$WITH_TESTS" -eq 1 ]; then
+  # Use the same Qt 5 headers, compiler and renderer objects as the device binary.
+  for test_name in local_display_qt_access_test local_display_qt_lanhu_test; do
+    test_object="$BUILD_DIR/obj/$test_name.o"
+    "$CXX" "${common_flags[@]}" -c "$ROOT_DIR/tools/$test_name.cpp" -o "$test_object"
+    "$CXX" --sysroot="$SYSROOT" -no-pie -Wl,--gc-sections \
+      -Wl,-rpath-link="$lib_dir" -o "$BUILD_DIR/$test_name" \
+      "$test_object" "${objects[@]:1}" "$EDGE_BUILD_DIR/libedge_gateway.a" \
+      -L"$lib_dir" -lQt5Widgets -lQt5Gui -lQt5Core -lGLESv2 \
+      -ldl -lpthread -lrt -lstdc++fs
+    file "$BUILD_DIR/$test_name"
+  done
+fi

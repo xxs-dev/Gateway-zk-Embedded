@@ -1212,11 +1212,11 @@ void ScadaSceneView::refresh(std::int64_t now) {
                         QString::fromStdString(alarm.condition.expected), available ? QString::fromUtf8("活动") : QString::fromUtf8("数据不可用")};
                     if (widget.lanhuAlarmPresentation) {
                         // A sample timestamp is not an alarm occurrence or recovery timestamp.
-                        row = {QString::number(rows.size() + 1), QStringLiteral("--"), severity,
+                        row = QStringList{QString::number(rows.size() + 1), QStringLiteral("--"), severity,
                             QString::fromStdString(alarm.device), QString::number(alarm.condition.index),
                             available ? QString::fromStdString(alarm.label) : QString::fromUtf8("数据不可用：") + QString::fromStdString(alarm.label), QStringLiteral("--")};
                     } else if (widget.summaryAlarmPresentation) {
-                        row = {available ? QString::fromStdString(alarm.label) : QString::fromUtf8("数据不可用：") + QString::fromStdString(alarm.label), QStringLiteral("--")};
+                        row = QStringList{available ? QString::fromStdString(alarm.label) : QString::fromUtf8("数据不可用：") + QString::fromStdString(alarm.label), QStringLiteral("--")};
                     }
                     signature += row.join(QChar(0x1F)) + QChar(0x1E);
                     rows.push_back(std::move(row));
@@ -1253,7 +1253,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
                         if (widget.lanhuAlarmPresentation) {
                             rows[0][5] = rows[0][3]; rows[0][3] = QStringLiteral("--");
                         } else if (widget.summaryAlarmPresentation) {
-                            rows[0] = {rows[0][3], QStringLiteral("--")};
+                            rows[0] = QStringList{rows[0][3], QStringLiteral("--")};
                         }
                     }
                     for (std::size_t r = 0; r < rows.size(); ++r) {
