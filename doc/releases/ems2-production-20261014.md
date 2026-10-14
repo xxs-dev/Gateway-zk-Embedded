@@ -304,5 +304,53 @@ from permission to use the boards as test devices.
   under `generated/production-20261014/`. These are not power-loss, reboot,
   business activation or sustained-run acceptance.
 
-Status: in progress, not production-ready. No installed device program has yet
-been replaced. Incremental Qt validation binaries are not the final release artifact.
+## Live Reprovision And Stopped Recovery
+
+- Implementation commit: `d71730e46a66d7549759b33d8c5d273626d0d143`.
+  The standalone maintenance bundle was built on 22.11 from the identified Git
+  archive, with the paired lifecycle's CORE test admission disabled by the existing
+  factory staging policy. Archive SHA256:
+  `7dbac8cd03acfa36ad1168d80ca3522e3524b38f49ca24dc8d1051beaf6ecdb1`.
+  Source archive SHA256:
+  `2b8692a99512d1d6e9f16bd2aeb1a9713228672cfaf1db5f42f87af1ad9755cd`.
+- The returned bundle's full inventory, file hashes, sizes and root-owned modes
+  were verified before upload. Its exact deployed helpers passed all 40 tests,
+  CLI sandbox checks and real-systemd fence checks again on 22.7. This is a
+  separate stopped-only maintenance bundle, not a rebuilt runtime factory archive.
+- Immediately before replacement, both original baseline and supplemental
+  authority-closure archive hashes were rechecked against the accepted values.
+- Transaction `ems2-d71730e-install-20261014` performed the real service stop,
+  whole-image/unit replacement, verification and recovery of the original image.
+  Approval SHA256:
+  `3b0d1027040b389b3007ee70e5cfb15ef8d40b208fce03af906de765f4af17ce`.
+  Installed 18 component hashes matched. Recovery preserved the original directory
+  inode, entire after-stop tree and original service file inventory. It did not
+  start the old programs or restore runtime/SHM authority.
+- Transaction `ems2-d71730e-final-20261014` then installed the candidate again.
+  Approval SHA256:
+  `86a73434f946331c7ea017d422f3507600e96193efaa5b6b01b4d4ffa29682fc`.
+  Current state is **INSTALLED_STOPPED**. All 18 binary hashes, complete image
+  inventory, retained original tree, stopped services/MainPID=0, manager-loaded
+  stop fences and absence of residual runtime participants passed verification.
+- Existing `/dev/shm` names, device/inode identities, sizes, modes and owners were
+  unchanged through both transactions. No SHM content was restored, deleted or
+  rewound. This metadata check is not a runtime data-consistency acceptance test.
+- 24 transaction/plan/proof/log files were returned and SHA256-verified under
+  `generated/production-20261014/reprovision-live-evidence/`; its `manifest.json`
+  lists every remote evidence path, size and digest. The verified maintenance
+  archive is alongside it in `generated/production-20261014/`.
+- Recovery authority for the current installation is retained at
+  `/opt/gateway-reprovision/transactions/ems2-d71730e-final-20261014/`; original
+  programs/configuration are in its `previous-home`. Paired tools and approval
+  remain at `/opt/gateway-reprovision-tools-d71730e-20261014/`.
+- 22.6's running installation was not replaced. Its three existing acquisition,
+  MQTT and monitor services were checked active/running with NRestarts=0 after
+  the 22.7 operations.
+
+Status: in progress, not production-ready. 22.7 has the new candidate installed
+but all gateway/EMS business services remain stopped; its new UI is not running.
+Controlled activation with fresh private SHM, actual startup/restart, runtime
+upgrade/rollback, reboot/power-loss, sustained operation, physical display/touch,
+multi-vehicle/HIL and >=95% visual acceptance remain open. Do not remove STOP or
+legacy guards to force startup. Incremental Qt validation binaries are not the
+final release artifact.
