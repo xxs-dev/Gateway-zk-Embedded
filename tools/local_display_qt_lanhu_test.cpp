@@ -22,6 +22,7 @@
 #include <QStackedWidget>
 #include <QTimer>
 #include <QDialog>
+#include <QMessageBox>
 #include <QDir>
 
 class ScadaSceneViewTestAccess {
@@ -34,6 +35,19 @@ public:
     static int screenIndex(const ScadaRuntimeWindow& window, const std::string& id) { return window.screenIndexes_.at(id); }
     static void expire(ScadaRuntimeWindow& window) { window.enforceAccessExpiry(std::numeric_limits<std::int64_t>::max()); }
     static void stopTimer(ScadaRuntimeWindow& window) { window.timer_->stop(); }
+    static ScadaSceneRuntimeSource& runtime(ScadaRuntimeWindow& window) { return *window.runtime_; }
+    static bool expireWithoutRebuild(ScadaRuntimeWindow& window) {
+        return window.accessSession_.authenticate("operator", "lanhu-preview-only", 1);
+    }
+    static void confirmedWrite(ScadaRuntimeWindow& window) {
+        edge_gateway::ScadaWidgetAction action;
+        action.type = "writeSetpoint";
+        action.tagId = "t1";
+        action.value = "1";
+        action.requiresConfirmation = true;
+        auto* view = dynamic_cast<ScadaSceneView*>(window.stack_->currentWidget());
+        view->handleAction(action, {}, {}, false);
+    }
 };
 
 namespace {
@@ -45,6 +59,8 @@ class FixtureRuntime final : public ScadaSceneRuntimeSource {
 public:
     std::string node = "edge-1";
     std::string cluster;
+    int writeCalls = 0;
+    int groupWriteCalls = 0;
     std::string clusterStatusJson() const override { return cluster; }
     std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> values;
     std::unordered_map<std::uint32_t, std::string> devices;
@@ -76,8 +92,14 @@ public:
         }
         return result;
     }
-    ScadaSceneWriteResult submitWrite(const std::string&, edge_gateway::PendingWriteCommand) override { return {false, "fixture"}; }
-    ScadaSceneWriteResult submitWriteGroup(const std::vector<ScadaSceneWriteTarget>&, edge_gateway::PendingWriteCommand) override { return {false, "fixture"}; }
+    ScadaSceneWriteResult submitWrite(const std::string&, edge_gateway::PendingWriteCommand) override {
+        ++writeCalls;
+        return {true, "fixture accepted, not executed"};
+    }
+    ScadaSceneWriteResult submitWriteGroup(const std::vector<ScadaSceneWriteTarget>&, edge_gateway::PendingWriteCommand) override {
+        ++groupWriteCalls;
+        return {true, "fixture accepted, not executed"};
+    }
     edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(const std::string&, const std::string&) const override { return edge_gateway::NullOpt; }
     void put(std::uint32_t index, double value, bool stale = false, int quality = 1) {
         edge_gateway::StoredPointValue point;
@@ -380,6 +402,32 @@ int main(int argc, char** argv) {
             window.showScreen("Control-Pcs");
             require(!ScadaSceneViewTestAccess::gated(window), "authenticated control stayed gated");
             require(ScadaSceneViewTestAccess::screenIndex(window, "Control-Pcs") >= 0, "authenticated screen not built");
+            auto& guarded = ScadaSceneViewTestAccess::runtime(window);
+            auto& transport = dynamic_cast<FixtureRuntime&>(guarded);
+            require(guarded.submitOperatorWrite("t1", {}).accepted, "valid operator write was blocked");
+            require(guarded.submitOperatorWriteGroup({{"t1", 1}}, {}).accepted, "valid operator group was blocked");
+            const auto writesBefore = transport.writeCalls;
+            const auto groupsBefore = transport.groupWriteCalls;
+            bool confirmedAfterExpiry = false;
+            QTimer responder;
+            QObject::connect(&responder, &QTimer::timeout, &window, [&]() {
+                auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                if (!dialog) return;
+                if (dialog->standardButtons() & QMessageBox::Yes) {
+                    confirmedAfterExpiry = ScadaSceneViewTestAccess::expireWithoutRebuild(window);
+                    dialog->button(QMessageBox::Yes)->click();
+                } else dialog->accept();
+            });
+            responder.start(10);
+            ScadaSceneViewTestAccess::confirmedWrite(window);
+            responder.stop();
+            require(confirmedAfterExpiry, "confirmation expiry scenario not reached");
+            require(transport.writeCalls == writesBefore, "expired confirmation reached write transport");
+            require(!guarded.submitOperatorWriteGroup({{"t1", 1}}, {}).accepted,
+                    "expired operator group was accepted");
+            require(transport.groupWriteCalls == groupsBefore, "expired group reached write transport");
+            require(guarded.submitWrite("t1", {}).accepted,
+                    "accepted pulse cleanup transport was blocked by operator expiry");
             ScadaSceneViewTestAccess::expire(window);
             require(ScadaSceneViewTestAccess::gated(window), "expired session did not return to gate");
             require(ScadaSceneViewTestAccess::screenIndex(window, "Control-Pcs") < 0, "expired controls remain built");
@@ -388,6 +436,7 @@ int main(int argc, char** argv) {
             auto* header = window.findChild<QPushButton*>("scadaLogoutButton");
             require(header && header->isVisible() && header->text() == QString::fromUtf8("退出"), "public screen loses logged-in state");
             header->click();
+            require(!guarded.submitOperatorWrite("t1", {}).accepted, "logout allowed operator write");
             window.showScreen("Strategy-Overview");
             require(ScadaSceneViewTestAccess::gated(window), "logout did not revoke strategy access");
             window.showScreen("Guide-Setup");

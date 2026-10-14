@@ -1545,7 +1545,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
     command.ts = nowMs();
     command.acceptedAt = command.ts;
     command.highPriority = action.highPriority;
-    const auto result = runtime_.submitWrite(action.tagId, command);
+    const auto result = runtime_.submitOperatorWrite(action.tagId, command);
     if (!result.accepted) {
         QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromStdString(result.message));
         return;
@@ -1562,6 +1562,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
             reset.ts = nowMs();
             reset.acceptedAt = reset.ts;
             reset.highPriority = highPriority;
+            // Complete an already accepted pulse even if the operator session has expired.
             const auto resetResult = runtime_.submitWrite(tagId, reset);
             if (!resetResult.accepted) {
                 QMessageBox::warning(this, QString::fromUtf8("脉冲复位失败"), QString::fromStdString(resetResult.message));
@@ -1938,7 +1939,7 @@ void ScadaSceneView::editInput(RuntimeWidget& widget) {
     command.ts = nowMs();
     command.acceptedAt = command.ts;
     command.highPriority = widget.action.highPriority;
-    const auto result = runtime_.submitWrite(widget.inputTagId, command);
+    const auto result = runtime_.submitOperatorWrite(widget.inputTagId, command);
     if (!result.accepted) {
         QMessageBox::warning(
             this,
@@ -1952,7 +1953,7 @@ void ScadaSceneView::editInput(RuntimeWidget& widget) {
     QMessageBox::information(
         this,
         QString::fromUtf8("写入请求已受理"),
-        QString::fromUtf8("%1 已写入 %2。\n边端返回：%3")
+        QString::fromUtf8("%1 的目标值 %2 已提交，等待设备执行回执。\n边端返回：%3")
             .arg(displayName)
             .arg(formatNumber(target))
             .arg(QString::fromStdString(result.message))
@@ -2243,6 +2244,10 @@ void ScadaRuntimeWindow::reloadProject(bool initial) {
     accessSession_ = ScadaLocalAccessSession(project_.permissions.localAccess);
     runtime_ = runtimeFactory_(project_);
     if (!runtime_) throw std::runtime_error("SCADA runtime source factory returned no source");
+    // A confirmation dialog can outlive the session without rebuilding the screen.
+    runtime_->setOperatorAuthorization([this]() {
+        return !accessSession_.enabled() || accessSession_.authenticated(nowMs());
+    });
     setWindowTitle(QString::fromStdString(project_.manifest.projectName));
     rebuildScreens();
     loadedRevision_ = projectRevision();

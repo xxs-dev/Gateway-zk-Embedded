@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "edge_gateway/compat.hpp"
@@ -31,6 +33,24 @@ class ScadaSceneRuntimeSource {
 public:
     virtual ~ScadaSceneRuntimeSource() = default;
 
+    void setOperatorAuthorization(std::function<bool()> authorize) {
+        operatorAuthorization_ = std::move(authorize);
+    }
+    ScadaSceneWriteResult submitOperatorWrite(
+        const std::string& tagId, edge_gateway::PendingWriteCommand command
+    ) {
+        if (operatorAuthorization_ && !operatorAuthorization_())
+            return {false, "Local operator session expired; log in again"};
+        return submitWrite(tagId, std::move(command));
+    }
+    ScadaSceneWriteResult submitOperatorWriteGroup(
+        const std::vector<ScadaSceneWriteTarget>& targets, edge_gateway::PendingWriteCommand command
+    ) {
+        if (operatorAuthorization_ && !operatorAuthorization_())
+            return {false, "Local operator session expired; log in again"};
+        return submitWriteGroup(targets, std::move(command));
+    }
+
     virtual const std::string& nodeId() const = 0;
     // Optional read-only EMS membership snapshot; unsupported transports stay unknown.
     virtual std::string clusterStatusJson() const { return {}; }
@@ -56,4 +76,7 @@ public:
         const std::string& tagId,
         const std::string& cmdId
     ) const = 0;
+
+private:
+    std::function<bool()> operatorAuthorization_;
 };

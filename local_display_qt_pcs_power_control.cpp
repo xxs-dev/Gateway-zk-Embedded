@@ -562,7 +562,7 @@ void PcsPhasePowerControl::submitWrite(PowerKind kind, const PcsPhasePowerPlan& 
     command.ts = currentTimeMs();
     command.acceptedAt = command.ts;
     command.highPriority = highPriorityCheckBox_->isChecked();
-    const auto result = runtime_.submitWriteGroup(targets, command);
+    const auto result = runtime_.submitOperatorWriteGroup(targets, command);
     if (!result.accepted) {
         showPcsMessage(
             this,
