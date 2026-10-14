@@ -10,6 +10,7 @@ import importlib.util
 import re
 from pathlib import Path
 import shutil
+import signal
 import stat
 import subprocess
 import struct
@@ -197,11 +198,22 @@ exec /bin/cp "$@"
                     ("dir",) if path.is_dir() else ("file", path.read_bytes()))
         return result
 
-    def run_script(self, script, args=(), env=None):
-        process = subprocess.run(["sh", str(REPO / "deploy" / script), *map(str, args)],
-                                 env={**self.env, **(env or {})}, stdin=subprocess.DEVNULL,
+    def run_script(self, script, args=(), env=None, timeout=30):
+        command = ["sh", str(REPO / "deploy" / script), *map(str, args)]
+        child = subprocess.Popen(command, env={**self.env, **(env or {})}, stdin=subprocess.DEVNULL,
                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 timeout=30)
+                                 start_new_session=True)
+        try:
+            stdout, _ = child.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Stop descendants before private fixture directories are removed.
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.communicate(timeout=5)
+            raise
+        process = subprocess.CompletedProcess(command, child.returncode, stdout)
         with (EVIDENCE / (self.id().split(".")[-1] + ".log")).open("a") as output:
             output.write(f"script={script} args={args} exit={process.returncode}\n{process.stdout}\n")
         return process
@@ -3146,8 +3158,19 @@ exec /bin/cp "$@"
         for script in ("scada_install_test.sh", "scada_rollback_test.sh",
                        "factory_package_component_version_test.sh"):
             with self.subTest(script=script):
-                result = self.run_script("../tools/" + script, env={"TMPDIR": str(self.root)})
+                result = self.run_script("../tools/" + script, env={"TMPDIR": str(self.root)},
+                                         timeout=120 if script == 'factory_package_component_version_test.sh' else 30)
                 self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_script_timeout_retires_descendants_before_cleanup(self):
+        marker = self.root / 'late-child-write'
+        script = self.root / 'timeout.sh'
+        write(script, '#!/bin/sh\n(/bin/sleep 1; /usr/bin/touch "' + str(marker) + '") &\nwait\n')
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.run_script(str(script), timeout=0.2)
+        time.sleep(1.1)
+        self.assertFalse(marker.exists(), 'timed-out script left a live child')
+        self.assert_isolated()
 
     def test_runtime_mode_packages_with_fixture(self):
         self.factory()

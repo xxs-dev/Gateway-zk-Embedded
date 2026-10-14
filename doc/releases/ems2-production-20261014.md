@@ -401,6 +401,42 @@ from permission to use the boards as test devices.
   software/deployment verification. Physical display/touch and visual fidelity
   remain separately deferred acceptance gates, not failed software tests.
 
+## Native Startup Candidate Verification
+
+- Product commit: `3e0c45b1d77cd49bd0ca9a542f73b0839d717c3c`. The full Allwinner
+  and Qt 5 build ran on 22.11 in a new clean checkout, leaving the existing build
+  source untouched. Both specified cross-build scripts passed, including the
+  matching Qt access and Lanhu test executables.
+- Returned factory package SHA256:
+  `b9e7d2c583a99e4cb9f1676c2de12e47e7ae58f48522f5b93109dee177ab489d`.
+  All 18 component hashes/sizes/AArch64 ELF headers, root ownership and modes
+  passed local validation. The staged service uses the new native launcher;
+  the old launcher still has its historical SHA256
+  `9c0bf58d8002f76407b1a40bbf26a8957e63dc5bfc2df2fe13f9eb04332d5f52`.
+- Evidence and package: `generated/production-20261014/artifacts-3e0c45b/`.
+  This is a built candidate, not a replaced or activated installation on 22.7.
+- Matching AArch64 Qt access and Lanhu tests passed on 22.7 in a zero-capability,
+  private-network/IPC/device transient service. Eleven synthetic screenshots and
+  the isolation proof were returned and hash-verified in
+  `generated/production-20261014/board7-native-qt-3e0c45b/`. The unit exited zero
+  and was collected. These results are not physical-screen acceptance.
+- Targeted Linux results: launcher 5/5, role policy 32/32, source loader 2/2,
+  isolation probe 7/7, installed-smoke supervisor 10/10, capacity 14/14.
+  Five final installer regression methods passed in 93.910 seconds, including
+  legacy/native factory packaging and stopped installation, runtime-mode package
+  compatibility, historical Qt observe/recover, skipped-bridge enforcement and
+  timeout process-group cleanup.
+- The expanded factory test needs a 120-second bound on the ARM board; other
+  script tests keep their 30-second bound. The test runner now retires its own
+  process group before removing fixtures after timeout. An explicit late-child
+  write regression passed. This is a test-harness change, not a runtime change.
+- Initial test attempts were not acceptance passes: the build host's Python 3.6
+  and filesystem did not meet the production fixture requirements; the board's
+  `/var` is root-owned mode 0777, correctly rejected by kiosk path checks; and
+  the expanded package fixture exceeded its old timeout. Retained logs identify
+  each failure. Final installer backing uses a dedicated root-owned 0755 path
+  under `/srv`; no global directory permissions or protection checks were changed.
+
 Status: in progress, not production-ready. 22.7 has the new candidate installed
 but all gateway/EMS business services remain stopped; its new UI is not running.
 Controlled activation with fresh private SHM, actual startup/restart, runtime
