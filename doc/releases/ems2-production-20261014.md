@@ -23,7 +23,7 @@ compilation, or a subset of tests does not satisfy this objective.
 - [x] Integrate all four EMS 2.0 commits without dropping release changes.
 - [ ] Review production startup/configuration, data collection, control safety,
   IPC/SHM, persistence, upgrade/rollback and display paths; resolve verified defects.
-- [ ] Run full applicable Linux native regression tests and deployment fixtures;
+- [x] Run full applicable Linux native regression tests and deployment fixtures;
   investigate failures rather than excluding them to obtain a green result.
 - [x] Run UI generator, package, authentication, navigation, value-quality,
   multi-vehicle and legacy compatibility tests on the integrated source.
@@ -130,7 +130,9 @@ from permission to use the boards as test devices.
   with SHA256 `9f238fbc148452357be1e765b08748b1e9f080d425e66626b0aa4d4f83668d21`.
   All three formerly failing cases passed in the targeted rerun (22.895 seconds),
   followed by the six nonroot credential and seven core-isolation cases. The
-  complete 153-case rerun is still required before accepting the installer gate.
+  complete 153-case rerun subsequently passed in 1067.924 seconds at `04929d2`,
+  followed by 6/6 nonroot credential tests (5.351 seconds) and 7/7 CORE-isolation
+  tests (46.452 seconds). The unit finished successfully with a zero exit receipt.
   Credential tests must run nonroot; the first root invocation was rejected by
   their own guard and is not counted as successful verification.
 - Nonroot credential tests passed 6/6 at `9cd83af` after supplying the fixture's
@@ -168,18 +170,21 @@ from permission to use the boards as test devices.
   the logged-out gate; the five-member second-page image was visually inspected.
   These are simulated values, not field measurements or 95% visual acceptance.
 
-## Current Verification Job
+## Completed Installer Job
 
 - Host: `192.168.22.7`; unit: `gateway-install-full-04929d2.service`.
 - Source: `04929d26ccd46124ae8c0571ce3c0d64118dfa73`, a verified uploaded Git archive.
 - Remote evidence root: `/var/tmp/gateway-production-install-6d32fd1/`.
 - Complete log/exit receipt: `04929d2-full.log` / `04929d2-full.exit`; per-case
-  evidence: `04929d2-full-evidence/`. Do not replace source while this job runs.
+  evidence: `04929d2-full-evidence/`. The job finished at 14:05:24 UTC with
+  `Result=success`, `ExecMainStatus=0`, `MainPID=0` and `ActiveState=inactive`.
+  All 153 cases passed without skips. The complete log, zero exit receipt and
+  170 evidence files were returned locally with remote/local SHA256 checks.
 - The test source after candidate `e977b80` changes only test-lab/test fixtures;
   candidate production binary, deploy and UI sources are unchanged.
-- Next gate: retrieve the completed result, investigate any failures, then prove
-  live-service control isolation and the formal install/start/upgrade/rollback
-  sequence before replacing installed 22.7 files. Retain the original backup.
+- Next gate: implement the full-reprovision lifecycle described below, verify
+  isolation on its actual services, and prove formal install/start/upgrade/rollback.
+  Retain the original backup and supplemental authority closure.
 - A user question about an attached touchscreen/resolution remains unanswered.
   Offscreen tests do not establish physical screen/touch acceptance.
 
@@ -206,6 +211,71 @@ from permission to use the boards as test devices.
   remain active with zero restarts. Current programs/configuration were not replaced.
 - User explicitly permits complete replacement of programs/configuration on 22.7
   for isolated deployment and rollback testing. Physical actuation is not authorized.
+
+## Live-Service Isolation Preflight
+
+- `0a96574` adds a read-only board probe, a bounded transient-systemd harness and
+  six negative/positive parser-policy tests. All six passed locally and on 22.7.
+  No installed service, runtime binary or point configuration is changed by this
+  harness. This is a prerequisite, not formal deployment acceptance.
+- Two separate systemd services on 22.7 proved that they share one network
+  namespace different from the host and the same pinned private SHM marker inode.
+  Only loopback and down `sit0` are visible; all IPv4/IPv6 routing tables contain
+  only loopback routes. All capability sets are zero, no-new-privileges/seccomp
+  are active, sysfs/cgroups are read-only, and host systemd/DBus sockets are absent.
+- AF_CAN/AF_PACKET socket creation fails with EAFNOSUPPORT, raw IPv4 with EPERM,
+  and `/proc/1/root/run/systemd` access with EACCES. No packet/control command or
+  physical-device open is attempted. All temporary services were confirmed stopped.
+- The first probe rejected host `/dev/pts/0`, which `PrivateDevices` alone left
+  visible. The harness now also hides `/dev/pts` behind an empty private tmpfs.
+  A regression explicitly rejects host PTY character devices and block devices.
+  This offscreen profile does not qualify physical display/input or serial PTY
+  simulators; their selective device access still needs separate review.
+- Evidence: `generated/production-20261014/board7-control-isolation.log`,
+  `board7-control-isolation-proof.json` and `board7-control-isolation-unit-tests.log`.
+  Run the harness using `GATEWAY_ISOLATION_ROOT` pointing to a root-owned mode-0700
+  directory containing the pinned probe and a mode-0700 `shm` directory with only
+  the small `gateway-ems2-isolation-marker` file. It never applies this isolation
+  profile to the board's installed gateway services automatically.
+
+## Recovery Closure And Replacement Gate
+
+- The original 380-entry backup does not contain the external transaction
+  directories referenced by `runtime-upgrade-active.json`. Its byte/metadata
+  restore pass therefore was not proof of complete legacy-authority recovery.
+- Added a supplemental dependency-closure archive covering the current CORE
+  activation, both predecessor transactions and both referenced incoming receipts.
+  All three state/approval links and the active ready receipt matched their pins.
+  Source inventories were unchanged across archiving; all 208 entries and 197
+  regular files were checked against the archive, returned locally and verified.
+  A private extraction rehearsal verified content, owners and modes for every
+  entry. No program executed and no live SHM was restored or removed.
+- Supplemental SHA256:
+  `98d419d8cf8bb9e93a9f52e78907d769bd19fa9fa29e30d706e58f148ce9acec`.
+  Local evidence: `generated/production-20261014/board7-baseline/authority-closure/`.
+  Remote: `/opt/gateway-suite-backups/ems2-production-20261014-1bb7f65/authority-closure-20261014/`.
+- The unchanged installed historical verifier passed `activated-unit` for both
+  `gateway-services.service` and `system-monitor@monitor-service.service`.
+  Evidence: `board7-legacy-authority-preflight.log`.
+- A second functional rehearsal bound both extracted backups at their original
+  absolute paths inside a private mount/network namespace, with read-only mounts.
+  The restored historical verifier passed both units there as well. Only the
+  read-only Python verifier ran, not gateway business/control binaries. Existing
+  host SHM was neither replaced nor rewound; this is not a reboot/restart pass.
+  Evidence: `authority-closure/restored-authority-preflight.log`.
+- `tar --compare` against the original backup confirmed installed `bin`, `config`
+  and `/etc/systemd/system` contents/metadata unchanged after these probes.
+- Current lifecycle limitation is explicit: `production-adopt` only admits the
+  historical v1 reader scope; ordinary `production-install` preserves the unit
+  inventory and disallows introducing KY-EMS/resources. Factory initialization
+  refuses existing runtime contents and existing point stores. 22.7 also has no
+  provisioned OTA verification public key. These guards must not be disabled or
+  given fabricated authority just to install the UI.
+- Next implementation work must provide a journaled, verified full-reprovision
+  path for the user-authorized replacement, preserving the old authority and
+  recovery inventory and maintaining physical-output isolation. Starting the
+  existing same-inventory upgrade commands with incompatible inventory is not a
+  substitute. The user's full-replacement authorization is already recorded.
 
 Status: in progress, not production-ready. No installed device program has yet
 been replaced. Incremental Qt validation binaries are not the final release artifact.
