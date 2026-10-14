@@ -460,7 +460,8 @@ void verifyDurableHealthReconciliation() {
         direct.otaAppConfigFile = appConfigPath;
         direct.otaStatusFile = root + "/direct-status.jsonl";
         { std::ofstream oldStatus(direct.otaStatusFile);
-          oldStatus << "{\"jobId\":\"HEALTH_JOB_1\",\"stage\":\"applying\"}\n"; }
+          oldStatus << "{\"jobId\":\"HEALTH_JOB_1\",\"machineCode\":\"GW_TEST\","
+                       "\"stage\":\"applying\"}\n"; }
         const auto directReply = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
             direct, "GET", "/api/v1/ota/status", "", "", "", "127.0.0.1");
         require(directReply.find("\"jobId\":\"HEALTH_JOB_1\"") != std::string::npos &&
