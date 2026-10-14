@@ -37,12 +37,27 @@ JSON
 
 cp -a "$ROOT_DIR/deploy" "$TMP_ROOT/source/deploy"
 cp "$ROOT_DIR/config/generic-scada-widgets.json" "$TMP_ROOT/source/config/generic-scada-widgets.json"
+chmod 0664 "$TMP_ROOT/source/deploy/local-kiosk.py"
+if [ "$(id -u)" = 0 ]; then
+  chown 65534:65534 "$TMP_ROOT/source/deploy/local-kiosk.py"
+fi
 (
   cd "$TMP_ROOT/source"
   EDGE_PACKAGE_BUILD_DIR="$TMP_ROOT/source/build-aarch64" \
     sh deploy/build-factory-package.sh "$TMP_ROOT/package.tar.gz" \
     --profile project --manifest "$TMP_ROOT/manifest.json"
 )
+
+python3 - "$TMP_ROOT/package.tar.gz" <<'PY'
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1]) as archive:
+    for member in archive:
+        assert member.uid == 0 and member.gid == 0, (member.name, member.uid, member.gid)
+        assert member.mode & 0o022 == 0, (member.name, oct(member.mode))
+print('factory archive ownership and write permissions verified')
+PY
 
 mkdir "$TMP_ROOT/unpacked"
 tar -xzf "$TMP_ROOT/package.tar.gz" -C "$TMP_ROOT/unpacked"

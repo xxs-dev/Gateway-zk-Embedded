@@ -466,7 +466,9 @@ assert_no_retired_maintenance_agent "$TMP_DIR/gateway-factory-defaults"
 
 mkdir -p "$(dirname "$OUT")"
 PACKAGE_ARCHIVE="$TMP_DIR/gateway-factory-defaults.tar.gz"
-tar -C "$TMP_DIR" -czf "$PACKAGE_ARCHIVE" gateway-factory-defaults
+# Root installation must not preserve the build account or writable source modes.
+tar --owner=0 --group=0 --numeric-owner --mode='u+rwX,go+rX,go-w' \
+  -C "$TMP_DIR" -czf "$PACKAGE_ARCHIVE" gateway-factory-defaults
 tar -tzf "$PACKAGE_ARCHIVE" >/dev/null
 if tar -tzf "$PACKAGE_ARCHIVE" | grep -Eiq '(^|/)direct[-_]?agent([^/]*)$'; then
   echo "retired standalone maintenance agent was found in generated factory package" >&2
