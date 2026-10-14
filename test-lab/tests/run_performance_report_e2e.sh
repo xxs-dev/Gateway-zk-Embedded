@@ -61,7 +61,8 @@ for protocol in modbus-tcp modbus-rtu dlt645 dio iec104 can; do
     [ -s "$protocol_report/report.json" ]
     [ -s "$protocol_report/report.md" ]
     if command -v python3 >/dev/null 2>&1; then
-        python3 -m json.tool "$protocol_report/report.json" >/dev/null
+        python3 -c 'import io, json, sys; json.load(io.open(sys.argv[1], encoding="utf-8"))' \
+            "$protocol_report/report.json"
     fi
     grep -q '"passed": true' "$protocol_report/report.json"
     grep -q "\"protocol\":\"$protocol\"" "$protocol_report/report.json"

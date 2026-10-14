@@ -9,6 +9,7 @@ EDGE_PACKAGE_MANIFEST="${EDGE_PACKAGE_MANIFEST:-}"
 COMPONENT_VERSION="${COMPONENT_VERSION:-1.0}"
 EDGE_TOOLCHAIN_ID="${EDGE_TOOLCHAIN_ID:-unknown}"
 EDGE_PACKAGE_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-}"
+EDGE_PACKAGE_QT_BINARY="${EDGE_PACKAGE_QT_BINARY:-}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-0}"
 # Public half of the OTA signing key (see doc/评审/OTA签名说明.md); shipped as
 # ota/ota.pub and installed to /etc/modbus-gateway/ota.pub by install-factory-config.sh.
@@ -18,10 +19,12 @@ OUT_TMP=""
 
 usage() {
   cat >&2 <<'EOF'
-Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT] [--ota-pubkey FILE]
+Usage: build-factory-package.sh [OUT] [--profile base|project|full] [--manifest FILE] [--out OUT] [--ota-pubkey FILE] [--qt-binary FILE]
 
   --ota-pubkey FILE  OTA signature public key (PEM) to ship; env OTA_SIGNING_PUBKEY.
                      Without it, devices reject every OTA until ota.pub is provisioned.
+  --qt-binary FILE   Selected AArch64 Qt executable (e.g. KY-SCADA), packaged as
+                     ky-ems/KY-EMS; env EDGE_PACKAGE_QT_BINARY. Source stays unchanged.
 
 Profiles:
   base     Package SystemMonitor, MqttDriver, MqttForwarder and pointctl.
@@ -55,6 +58,11 @@ while [ "$#" -gt 0 ]; do
       OTA_SIGNING_PUBKEY="$2"
       shift 2
       ;;
+    --qt-binary)
+      [ "$#" -ge 2 ] || { echo "--qt-binary requires a value" >&2; exit 2; }
+      EDGE_PACKAGE_QT_BINARY="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -72,6 +80,11 @@ case "$PACKAGE_PROFILE" in
 esac
 
 COMPONENT_BUILD_DIR="${EDGE_PACKAGE_BUILD_DIR:-$ROOT_DIR/build-aarch64}"
+QT_BINARY="${EDGE_PACKAGE_QT_BINARY:-$ROOT_DIR/ky-ems/KY-EMS}"
+if [ -n "$EDGE_PACKAGE_QT_BINARY" ]; then
+  [ "$PACKAGE_PROFILE" != base ] || { echo "--qt-binary requires project or full profile" >&2; exit 2; }
+  [ -f "$QT_BINARY" ] || { echo "selected Qt executable missing: $QT_BINARY" >&2; exit 2; }
+fi
 
 cleanup() {
   [ -z "$OUT_TMP" ] || rm -f "$OUT_TMP"
@@ -397,8 +410,8 @@ if [ -d "$COMPONENT_BUILD_DIR" ]; then
   PACKAGED_BINS="$REQUIRED_BINS"
   for bin in $REQUIRED_BINS; do
     if [ "$bin" = "KY-EMS" ]; then
-      [ -d "$ROOT_DIR/ky-ems" ] && [ -f "$ROOT_DIR/ky-ems/KY-EMS" ] || {
-        echo "required KY-EMS payload missing: ky-ems/KY-EMS" >&2
+      [ -f "$QT_BINARY" ] || {
+        echo "required KY-EMS payload missing: $QT_BINARY" >&2
         exit 2
       }
       continue
@@ -426,6 +439,12 @@ fi
 if [ -d "$ROOT_DIR/ky-ems" ]; then
   mkdir -p "$TMP_DIR/gateway-factory-defaults/ky-ems"
   cp -a "$ROOT_DIR/ky-ems"/. "$TMP_DIR/gateway-factory-defaults/ky-ems"/
+fi
+if [ -n "$EDGE_PACKAGE_QT_BINARY" ]; then
+  mkdir -p "$TMP_DIR/gateway-factory-defaults/ky-ems"
+  cp "$QT_BINARY" "$TMP_DIR/gateway-factory-defaults/ky-ems/KY-EMS"
+fi
+if [ -d "$TMP_DIR/gateway-factory-defaults/ky-ems" ]; then
   if [ -f "$TMP_DIR/gateway-factory-defaults/ky-ems/KY-EMS" ]; then
     chmod 0755 "$TMP_DIR/gateway-factory-defaults/ky-ems/KY-EMS"
   fi

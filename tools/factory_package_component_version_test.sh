@@ -108,3 +108,32 @@ sh "$ROOT_DIR/deploy/production-smoke-test.sh" >"$smoke_output" 2>&1 || true
 grep -F "[PASS] KY-EMS executable: $TMP_ROOT/gateway/ky-ems/KY-EMS" "$smoke_output"
 
 echo "factory package external production init test passed"
+
+printf 'selected native SCADA renderer\n' > "$TMP_ROOT/KY-SCADA"
+EDGE_PACKAGE_BUILD_DIR="$TMP_ROOT/source/build-aarch64" \
+  sh "$TMP_ROOT/source/deploy/build-factory-package.sh" "$TMP_ROOT/selected.tar.gz" \
+  --profile project --manifest "$TMP_ROOT/manifest.json" --qt-binary "$TMP_ROOT/KY-SCADA"
+mkdir "$TMP_ROOT/selected"
+tar -xzf "$TMP_ROOT/selected.tar.gz" -C "$TMP_ROOT/selected"
+python3 - "$TMP_ROOT" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+payload = root / 'selected/gateway-factory-defaults'
+selected = (root / 'KY-SCADA').read_bytes()
+assert (payload / 'ky-ems/KY-EMS').read_bytes() == selected
+assert (root / 'source/ky-ems/KY-EMS').read_bytes() == b'test\n'
+manifest = json.loads((payload / 'edge-package-manifest.json').read_text(encoding='utf-8'))
+qt = next(item for item in manifest['components'] if item['binary'] == 'KY-EMS')
+assert qt['sha256'] == hashlib.sha256(selected).hexdigest(), qt
+print('selected Qt artifact and manifest hash verified; source binary unchanged')
+PY
+if sh "$TMP_ROOT/source/deploy/build-factory-package.sh" "$TMP_ROOT/missing.tar.gz" \
+    --profile project --manifest "$TMP_ROOT/manifest.json" --qt-binary "$TMP_ROOT/missing"; then
+  echo 'missing selected Qt artifact must reject packaging' >&2
+  exit 1
+fi
+[ ! -e "$TMP_ROOT/missing.tar.gz" ]

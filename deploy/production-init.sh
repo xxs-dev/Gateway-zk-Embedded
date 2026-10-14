@@ -84,8 +84,8 @@ Options:
   --no-direct-maintenance         Disable SystemMonitor embedded direct maintenance API
   --direct-listen-host HOST       Maintenance API listen host; defaults to factory maintenance address
   --direct-listen-hosts HOSTS     Comma separated maintenance API listen hosts
-  --direct-allowed-cidr CIDR      Allowed maintenance client CIDR; default empty means allow all clients
-  --direct-allowed-cidrs CIDRS    Comma separated allowed maintenance client CIDRs; default empty means allow all clients
+  --direct-allowed-cidr CIDR      Allowed maintenance client CIDR; empty list prevents API startup
+  --direct-allowed-cidrs CIDRS    Comma separated allowed maintenance client CIDRs; empty list prevents API startup
   -h, --help                      Show help
 
 Environment variables with the same meaning are also supported:
