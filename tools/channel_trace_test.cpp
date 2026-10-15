@@ -8,6 +8,10 @@
 #include <thread>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
+#include <cerrno>
 
 template<class F> void rejects(F f) { bool rejected = false; try { f(); } catch (...) { rejected = true; } assert(rejected); }
 int main() {
@@ -44,6 +48,26 @@ int main() {
     assert(page.overwritten == 89 && page.chunks.size() == 128 && page.chunks[0].seq == 90);
     trace.stop("session-B"); trace.capture("channel-A", true, bytes, sizeof(bytes));
     assert(!trace.read("session-B", 601).active && trace.read("session-B", 601).chunks.empty());
+    trace.start("channel-A", "session-C", 60);
+    assert(trace.read("session-C", 0).chunks.empty()); // Old slots are not replayed.
+    const int locked = open(path.c_str(), O_RDWR); assert(locked >= 0);
+    assert(flock(locked, LOCK_EX | LOCK_NB) == 0);
+    errno = EIO;
+    trace.capture("channel-A", true, bytes, sizeof(bytes));
+    assert(errno == EIO); // Busy observation never changes collection errors.
+    close(locked);
+    assert(trace.read("session-C", 0).chunks.empty());
+    assert(chmod(path.c_str(), 0644) == 0);
+    rejects([&] { trace.read("session-C", 0); });
+    assert(chmod(path.c_str(), 0600) == 0);
+    const auto alias = std::string(dir) + "/alias.bin";
+    assert(link(path.c_str(), alias.c_str()) == 0);
+    rejects([&] { trace.read("session-C", 0); });
+    unlink(alias.c_str());
+    assert(symlink(path.c_str(), alias.c_str()) == 0);
+    edge_gateway::ChannelTrace linked(alias);
+    rejects([&] { linked.read("session-C", 0); });
+    unlink(alias.c_str());
     unlink(path.c_str()); rmdir(dir);
     std::cout << "channel trace: default-off, cross-process, isolation, ownership, expiry, truncation, overflow and stop passed\n";
 }

@@ -5,12 +5,15 @@
 #include <vector>
 
 namespace edge_gateway {
+// Shared tmpfs remains writable with ProtectSystem=strict and BindPaths=/dev/shm.
+constexpr const char* channelTraceDirectory = "/dev/shm/modbus-gateway-trace";
+constexpr const char* channelTracePath = "/dev/shm/modbus-gateway-trace/channel-trace-v1.bin";
 struct TraceChunk { std::uint64_t seq; std::int64_t ts; bool tx; std::uint32_t originalLength; std::vector<std::uint8_t> bytes; };
 struct TracePage { bool active; std::uint64_t cursor; std::uint64_t overwritten; std::int64_t expiresAt; std::string channel; std::vector<TraceChunk> chunks; };
 // One bounded capture per edge. A local, same-UID, tmpfs ring; never on a collection socket.
 class ChannelTrace {
 public:
-    explicit ChannelTrace(std::string path = "/run/modbus-gateway/channel-trace-v1.bin");
+    explicit ChannelTrace(std::string path = channelTracePath);
     void start(const std::string& channel, const std::string& session, int durationSec);
     TracePage read(const std::string& session, std::uint64_t after);
     void stop(const std::string& session);

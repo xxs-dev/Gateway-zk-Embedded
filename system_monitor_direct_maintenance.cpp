@@ -3041,11 +3041,6 @@ std::string handleRequest(
                 const auto protocol = edge_gateway::ConfigLoader::loadFromFile(requested).protocol.type;
                 const std::set<std::string> supported{"modbus_rtu", "modbus_tcp", "iec101", "iec103", "iec104", "iec103_tcp", "iec103_serial"};
                 if (!supported.count(protocol)) throw std::runtime_error("channel protocol capture not supported");
-#ifndef _WIN32
-                if (mkdir("/run/modbus-gateway", 0750) && errno != EEXIST) throw std::runtime_error("cannot create trace runtime directory");
-                struct stat st{};
-                if (lstat("/run/modbus-gateway", &st) || !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 0022)) throw std::runtime_error("unsafe trace runtime directory");
-#endif
                 double duration = 60;
                 if (!tryJsonDouble(body, "durationSec", &duration) || !std::isfinite(duration) || duration < 1 || duration > 300 || std::floor(duration) != duration) throw std::runtime_error("durationSec must be an integer in 1-300");
                 trace.start(requested, session, static_cast<int>(duration));

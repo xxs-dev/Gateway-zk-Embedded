@@ -9,7 +9,6 @@
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/file.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -23,10 +22,14 @@ std::int64_t wall() { return std::chrono::duration_cast<std::chrono::millisecond
 std::int64_t mono() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 struct Slot { std::uint64_t seq; std::int64_t ts; std::uint32_t length, originalLength; bool tx; std::uint8_t bytes[maxBytes]; };
 struct Ring { std::uint32_t version; char session[65], channel[1024]; std::int64_t deadline, expiresAt; std::uint64_t seq; Slot slots[capacity]; };
+struct Header { std::uint32_t version; char session[65], channel[1024]; std::int64_t deadline, expiresAt; std::uint64_t seq; };
+static_assert(sizeof(Header) == offsetof(Ring, slots), "trace header layout mismatch");
 #ifndef _WIN32
-struct Mapping {
-    int fd = -1; Ring* ring = nullptr;
-    Mapping(const std::string& path, bool create) {
+// Use bounded positional I/O on tmpfs, without adding an undeclared mmap to
+// processes whose point-store mappings are checked by the production guard.
+struct LockedBuffer {
+    int fd = -1;
+    LockedBuffer(const std::string& path, bool create) {
         fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT : 0), 0600);
         if (fd < 0) throw std::runtime_error("trace buffer unavailable");
         struct stat st{};
@@ -34,14 +37,29 @@ struct Mapping {
         if (st.st_size != sizeof(Ring)) {
             if (!create || (st.st_size != 0) || ftruncate(fd, sizeof(Ring))) { close(fd); fd = -1; throw std::runtime_error("trace buffer version/size mismatch"); }
         }
-        auto ptr = mmap(nullptr, sizeof(Ring), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        if (ptr == MAP_FAILED) { close(fd); fd = -1; throw std::runtime_error("trace mmap failed"); }
-        ring = static_cast<Ring*>(ptr);
     }
-    ~Mapping() { if (ring) munmap(ring, sizeof(Ring)); if (fd >= 0) close(fd); }
+    ~LockedBuffer() { if (fd >= 0) close(fd); }
+    void read(void* data, std::size_t size, off_t offset = 0) {
+        auto* out = static_cast<char*>(data);
+        while (size) {
+            const auto n = pread(fd, out, size, offset);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) throw std::runtime_error("trace buffer read failed");
+            out += n; size -= n; offset += n;
+        }
+    }
+    void write(const void* data, std::size_t size, off_t offset = 0) {
+        const auto* in = static_cast<const char*>(data);
+        while (size) {
+            const auto n = pwrite(fd, in, size, offset);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) throw std::runtime_error("trace buffer write failed");
+            in += n; size -= n; offset += n;
+        }
+    }
 };
-void check(const Ring& ring, const std::string& session) {
-    if (ring.version != magic || session.empty() || session.size() > 64 || session != ring.session) throw std::runtime_error("trace session mismatch or expired buffer");
+void check(const Header& ring, const std::string& session) {
+    if (ring.version != magic || ring.session[64] || ring.channel[1023] || session.empty() || session.size() > 64 || session != ring.session) throw std::runtime_error("trace session mismatch or expired buffer");
 }
 #endif
 std::string processChannel;
@@ -51,25 +69,31 @@ ChannelTrace::ChannelTrace(std::string path) : path_(std::move(path)) {}
 void ChannelTrace::start(const std::string& channel, const std::string& session, int seconds) {
     if (channel.empty() || channel.size() > 1023 || channel.find('\0') != std::string::npos || session.empty() || session.size() > 64 || !std::all_of(session.begin(), session.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'; }) || seconds < 1 || seconds > 300) throw std::runtime_error("invalid trace channel/session/duration (1-300s)");
 #ifndef _WIN32
-    Mapping m(path_, true); auto& r = *m.ring;
+    if (path_ == channelTracePath) {
+        if (mkdir(channelTraceDirectory, 0700) && errno != EEXIST) throw std::runtime_error("cannot create trace runtime directory");
+        struct stat st{};
+        if (lstat(channelTraceDirectory, &st) || !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 0077)) throw std::runtime_error("unsafe trace runtime directory");
+    }
+    LockedBuffer m(path_, true); Header r{}; m.read(&r, sizeof(r));
     if (r.version == magic && r.deadline > mono()) throw std::runtime_error("a trace session is already active");
     std::memset(&r, 0, sizeof(r));
     std::memcpy(r.channel, channel.c_str(), channel.size()); std::memcpy(r.session, session.c_str(), session.size());
     r.deadline = mono() + seconds * 1000; r.expiresAt = wall() + seconds * 1000; r.version = magic;
+    m.write(&r, sizeof(r));
 #else
     throw std::runtime_error("trace requires a POSIX edge");
 #endif
 }
 TracePage ChannelTrace::read(const std::string& session, std::uint64_t after) {
 #ifndef _WIN32
-    Mapping m(path_, false); auto& r = *m.ring; check(r, session);
+    LockedBuffer m(path_, false); Header r{}; m.read(&r, sizeof(r)); check(r, session);
     if (after > r.seq) throw std::runtime_error("trace cursor ahead of session");
     TracePage page{r.deadline > mono(), after, 0, r.expiresAt, r.channel, {}};
     auto first = r.seq >= capacity ? r.seq - capacity + 1 : 1;
     page.overwritten = first > after + 1 ? first - after - 1 : 0;
     const auto end = std::min(r.seq, std::max(after + 1, first) + 127);
     for (auto n = std::max(after + 1, first); n <= end; ++n) {
-        const auto& s = r.slots[(n - 1) % capacity];
+        Slot s{}; m.read(&s, sizeof(s), sizeof(Header) + ((n - 1) % capacity) * sizeof(Slot));
         if (s.length > maxBytes || s.seq != n) throw std::runtime_error("trace ring corrupt");
         page.chunks.push_back({s.seq, s.ts, s.tx, s.originalLength, {s.bytes, s.bytes + s.length}}); page.cursor = n;
     }
@@ -80,7 +104,8 @@ TracePage ChannelTrace::read(const std::string& session, std::uint64_t after) {
 }
 void ChannelTrace::stop(const std::string& session) {
 #ifndef _WIN32
-    Mapping m(path_, false); check(*m.ring, session); m.ring->deadline = 0;
+    LockedBuffer m(path_, false); Header r{}; m.read(&r, sizeof(r)); check(r, session);
+    r.deadline = 0; m.write(&r, sizeof(r));
 #endif
 }
 void ChannelTrace::capture(const std::string& channel, bool tx, const std::uint8_t* bytes, std::size_t size) noexcept {
@@ -88,12 +113,14 @@ void ChannelTrace::capture(const std::string& channel, bool tx, const std::uint8
     if (!size || !bytes || channel.empty()) return;
 #ifndef _WIN32
     try {
-        Mapping m(path_, false); auto& r = *m.ring;
-        if (r.version != magic || r.deadline <= mono() || channel != r.channel) return;
-        auto n = r.seq + 1; auto& s = r.slots[(n - 1) % capacity];
+        LockedBuffer m(path_, false); Header r{}; m.read(&r, sizeof(r));
+        if (r.version != magic || r.channel[1023] || r.deadline <= mono() || channel != r.channel || r.seq == UINT64_MAX) return;
+        auto n = r.seq + 1; Slot s{};
         s.seq = 0; s.ts = wall(); s.tx = tx; s.originalLength = static_cast<std::uint32_t>(std::min<std::size_t>(size, UINT32_MAX)); s.length = std::min(size, maxBytes);
         std::memcpy(s.bytes, bytes, s.length);
-        s.seq = n; r.seq = n; // Commit only a fully copied chunk while holding the inter-process lock.
+        s.seq = n;
+        m.write(&s, sizeof(s), sizeof(Header) + ((n - 1) % capacity) * sizeof(Slot));
+        r.seq = n; m.write(&r, sizeof(r)); // Commit only a fully copied chunk while holding the inter-process lock.
     } catch (...) { /* Observation is best-effort: never block or throw into device I/O. */ }
 #endif
 }
