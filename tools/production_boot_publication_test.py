@@ -595,7 +595,7 @@ class BootLockTest(unittest.TestCase):
         configs = self.f.m.tree_hashes(self.f.home / 'config/runtime')
         self.boot_entry()
         self.assertTrue(lock.exists())
-        inventory = [('systemctl', query, '--all', '--no-legend', '--no-pager', '--plain')
+        inventory = [('systemctl', query, '--all', '--no-legend', '--no-pager', '--plain') + self.f.g.PRODUCTION_UNIT_PATTERNS
                      for query in ('list-units', 'list-unit-files')]
         self.assertEqual(self.f.calls, inventory * 2, 'only exact read-only inventory queries are allowed')
         self.assertEqual(self.f.live, live)

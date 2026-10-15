@@ -67,7 +67,16 @@ CORE_SCRIPTS = ('runtime-upgrade-guard.py', 'gateway-services.sh', 'ota-apply.sh
                 'ota-rollback.sh', 'ota-health-result.py', 'production-smoke-test.sh')
 POINT_STORE_SIZES = {10: 15174272, 11: 15667032}
 PRODUCTION_DIR = 'runtime-production'
-PRODUCTION_UNIT = re.compile(r'(?:(?:modbus-rtu|dlt645-driver|dio-driver|can-driver|iec-driver|compute-engine|agc-avc|ems-cluster|event-engine|local-display|local-display-qt|local-kiosk|system-monitor|camera-service|mqtt-tls-tunnel|mqtt-driver|mqtt-forwarder)@[A-Za-z0-9_.:-]*|gateway-services|gateway-health-watchdog|qt-display-bridge|ky-ems)\.service\Z')
+PRODUCTION_INSTANCE_FAMILIES = (
+    'modbus-rtu', 'dlt645-driver', 'dio-driver', 'can-driver', 'iec-driver', 'compute-engine',
+    'agc-avc', 'ems-cluster', 'event-engine', 'local-display', 'local-display-qt', 'local-kiosk',
+    'system-monitor', 'camera-service', 'mqtt-tls-tunnel', 'mqtt-driver', 'mqtt-forwarder')
+PRODUCTION_SINGLE_UNITS = ('gateway-services', 'gateway-health-watchdog', 'qt-display-bridge', 'ky-ems')
+PRODUCTION_UNIT = re.compile(r'(?:(?:' + '|'.join(map(re.escape, PRODUCTION_INSTANCE_FAMILIES)) +
+                             r')@[A-Za-z0-9_.:-]*|' + '|'.join(map(re.escape, PRODUCTION_SINGLE_UNITS)) +
+                             r')\.service\Z')
+PRODUCTION_UNIT_PATTERNS = tuple(name + '@*.service' for name in PRODUCTION_INSTANCE_FAMILIES) + \
+                           tuple(name + '.service' for name in PRODUCTION_SINGLE_UNITS)
 PRODUCTION_READERS = {A_RTU_UNIT: 'bin/ModbusRtu', A_MQTT_UNIT: 'bin/MqttDriver',
                       MONITOR_UNIT: 'bin/SystemMonitor'}
 PRODUCTION_HELPERS = frozenset(('offline-runtime-upgrade.py', 'runtime-upgrade-guard.py',
@@ -154,8 +163,11 @@ def production_unit_files(units):
 
 
 def production_units_present(units):
+    # Query every instance in the admitted grammar, including unapproved ones.
+    # Do not enumerate unrelated OS unit files or cache inventory across checks.
     for action in ('list-units', 'list-unit-files'):
-        result = subprocess.run(['systemctl', action, '--all', '--no-legend', '--no-pager', '--plain'],
+        result = subprocess.run(['systemctl', action, '--all', '--no-legend', '--no-pager', '--plain'] +
+                                list(PRODUCTION_UNIT_PATTERNS),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=45)
         if result.returncode:
             raise ValueError('cannot inventory production participants')

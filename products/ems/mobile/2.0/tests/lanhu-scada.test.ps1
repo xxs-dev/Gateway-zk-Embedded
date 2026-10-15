@@ -78,6 +78,21 @@ try {
         if($screen.screenId-eq'Devices-Diesel'-and$devices.Count){throw 'Diesel displays unrelated alarms'}
     }}
     $monitorPcs=$screens|Where-Object screenId -eq 'Devices-Pcs'
+    $acPanel=($monitorPcs.widgets|Where-Object widgetId -eq 'pcs-ac-panel').geometry
+    foreach($field in $monitorPcs.widgets|Where-Object widgetId -like 'pcs-ac-total-*'){
+        if($field.geometry.y+$field.geometry.height -gt $acPanel.y+$acPanel.height-4){throw 'PCS totals overflow their panel'}
+    }
+    foreach($screen in $screens){
+        $brand=($screen.widgets|Where-Object widgetId -eq 'lanhu-brand').geometry
+        $separator=($screen.widgets|Where-Object widgetId -eq 'lanhu-brand-separator').geometry
+        if($brand.x+$brand.width -gt $separator.x-8){throw 'Header brand overlaps separator'}
+        foreach($label in $screen.widgets|Where-Object {$_.widgetId -like '*-label' -and $_.type -eq 'qtLabel'}){
+            $value=$screen.widgets|Where-Object widgetId -eq ($label.widgetId -replace '-label$','')
+            if($null -ne $value -and $value.geometry.x -eq $label.geometry.x -and $value.geometry.y -gt $label.geometry.y){
+                if($label.geometry.y+$label.geometry.height -gt $value.geometry.y){throw "Overlapping label/value: $($screen.screenId)/$($label.widgetId)"}
+            }
+        }
+    }
     foreach($entry in @(@{Id='pcs-dc-3';I=1250;U='kWh'},@{Id='pcs-ac-total-3';I=1248;U='kWh'})){
         $widget=$monitorPcs.widgets|Where-Object widgetId -eq $entry.Id
         if($map[$widget.bindings[0].tagId].index-ne$entry.I-or$widget.properties.valueSuffix.Trim()-ne$entry.U){throw 'PCS energy binding mismatch'}

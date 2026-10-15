@@ -8,6 +8,7 @@ function Ref-Panel($Id,$X,$Y,$W,$H,$Color='#FFFFFF') { New-LanhuPanel $Id $X $Y 
 function Ref-Text($Id,$Text,$X,$Y,$W,$H,$Size=16,$Color='#303438',$Bold=$false,$Align='Left') {
     $widget=New-Text $Id $Text $X $Y $W $H $Size $Color $Align $Bold
     $widget.properties | Add-Member qtVerticalAlignment 'Center' -Force
+    $widget.properties | Add-Member qtAutoFit 'true' -Force
     return $widget
 }
 function Ref-Button($Id,$Text,$Target,$X,$Y,$W,$H,$Active=$false,$Radius=8) {
@@ -26,8 +27,9 @@ function Ref-Chrome($Widgets,$Id,$Active) {
     $clock=Ref-Text 'lanhu-clock' '' 140 23 300 30 16
     $clock.properties | Add-Member qtClockFormat 'yyyy-MM-dd  HH:mm:ss'
     $Widgets.Add($clock)
-    $Widgets.Add((New-LanhuImage 'lanhu-logo' 'logo.png' 472 18 116 36))
-    $Widgets.Add((Ref-Text 'lanhu-brand' $projectDisplayName 600 17 208 34 23 '#25292D' $true))
+    $logo=New-LanhuImage 'lanhu-logo' 'login-logo.png' 472 18 116 36
+    $logo.properties | Add-Member qtImageFit 'contain';$Widgets.Add($logo)
+    $Widgets.Add((Ref-Text 'lanhu-brand' $projectDisplayName 600 17 184 36 23 '#25292D' $true))
     $Widgets.Add((New-Frame 'lanhu-brand-separator' 792 26 1 16 '#C3CBD1' 1))
     $Widgets.Add((Ref-Text 'lanhu-machine' $MachineCode 816 22 355 28 18))
     $Widgets.Add((New-Frame 'lanhu-header-rule' 132 60 1290 1 '#D4DADF' 1))

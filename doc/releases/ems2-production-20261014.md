@@ -1,5 +1,11 @@
 # realese1.0 Production Readiness and EMS 2.0 Integration
 
+Latest 22.6 display follow-up: `ems2-board6-kiosk-20261014.md` records dedicated
+fullscreen, automatic desktop-free startup, two software reboot checks, and
+user-confirmed fullscreen/navigation. PCS/BMS layout issues were subsequently
+reported and are not covered by the fullscreen acceptance. Production readiness
+remains false.
+
 ## Objective
 
 Bring the current `realese1.0` edge software to production usability, including
@@ -1146,3 +1152,12 @@ multi-vehicle/HIL, abrupt power-loss, signed OTA provisioning and long-duration
 reliability remain unaccepted. 22.6 and vendor startup/network/watchdog scripts
 were not modified. Never use the old stopped-reprovision receipt to overwrite
 the new active bootstrap journal; keep each lifecycle's own paired recovery path.
+
+### Board 22.6 Display Follow-Up
+
+The user subsequently connected the monitor to 22.6 and authorized complete
+replacement and reboot. See [22.6 display installation](ems2-board6-display-20261014.md)
+for the ff75a52 installation, preservation/rollback evidence, initial startup
+timeout, successful fresh-boot activation and actual X11 screenshots. The old
+program is retained only for recovery, not run in parallel. 22.7 is unchanged.
+Production, dedicated fullscreen, touch and 95% visual acceptance remain open.

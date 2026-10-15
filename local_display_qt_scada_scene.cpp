@@ -326,13 +326,15 @@ void ScadaSceneView::buildScene() {
             const auto imagePath = QDir(QString::fromStdString(projectRoot_)).filePath(QString::fromStdString(imageReference));
             QPixmap pixmap(imagePath);
             if (!pixmap.isNull()) {
+                const auto contain = property(widget, "qtImageFit") == "contain";
                 auto* image = scene_->addPixmap(pixmap.scaled(
                     static_cast<int>(std::round(geometry.width())),
                     static_cast<int>(std::round(geometry.height())),
-                    Qt::IgnoreAspectRatio,
+                    contain ? Qt::KeepAspectRatio : Qt::IgnoreAspectRatio,
                     Qt::SmoothTransformation
                 ));
-                image->setPos(geometry.x(), geometry.y());
+                image->setPos(geometry.x() + (contain ? (geometry.width() - image->boundingRect().width()) / 2 : 0),
+                              geometry.y() + (contain ? (geometry.height() - image->boundingRect().height()) / 2 : 0));
                 image->setZValue(widget.zIndex);
                 if (!imageHasTextOverlay && widget.bindings.empty()) continue;
             }
@@ -485,6 +487,7 @@ void ScadaSceneView::buildScene() {
         runtimeWidget.lightTheme = lightTheme;
         runtimeWidget.autoFitText = property(widget, "qtAutoFit") == "true";
         runtimeWidget.textPixelSize = static_cast<int>(numericProperty(widget, "qtFontSize", 14));
+        runtimeWidget.textVerticalAlignment = property(widget, "qtVerticalAlignment");
         runtimeWidget.alarmActiveCount = property(widget, "alarmActiveCount") == "true";
         runtimeWidget.lanhuAlarmPresentation = property(widget, "qtAlarmPresentation") == "lanhu";
         runtimeWidget.summaryAlarmPresentation = property(widget, "qtAlarmPresentation") == "summary";
@@ -784,6 +787,7 @@ void ScadaSceneView::buildScene() {
             textY = geometry.bottom() - textHeight;
         }
         runtimeWidget.valueText->setPos(textX, textY);
+        runtimeWidget.valueText->setData(0, QString::fromStdString(widget.widgetId));
         runtimeWidget.valueText->setZValue(widget.zIndex + 0.3);
         runtimeWidget.valueText->setVisible(!hideNativeValue);
         if (widget.type == "cellularSignal") {
@@ -1127,6 +1131,9 @@ void ScadaSceneView::buildScene() {
                 ++seriesIndex;
             }
         }
+        // Static labels are not refreshed, so fit them before their first paint too.
+        if (runtimeWidget.autoFitText && !hideNativeValue)
+            updateValueText(runtimeWidget, runtimeWidget.valueText->toPlainText());
         if (unboundDataWidget || unboundStateWidget ||
             !runtimeWidget.indexes.empty() || !runtimeWidget.stateRules.empty() ||
             !runtimeWidget.alarms.empty() || isTrendType(widget.type) || widget.type == "alarmTable" ||
@@ -1173,7 +1180,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
             continue;
         }
         if (!widget.clockFormat.empty()) {
-            widget.valueText->setPlainText(QDateTime::fromMSecsSinceEpoch(now).toString(QString::fromStdString(widget.clockFormat)));
+            updateValueText(widget, QDateTime::fromMSecsSinceEpoch(now).toString(QString::fromStdString(widget.clockFormat)));
             continue;
         }
         if (widget.alarmActiveCount) {
@@ -1184,7 +1191,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
             const auto count = std::count_if(widget.alarms.begin(), widget.alarms.end(), [this, &byIndex](const RuntimeAlarm& alarm) {
                 return conditionMatches(alarm.condition, byIndex);
             });
-            widget.valueText->setPlainText(available ? QString::number(count) : QStringLiteral("--"));
+            updateValueText(widget, available ? QString::number(count) : QStringLiteral("--"));
             continue;
         }
         if (widget.parallelTopology != nullptr) continue;
@@ -1302,17 +1309,7 @@ void ScadaSceneView::refresh(std::int64_t now) {
             const auto text = valueText(widget, byIndex);
             const auto utf8 = text.toStdString();
             if (utf8 != widget.lastText) {
-                widget.valueText->setPlainText(text);
-                if (widget.autoFitText && widget.panel != nullptr) {
-                    auto font = widget.valueText->font(); font.setPixelSize(widget.textPixelSize);
-                    const auto width = widget.panel->rect().width();
-                    const auto naturalWidth = QFontMetricsF(font).horizontalAdvance(text);
-                    if (naturalWidth > width && naturalWidth > 0) font.setPixelSize(std::max(9, static_cast<int>(widget.textPixelSize * width / naturalWidth)));
-                    widget.valueText->setFont(font);
-                    widget.valueText->setPlainText(QFontMetricsF(font).elidedText(text, Qt::ElideRight, width));
-                    widget.valueText->setToolTip(text);
-                    widget.valueText->setY(widget.panel->rect().y() + std::max(0.0, (widget.panel->rect().height() - widget.valueText->boundingRect().height()) / 2));
-                }
+                updateValueText(widget, text);
                 widget.lastText = utf8;
             }
         }
@@ -2127,6 +2124,36 @@ void ScadaSceneView::fitCanvas() {
     const auto scale = std::min(viewport()->width() / static_cast<double>(screen_.width), viewport()->height() / static_cast<double>(screen_.height));
     setTransform(QTransform::fromScale(scale, scale));
     centerOn(scene_->sceneRect().center());
+}
+
+void ScadaSceneView::updateValueText(RuntimeWidget& widget, const QString& text) {
+    auto* item = widget.valueText;
+    item->setPlainText(text);
+    if (!widget.autoFitText || widget.panel == nullptr) return;
+    const auto rect = widget.panel->rect();
+    const auto width = item->textWidth();
+    auto font = item->font();
+    font.setStretch(QFont::Unstretched);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
+    const auto lines = text.split('\n');
+    const auto minimumSize = std::min(9, std::max(1, widget.textPixelSize));
+    for (int size = std::max(1, widget.textPixelSize); size >= minimumSize; --size) {
+        font.setPixelSize(size); item->setFont(font);
+        const QFontMetricsF metrics(font);
+        const auto fitsWidth = std::all_of(lines.begin(), lines.end(), [&](const QString& line) {
+            return metrics.horizontalAdvance(line) <= width;
+        });
+        if (fitsWidth && item->boundingRect().height() <= rect.height()) break;
+    }
+    QStringList fitted;
+    const QFontMetricsF metrics(font);
+    for (const auto& line : lines) fitted.push_back(metrics.elidedText(line, Qt::ElideRight, width));
+    item->setPlainText(fitted.join('\n'));
+    item->setToolTip(text);
+    if (widget.textVerticalAlignment == "Center")
+        item->setY(rect.y() + std::max(0.0, (rect.height() - item->boundingRect().height()) / 2));
+    else if (widget.textVerticalAlignment == "Bottom")
+        item->setY(rect.bottom() - item->boundingRect().height());
 }
 
 std::string ScadaSceneView::property(const edge_gateway::ScadaWidget& widget, const std::string& key) const {

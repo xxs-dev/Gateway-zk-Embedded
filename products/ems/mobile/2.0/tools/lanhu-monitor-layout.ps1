@@ -12,7 +12,7 @@ function Monitor-Chrome($Widgets,$Id,$Active='Device',$Kind='') {
     Ref-Chrome $Widgets $Id 'Monitor'
     Ref-Tabs $Widgets @(@{Id='Network';T='网络监测';Target='Monitor-Network'},@{Id='Device';T='设备监测';Target='Devices-Emu'},@{Id='Strategy';T='策略监测';Target='Monitor-Strategy'}) $Active 560 80 440
     if($Active-eq'Device') {
-        $Widgets.Add((Ref-Panel 'monitor-body' 132 155 1271 614))
+        $Widgets.Add((Ref-Panel 'monitor-body' 132 155 1271 633))
         $Widgets.Add((New-Frame 'monitor-tab-band' 132 155 1271 51 '#F7F7F7' 1))
         $tabs=@(@{Id='Emu';T='EMU';X=158;W=64},@{Id='Pcs';T='PCS';X=272;W=64},@{Id='Bms';T='BMS';X=385;W=64},@{Id='Thermal';T='TMS';X=499;W=64},@{Id='Mccb';T='MCCB';X=613;W=78},@{Id='Meters';T='电表';X=735;W=64},@{Id='Diesel';T='柴油发电机';X=843;W=126})
         foreach($t in $tabs) {
@@ -35,9 +35,10 @@ function Monitor-Heading($Widgets,$Id,$Title,$Icon,$X,$Y) {
     $Widgets.Add((Ref-Text "$Id-heading" $Title ($X+34) $Y 250 28 18 '#303438' $true))
 }
 function Monitor-Field($Widgets,$Id,$Title,$Index,$Unit,$X,$Y,$W,$Size=18) {
-    $label=Ref-Text "$Id-label" $Title $X $Y $W 38 16 '#777E85'
-    $label.properties|Add-Member qtAutoFit 'true';$Widgets.Add($label)
-    Ref-Value $Widgets $Id $Index $X ($Y+37) $W 30 $Unit $Size
+    $multiLine=$Title.Contains("`n")
+    $labelHeight=if($multiLine){42}else{30}
+    $Widgets.Add((Ref-Text "$Id-label" $Title $X $Y $W $labelHeight $(if($multiLine){14}else{16}) '#777E85'))
+    Ref-Value $Widgets $Id $Index $X ($Y+$labelHeight+4) $W 28 $Unit $Size
     $Widgets[$Widgets.Count-1].properties.qtTextAlignment='Left'
 }
 function Monitor-State($Widgets,$Id,$Index,$Entries,$X,$Y,$W=100,$H=30,$Badge=$false) {
@@ -52,8 +53,8 @@ function Monitor-Binary($Widgets,$Id,$Index,$Good,$Bad,$X,$Y,$W=100,$Normal='0')
     Monitor-State $Widgets $Id $Index @(@{V=$Normal;T=$Good;C='#18C773'},@{V=$other;T=$Bad;C='#F52D59'}) $X $Y $W
 }
 function Monitor-SignalField($Widgets,$Id,$Title,$Index,$Good,$Bad,$X,$Y,$W,$Normal='0') {
-    $Widgets.Add((Ref-Text "$Id-label" $Title $X $Y $W 38 16 '#777E85'))
-    Monitor-Binary $Widgets $Id $Index $Good $Bad $X ($Y+37) $W $Normal
+    $Widgets.Add((Ref-Text "$Id-label" $Title $X $Y $W 30 16 '#777E85'))
+    Monitor-Binary $Widgets $Id $Index $Good $Bad $X ($Y+34) $W $Normal
 }
 function Monitor-Alarms($Widgets,$Id,$Indexes,$X,$Y,$W,$H) {
     $devices=@($Indexes|Where-Object {$null-ne$_-and(Has-Index $_)}|ForEach-Object {(Tag-At $_).deviceId}|Sort-Object -Unique)
@@ -62,9 +63,8 @@ function Monitor-Alarms($Widgets,$Id,$Indexes,$X,$Y,$W,$H) {
 function Monitor-MetricTile($Widgets,$Id,$Title,$Index,$Unit,$Icon,$X,$Y,$W,$H=70,$Color='#E6F2F8') {
     $Widgets.Add((Ref-Panel "$Id-tile" $X $Y $W $H $Color))
     $Widgets.Add((New-LanhuImage "$Id-icon" $Icon ($X+15) ($Y+15) 42 42))
-    $label=Ref-Text "$Id-label" $Title ($X+67) ($Y+9) ($W-70) 28 16 '#777E85'
-    $label.properties|Add-Member qtAutoFit 'true';$Widgets.Add($label)
-    Ref-Value $Widgets $Id $Index ($X+67) ($Y+36) ($W-70) 27 $Unit 16
+    $Widgets.Add((Ref-Text "$Id-label" $Title ($X+67) ($Y+8) ($W-77) 26 16 '#777E85'))
+    Ref-Value $Widgets $Id $Index ($X+67) ($Y+37) ($W-77) 26 $Unit 16
     $Widgets[$Widgets.Count-1].properties.qtTextAlignment='Left'
 }
 function Build-MonitorNetwork($Id='Monitor-Network') {
@@ -109,12 +109,12 @@ function Build-MonitorPcs {
     Monitor-Heading $w 'pcs-signals' '遥信信息' 'monitor-signal.png' 516 276
     Monitor-SignalField $w 'pcs-mode' '控制模式' 1214 '远程' '就地' 519 305 98 '1'
     Monitor-SignalField $w 'pcs-online' '在线状态' 1399 '在线' '离线' 625 305 98 '1'
-    $w.Add((Ref-Text 'pcs-run-label' '运行状态' 731 305 98 38 14 '#777E85'))
+    $w.Add((Ref-Text 'pcs-run-label' '运行状态' 731 305 98 30 14 '#777E85'))
     $w.Add((New-Widget 'pcs-run' 'statusCard' '' 731 342 98 30 5 @((New-Binding 1209),(New-Binding 1210),(New-Binding 1211)) @((New-StateRule 'stop' '停机' '#90979F' 1209 'eq' '1' 10),(New-StateRule 'standby' '待机' '#F5A623' 1210 'eq' '1' 20),(New-StateRule 'run' '运行' '#18C773' 1211 'eq' '1' 30)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
     Monitor-SignalField $w 'pcs-fault' '总故障状态' 1212 '无故障' '故障' 837 305 98
     Monitor-SignalField $w 'pcs-alarm' '总报警状态' 1213 '无告警' '告警' 519 380 98
     Monitor-SignalField $w 'pcs-emergency' '急停输入状态' 1215 '无急停' '急停' 625 380 103
-    $w.Add((Ref-Text 'pcs-grid-label' '并离网状态' 731 380 196 38 14 '#777E85'))
+    $w.Add((Ref-Text 'pcs-grid-label' '并离网状态' 731 380 196 30 14 '#777E85'))
     $w.Add((New-Widget 'pcs-grid' 'statusCard' '' 731 417 196 30 5 @((New-Binding 1216),(New-Binding 1217)) @((New-StateRule 'grid' '并网状态' '#18C773' 1216 'eq' '1' 10),(New-StateRule 'offgrid' '离网状态' '#F52D59' 1217 'eq' '1' 20)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
     Monitor-Heading $w 'pcs-alarms-heading' '告警信息' 'monitor-alarm.png' 960 276
     Monitor-Alarms $w 'pcs-alarms' @(1399) 960 310 390 132
@@ -124,7 +124,7 @@ function Build-MonitorPcs {
     $m=Get-LanhuMeterIndexes 'Pcs';$cols=@(@{T='电压';A=$m.V;U='V'},@{T='电流';A=$m.I;U='A'},@{T='有功功率';A=$m.P;U='kW'},@{T='无功功率';A=$m.Q;U='kvar'},@{T='视在功率';A=$m.S;U='kVA'},@{T='下发有功功率';A=@(1318,1319,1320);U='kW'},@{T='下发无功功率';A=@(1321,1322,1323);U='kvar'})
     Monitor-PhaseTable $w 'pcs-ac-table' $cols 550 531 804 176
     $totals=@(@{T='总有功功率';I=1230;U='kW'},@{T='总无功功率';I=1234;U='kvar'},@{T='总视在功率';I=1238;U='kVA'},@{T='累计放电量';I=1248;U='kWh'},@{T='累计充电量';I=1247;U='kWh'})
-    foreach($i in 0..4){$e=$totals[$i];Monitor-Field $w "pcs-ac-total-$i" $e.T $e.I $e.U (568+$i*160) 711 151}
+    foreach($i in 0..4){$e=$totals[$i];Monitor-Field $w "pcs-ac-total-$i" $e.T $e.I $e.U (568+$i*160) 704 151}
     return New-MonitorScreen 'Devices-Pcs' $w
 }
 function Monitor-PhaseTable($Widgets,$Id,$Columns,$X,$Y,$W,$H) {
@@ -134,7 +134,7 @@ function Monitor-PhaseTable($Widgets,$Id,$Columns,$X,$Y,$W,$H) {
     for($col=0;$col-lt$Columns.Count;$col++){
         $e=$Columns[$col];$left=$X+$labelW+$col*$cellW
         $Widgets.Add((Ref-Text "$Id-head-$col" $e.T $left $Y $cellW 43 14 '#303438' $false 'Center'))
-        foreach($row in 0..2){Ref-Value $Widgets "$Id-$col-$row" $e.A[$row] $left ($Y+43+$row*$rowH) $cellW $rowH $e.U 18}
+        foreach($row in 0..2){Ref-Value $Widgets "$Id-$col-$row" $e.A[$row] ($left+4) ($Y+43+$row*$rowH) ($cellW-8) $rowH $e.U 18}
     }
     foreach($row in 0..2){$Widgets.Add((Ref-Text "$Id-phase-$row" "$(@('A','B','C')[$row])相" $X ($Y+43+$row*$rowH) $labelW $rowH 14 '#303438' $false 'Center'))}
 }
@@ -148,7 +148,7 @@ function Build-MonitorBms {
     foreach($i in 0..2){
         $left=186+$i*132;$index=Find-PointIndex -Names @("$(@('一级','二级','三级')[$i])报警") -SharedMemoryPattern 'ttySP3'
         if($null-ne$index-and(Tag-At $index).deviceId-ne(Tag-At 3999).deviceId){$index=$null}
-        $w.Add((Ref-Text "bms-level-$i-label" "簇$(@('一级','二级','三级')[$i])告警" $left 337 123 38 16 '#777E85'))
+        $w.Add((Ref-Text "bms-level-$i-label" "簇$(@('一级','二级','三级')[$i])告警" $left 337 123 30 16 '#777E85'))
         Monitor-State $w "bms-level-$i" $index @(@{V='0';T='无告警';C='#18C773'},@{V='0';Op='ne';T='告警';C='#F52D59'}) $left 374 123
     }
     Monitor-Heading $w 'bms-alarm-heading' '告警信息' 'monitor-alarm.png' 180 414
@@ -277,7 +277,7 @@ function Build-MonitorMeters($Page=1) {
 function Build-MonitorDiesel {
     $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w 'Devices-Diesel' 'Device' 'Diesel'
     $w.Add((New-LanhuImage 'diesel-icon' 'monitor-diesel.png' 162 226 66 66));$w.Add((Ref-Text 'diesel-title' '柴油发电机' 252 230 190 32 18 '#303438' $true));Ref-Value $w 'diesel-running' $null 444 230 96 32;Ref-Value $w 'diesel-enabled' $null 546 230 96 32
-    foreach($i in 0..4){$left=252+$i*148;$w.Add((Ref-Text "diesel-meta-label-$i" @('转速(r/min)','充电机电压(V)','电池电压(V)','机油温度(℃)','剩余油量(L)')[$i] $left 265 144 26 14 '#777E85'));Ref-Value $w "diesel-meta-$i" $null ($left+102) 265 44 26}
+    foreach($i in 0..4){$left=252+$i*224;$w.Add((Ref-Text "diesel-meta-label-$i" @('转速(r/min)','充电机电压(V)','电池电压(V)','机油温度(℃)','剩余油量(L)')[$i] $left 259 154 26 14 '#777E85'));Ref-Value $w "diesel-meta-$i" $null ($left+160) 259 56 26}
     Monitor-Box $w 'diesel-generation' 162 291 731 330 '发电信息';Monitor-Box $w 'diesel-mains' 913 291 459 165 '市电信息'
     $cols=@();foreach($e in @(@{T='电压';U='V'},@{T='电流';U='A'},@{T='有功功率';U='kW'},@{T='无功功率';U='kvar'},@{T='视在功率';U='kVA'},@{T='功率因数';U=''})){$cols+=@{T=$e.T;A=@($null,$null,$null);U=$e.U}}
     Monitor-PhaseTable $w 'diesel-table' $cols 177 372 700 169

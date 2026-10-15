@@ -24,6 +24,12 @@
 #include <QDialog>
 #include <QMessageBox>
 #include <QDir>
+#include <QFile>
+#include <QFontInfo>
+#include <QFontMetricsF>
+#include <QTextDocument>
+#include <QTextBlock>
+#include <QTextLayout>
 
 class ScadaSceneViewTestAccess {
 public:
@@ -64,8 +70,11 @@ public:
     std::string clusterStatusJson() const override { return cluster; }
     std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> values;
     std::unordered_map<std::uint32_t, std::string> devices;
+    std::unordered_map<std::string, ScadaSceneResolvedTag> projectTags;
     const std::string& nodeId() const override { return node; }
     edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
+        const auto configured = projectTags.find(tagId);
+        if (configured != projectTags.end()) return configured->second;
         if (tagId.size() < 2 || tagId[0] != 't' || tagId[1] < '0' || tagId[1] > '9') return edge_gateway::NullOpt;
         ScadaSceneResolvedTag result;
         result.tag.tagId = tagId;
@@ -79,7 +88,9 @@ public:
         return result;
     }
     edge_gateway::Optional<edge_gateway::StoredPointValue> readTag(const std::string& tagId, std::int64_t) const override {
-        const auto index = resolveTag(tagId)->mapping.index;
+        const auto resolved = resolveTag(tagId);
+        if (!resolved) return edge_gateway::NullOpt;
+        const auto index = resolved->mapping.index;
         const auto it = values.find(index);
         if (it == values.end()) return edge_gateway::NullOpt;
         return it->second;
@@ -124,6 +135,115 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     try {
         FixtureRuntime runtime;
+        // Audit the real renderer without connecting any data/control transport.
+        if (argc > 3 && std::string(argv[3]) == "--layout-audit") {
+            ScadaRuntimeWindow window(argv[1], 500, false, [](const edge_gateway::ScadaProject&) {
+                return std::make_unique<FixtureRuntime>();
+            });
+            ScadaSceneViewTestAccess::stopTimer(window);
+            const auto& project = window.project();
+            for (const auto& mapping : project.runtimeMappings) {
+                ScadaSceneResolvedTag tag; tag.mapping = mapping;
+                for (const auto& candidate : project.tags) if (candidate.tagId == mapping.tagId) tag.tag = candidate;
+                runtime.projectTags[mapping.tagId] = tag;
+            }
+            QDir().mkpath(argv[2]);
+            QJsonArray issues, fonts;
+            int renders = 0;
+            for (const auto& screen : project.screens) {
+                ScadaSceneView page(screen, argv[1], project.alarms, project.trends, runtime, [](const std::string&) {});
+                page.setWindowFlag(Qt::FramelessWindowHint);
+                for (const auto& size : {QSize(1440,810), QSize(1920,1080), QSize(1280,720), QSize(1280,1024)}) {
+                    page.resize(size); page.show(); app.processEvents();
+                    require(std::abs(page.transform().m11() - page.transform().m22()) < 0.000001, "nonuniform canvas scale");
+                    for (int sample = 0; sample < 2; ++sample) {
+                        runtime.values.clear();
+                        if (sample) for (const auto& mapping : project.runtimeMappings) runtime.put(mapping.index, -123456.78);
+                        page.refresh(1792036800000); app.processEvents(); ++renders;
+                        if (size == QSize(1920,1080)) {
+                            const auto path = QString::fromLocal8Bit(argv[2]) + "/" + QString::fromStdString(screen.screenId)
+                                + (sample ? "-values.png" : "-missing.png");
+                            require(page.grab().save(path), "layout screenshot failed");
+                        }
+                        if (size != QSize(1920,1080)) continue;
+                        std::vector<std::pair<QString, QRectF>> textLines;
+                        for (auto* sceneItem : page.scene()->items()) {
+                            auto* valueText = dynamic_cast<QGraphicsTextItem*>(sceneItem);
+                            if (!valueText || !valueText->isVisible() || valueText->toPlainText().isEmpty()) continue;
+                            const auto id = valueText->data(0).toString().toStdString();
+                            const auto source = std::find_if(screen.widgets.begin(), screen.widgets.end(), [&](const auto& w) { return w.widgetId == id; });
+                            if (source == screen.widgets.end() || (source->type != "qtLabel" && source->type != "qtValue" && source->type != "qtInput" && source->type != "statusCard")) continue;
+                            const auto& g = source->geometry;
+                            const QRectF rect(g.x, g.y, g.width, g.height);
+                            const auto content = valueText->toPlainText();
+                            for (auto block = valueText->document()->begin(); block.isValid(); block = block.next()) {
+                                const auto* layout = block.layout();
+                                for (int line = 0; line < layout->lineCount(); ++line) {
+                                    const auto bounds = layout->lineAt(line).naturalTextRect().translated(layout->position() + valueText->pos());
+                                    if (bounds.width() > 0) textLines.push_back({QString::fromStdString(id), bounds});
+                                }
+                            }
+                            double textWidth = 0;
+                            for (const auto& line : content.split('\n')) textWidth = std::max(textWidth, QFontMetricsF(valueText->font()).horizontalAdvance(line));
+                            const auto bottom = valueText->pos().y() + valueText->boundingRect().height();
+                            if (textWidth > valueText->textWidth() + 1 || bottom > rect.bottom() + 1 || valueText->pos().y() < rect.top() - 1) {
+                                issues.append(QJsonObject{{"screen", QString::fromStdString(screen.screenId)}, {"widget", QString::fromStdString(id)},
+                                    {"sample",sample}, {"text",content}, {"width",textWidth}, {"allowedWidth",valueText->textWidth()},
+                                    {"bottom",bottom}, {"allowedBottom",rect.bottom()}, {"fontSize",valueText->font().pixelSize()}});
+                            }
+                            if (!sample && (id == "lanhu-brand" || id == "lanhu-clock")) {
+                                const QFontInfo info(valueText->font());
+                                fonts.append(QJsonObject{{"screen",QString::fromStdString(screen.screenId)}, {"widget",QString::fromStdString(id)},
+                                    {"family",info.family()}, {"pixelSize",info.pixelSize()}, {"stretch",valueText->font().stretch()},
+                                    {"scaleX",page.transform().m11()}, {"scaleY",page.transform().m22()}});
+                            }
+                        }
+                        for (std::size_t a = 0; a < textLines.size(); ++a) for (std::size_t b = a + 1; b < textLines.size(); ++b) {
+                            if (textLines[a].first == textLines[b].first) continue;
+                            const auto overlap = textLines[a].second.intersected(textLines[b].second);
+                            if (overlap.width() > 1 && overlap.height() > 1)
+                                issues.append(QJsonObject{{"screen",QString::fromStdString(screen.screenId)}, {"sample",sample},
+                                    {"widget",textLines[a].first}, {"overlaps",textLines[b].first},
+                                    {"width",overlap.width()}, {"height",overlap.height()}});
+                        }
+                    }
+                }
+                page.close();
+            }
+            QFile report(QString::fromLocal8Bit(argv[2]) + "/layout-audit.json");
+            require(report.open(QIODevice::WriteOnly), "cannot write layout report");
+            report.write(QJsonDocument(QJsonObject{{"renders",renders}, {"issues",issues}, {"fonts",fonts}}).toJson());
+            std::cout << "layout audit: " << renders << " renders, " << issues.size() << " text overflows\n";
+            return issues.empty() ? 0 : 1;
+        }
+        {
+            edge_gateway::ScadaScreen labels;
+            auto text = widget("qtLabel"); text.widgetId = "static-fit";
+            text.geometry = {0, 0, 106, 42};
+            text.properties["qtAutoFit"] = "true";
+            text.properties["qtFontSize"] = "16";
+            text.properties["qtVerticalAlignment"] = "Center";
+            text.properties["qtText"] = "MMMMMMMM\nMMMMMMMM";
+            labels.widgets = {text};
+            ScadaSceneView page(labels, ".", {}, {}, runtime, [](const std::string&) {});
+            QGraphicsTextItem* item = nullptr;
+            for (auto* candidate : page.scene()->items()) if (candidate->data(0).toString() == "static-fit") item = dynamic_cast<QGraphicsTextItem*>(candidate);
+            require(item && item->toPlainText() == QString::fromStdString(text.properties["qtText"]), "static multiline text was lost or elided");
+            require(item->font().pixelSize() < 16 && item->font().pixelSize() >= 12, "static label did not fit before refresh");
+            require(item->pos().y() + item->boundingRect().height() <= 42, "multiline text exceeds height");
+            require(item->font().stretch() == QFont::Unstretched, "text was stretched to fit");
+            page.refresh(10000);
+            require(item->toPlainText().count('\n') == 1, "refresh destroyed explicit line break");
+            auto number = text; number.type = "qtValue"; number.geometry = {0, 0, 80, 24};
+            number.bindings = {{"edge-1", "t1", "value"}}; labels.widgets = {number};
+            ScadaSceneView values(labels, ".", {}, {}, runtime, [](const std::string&) {});
+            runtime.put(1, -123456.78); values.refresh(10000);
+            auto* rendered = ScadaSceneViewTestAccess::widgets(values)[0].valueText;
+            const auto small = rendered->font().pixelSize();
+            runtime.put(1, 2); values.refresh(10001);
+            require(rendered->font().pixelSize() > small && rendered->toPlainText() == "2", "short value did not restore font size");
+            runtime.values.clear();
+        }
         auto clusterFixture = [](int count, int offline, qint64 ts) {
             QJsonArray members;
             for (int i = 0; i < count; ++i) {

@@ -110,6 +110,7 @@ private:
         bool lightTheme = false;
         bool autoFitText = false;
         int textPixelSize = 14;
+        std::string textVerticalAlignment;
         bool alarmActiveCount = false;
         bool lanhuAlarmPresentation = false;
         bool summaryAlarmPresentation = false;
@@ -193,6 +194,7 @@ private:
 
     void buildScene();
     void fitCanvas();
+    void updateValueText(RuntimeWidget& widget, const QString& text);
     void handleAction(const edge_gateway::ScadaWidgetAction& action,
                       const std::string& pauseModeTag = "",
                       const std::string& pauseAppliedTag = "",
