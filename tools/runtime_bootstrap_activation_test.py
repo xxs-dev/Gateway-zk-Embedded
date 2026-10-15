@@ -116,8 +116,10 @@ class ActivationTest(unittest.TestCase):
         if prop == 'NeedDaemonReload': return 'no'
         if prop == 'FragmentPath': return str(fragment) if fragment.exists() else ''
         if prop == 'DropInPaths':
-            dirs = {unit + '.d', template + '.d', 'service.d'}
-            return ' '.join(str(p) for p in sorted(f.units.rglob('*.conf')) if p.parent.name in dirs)
+            effective = {}
+            for directory in ('service.d', template + '.d', unit + '.d'):
+                effective.update({p.name: p for p in (f.units / directory).glob('*.conf')})
+            return ' '.join(str(effective[name]) for name in sorted(effective))
         if prop == 'Environment':
             paths = list((f.units / (unit + '.d')).glob('91-bootstrap-monitor-*.conf'))
             return paths[0].read_text().split('Environment=', 1)[1].strip() if paths else ''

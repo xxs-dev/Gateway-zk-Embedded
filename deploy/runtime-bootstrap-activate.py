@@ -82,7 +82,9 @@ def unit_additions(transaction, units, resolved):
     result = {}
     gates = {}
     for unit in units:
-        path = reprovision.UNIT_DIR / (unit + '.d') / ('90-offline-bootstrap-' + transaction + '.conf')
+        # systemd hides a template drop-in when its instance has the same name.
+        scope = 'template' if unit.endswith('@.service') else 'unit'
+        path = reprovision.UNIT_DIR / (unit + '.d') / ('90-offline-bootstrap-' + transaction + '-' + scope + '.conf')
         gates[unit] = str(path)
         result[str(path)] = lifecycle.production_gate(prepare.HOME, unit)
     for role in resolved['roles']:
