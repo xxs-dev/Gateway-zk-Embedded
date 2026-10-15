@@ -106,7 +106,9 @@ class ProductionV2ConfigTest(unittest.TestCase):
         temporary.chmod(0o644)
         self.runtime.config_state(self.tx, self.approval)
         baseline = {'format': 'runtime-baseline-v1', 'machineCode': 'SIM',
-                    'trust': {'publicKeySha256': 'a' * 64},
+                    'trust': {'publicKeySha256': 'a' * 64, 'requireSignature': True,
+                              'checksumRequired': True, 'allowInsecureHttp': False,
+                              'httpsOrigins': ['https://fixture.invalid']},
                     'configSha256': self.previous['configSha256'],
                     'segments': [], 'retiredSources': {}, 'historical': {}}
         original_pin = self.g.production_pin
