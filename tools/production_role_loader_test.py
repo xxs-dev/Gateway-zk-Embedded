@@ -54,7 +54,9 @@ raw = helper.read_bytes()
 expected = {'marker': 'NEW!', 'protected': json.loads(sys.argv[3]), 'roles': []}
 baseline = {'format': 'runtime-baseline-v2', 'machineCode': 'SIM',
             'configSha256': {'device_identity.json': 'a' * 64},
-            'trust': {'publicKeySha256': 'b' * 64}, 'allowedUnits': [],
+            'trust': {'publicKeySha256': 'b' * 64, 'requireSignature': True,
+                'checksumRequired': True, 'allowInsecureHttp': False,
+                'httpsOrigins': ['https://fixture.invalid']}, 'allowedUnits': [],
             'segments': [], 'units': [], 'unitFiles': {},
             'files': {'bin/production_role_policy.py':
                 {'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw), 'mode': 0o755}},

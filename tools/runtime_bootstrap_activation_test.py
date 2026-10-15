@@ -92,6 +92,8 @@ class ActivationTest(unittest.TestCase):
             return dict(format='runtime-health-v2', roles={u: {} for u in test.live},
                         bootId=self.prepare.boot_id(), configSha256=baseline['configSha256'])
         self.patch(m.lifecycle.ProductionRuntime, 'health', health)
+        if self._testMethodName.startswith('test_offline_'):
+            p.disable_ota()
         self.prepared_tx, self.prepared_pin = p.prepare()
         self.ready_sha = f.m.digest(self.prepared_tx / 'ready.json')
         self.origin = self.prepare.origin()
@@ -174,6 +176,25 @@ class ActivationTest(unittest.TestCase):
         self.assertFalse((self.m.root() / 'pending.json').exists())
         self.runtime.recover('ACTIVATE_ONE', pin)
         self.assertEqual(self.m.guard.production_context(self.f.home), baseline)
+
+    def test_offline_activation_without_key_still_checks_files_and_rejects_ota(self):
+        self.test_first_baseline_is_real_generation_one_without_legacy_history()
+        baseline = self.m.guard.production_context(self.f.home)
+        self.assertFalse(self.prepare.TRUST.exists())
+        with self.assertRaisesRegex(ValueError, 'OTA is disabled'):
+            self.m.guard.production_require_ota(baseline)
+        self.f.write(self.f.home / 'bin/SystemMonitor', b'changed executable', 0o755)
+        with self.assertRaises(ValueError):
+            self.m.guard.production_context(self.f.home)
+
+    def test_offline_health_failure_preserves_stopped_recovery(self):
+        self.test_health_failure_restores_stopped_origin_and_preserves_new_objects()
+
+    def test_offline_newboot_recreates_stores_and_checks_health(self):
+        self.test_first_baseline_newboot_creates_proof_then_post_gate_health()
+
+    def test_offline_config_upgrade_and_failure_recovery(self):
+        self.test_existing_upgrade_failure_recovers_to_first_baseline()
 
     def test_health_failure_restores_stopped_origin_and_preserves_new_objects(self):
         before = self.prepare.inventory()
@@ -383,7 +404,8 @@ class ActivationTest(unittest.TestCase):
         self.f.write(changed, json.dumps(value).encode())
         candidate = copy.deepcopy(previous)
         resolved = self.prepare.policy.resolve(payload / 'config/runtime', self.f.units,
-            previous['roleAuthority']['resolved']['protected'], self.prepare.TRUST)
+            previous['roleAuthority']['resolved']['protected'], self.prepare.TRUST,
+            ota_enabled=self.m.guard.production_trust_policy(previous['trust'], allow_disabled=True))
         candidate.update(baselineId=name, generation=2, parentSha256=pointer['sha256'], release=name,
                          configSha256=resolved['configSha256'])
         candidate['roleAuthority']['resolved'] = resolved

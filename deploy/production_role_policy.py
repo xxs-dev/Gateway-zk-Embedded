@@ -241,12 +241,15 @@ def _files(root):
     return dict(sorted(pins.items()))
 
 
-def _protected(config_root, pins, authority, trust_file):
+def _protected(config_root, pins, authority, trust_file, ota_enabled):
     keys = {'machineCode', 'identitySha256', 'networkSha256', 'tlsSha256',
             'otaPublicKeySha256', 'monitorShmName'}
     require(isinstance(authority, dict) and set(authority) == keys, 'protected authority schema invalid')
     require(isinstance(authority['machineCode'], str) and authority['machineCode'], 'machine identity missing')
     for key in ('identitySha256', 'otaPublicKeySha256'):
+        if key == 'otaPublicKeySha256' and not ota_enabled:
+            require(authority[key] is None, 'disabled OTA must not bind a public key')
+            continue
         require(isinstance(authority[key], str) and SHA.fullmatch(authority[key]), 'invalid protected pin: ' + key)
     for key, prefix in (('networkSha256', 'network/'), ('tlsSha256', 'tls/')):
         expected = authority[key]
@@ -259,6 +262,8 @@ def _protected(config_root, pins, authority, trust_file):
             identity.get('machineCode') == authority['machineCode'], 'protected identity changed')
     monitor = authority['monitorShmName']
     require(isinstance(monitor, str) and SHM.fullmatch(monitor), 'invalid Monitor SHM binding')
+    if not ota_enabled:
+        return
     require(trust_file.is_absolute() and all(not part.is_symlink() for part in (trust_file,) + tuple(trust_file.parents)) and
             trust_file.is_file() and
             stat.S_ISREG(trust_file.stat().st_mode) and trust_file.stat().st_nlink == 1 and
@@ -377,7 +382,7 @@ def _storage(mqtt):
 
 
 def resolve(config_root, template_root, authority, trust_file, *, app_names=None,
-            simulator_bindings=None, capabilities=(), watchdog=False):
+            simulator_bindings=None, capabilities=(), watchdog=False, ota_enabled=True):
     """Return deterministic v2 policy data; never start or mutate a service."""
     config_root, template_root, trust_file = Path(config_root), Path(template_root), Path(trust_file)
     names = dict(DEFAULT_APPS if app_names is None else app_names)
@@ -393,7 +398,8 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
     require(caps <= allowed_caps and len(caps) == len(capabilities), 'unknown/duplicate capability')
     require(type(watchdog) is bool, 'watchdog flag invalid')
     pins = _files(config_root)
-    _protected(config_root, pins, authority, trust_file)
+    require(type(ota_enabled) is bool, 'OTA policy must be explicit boolean')
+    _protected(config_root, pins, authority, trust_file, ota_enabled)
     apps = {}
     for key, stem in names.items():
         relative = 'apps/' + stem + '.json'
@@ -402,6 +408,12 @@ def resolve(config_root, template_root, authority, trust_file, *, app_names=None
             continue
         value = _json(config_root, relative)
         require(isinstance(value, dict) and set(value) <= APP_KEYS, 'unknown app field: ' + relative)
+        if not ota_enabled:
+            # Native defaults enable OTA and subscribe to its request topic.
+            require(isinstance(value.get('ota'), dict) and value['ota'].get('enabled') is False,
+                    'disabled OTA requires explicit ota.enabled=false: ' + relative)
+            require(isinstance(value.get('mqtt'), dict) and value['mqtt'].get('otaRequestTopic') == '',
+                    'disabled OTA requires empty otaRequestTopic: ' + relative)
         require(value.get('runtimeMode', 'gateway') in ('gateway', 'ems', 'agc_avc'),
                 'unknown app runtime mode: ' + relative)
         require(value.get('identityConfigFile') == str(HOME / 'config/runtime/device_identity.json'),

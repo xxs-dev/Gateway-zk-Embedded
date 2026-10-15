@@ -3628,6 +3628,7 @@ def production_ota_owner(protocol, record):
     runtime = ProductionRuntime(home)
     with production_lock():
         baseline = guard.production_context(home)
+        guard.production_require_ota(baseline)
         require(baseline['machineCode'] == intent['machineCode'], 'runtime OTA device/baseline mismatch')
         pointer = guard.production_json(runtime.root / 'current.json')
         artifact = regular(Path(intent['artifactPath']))

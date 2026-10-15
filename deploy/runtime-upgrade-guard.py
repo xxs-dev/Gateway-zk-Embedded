@@ -249,13 +249,7 @@ def _production_schema(baseline, home):
         raise ValueError('production SHM inventory invalid')
     if {s['name'] for s in segments} & set(baseline['retiredSources']):
         raise ValueError('production retired and current SHM roles overlap')
-    trust = baseline['trust']
-    if (set(trust) != {'requireSignature', 'checksumRequired', 'allowInsecureHttp', 'publicKeySha256', 'httpsOrigins'} or
-            trust['requireSignature'] is not True or trust['checksumRequired'] is not True or
-            trust['allowInsecureHttp'] is not False or not re.fullmatch('[0-9a-f]{64}', trust['publicKeySha256']) or
-            not isinstance(trust['httpsOrigins'], list) or not trust['httpsOrigins'] or
-            any(not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', o) for o in trust['httpsOrigins'])):
-        raise ValueError('production trust policy invalid')
+    production_trust_policy(baseline['trust'], allow_disabled=baseline['format'] == 'runtime-baseline-v2')
     policy = baseline['healthPolicy']
     if (not isinstance(policy, dict) or set(policy) != {'stableSeconds', 'url', 'timeoutSeconds'} or
             type(policy['stableSeconds']) is not int or not 2 <= policy['stableSeconds'] <= 120 or
@@ -263,6 +257,39 @@ def _production_schema(baseline, home):
             not isinstance(policy['url'], str) or
             not re.fullmatch(r'http://127\.0\.0\.1:[0-9]{1,5}/[A-Za-z0-9_/.-]*', policy['url'])):
         raise ValueError('production health endpoint policy invalid')
+
+
+def production_trust_policy(trust, allow_disabled=False):
+    """Validate explicit OTA policy; missing trust never implies offline admission."""
+    keys = {'requireSignature', 'checksumRequired', 'allowInsecureHttp', 'publicKeySha256', 'httpsOrigins'}
+    if (not isinstance(trust, dict) or trust.get('requireSignature') is not True or
+            trust.get('checksumRequired') is not True or trust.get('allowInsecureHttp') is not False):
+        raise ValueError('production trust policy invalid')
+    if 'otaEnabled' in trust:
+        if (not allow_disabled or set(trust) != keys | {'otaEnabled'} or trust['otaEnabled'] is not False or
+                trust['publicKeySha256'] is not None or trust['httpsOrigins'] != []):
+            raise ValueError('invalid disabled OTA policy')
+        return False
+    if (set(trust) != keys or not isinstance(trust['publicKeySha256'], str) or
+            not re.fullmatch('[0-9a-f]{64}', trust['publicKeySha256']) or
+            not isinstance(trust['httpsOrigins'], list) or not trust['httpsOrigins'] or
+            any(not isinstance(o, str) or not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', o)
+                for o in trust['httpsOrigins']) or len(set(trust['httpsOrigins'])) != len(trust['httpsOrigins'])):
+        raise ValueError('production trust policy invalid')
+    return True
+
+
+def production_trust_verify(trust, trust_file=None, allow_disabled=False):
+    enabled = production_trust_policy(trust, allow_disabled=allow_disabled)
+    if enabled and production_pin(trust_file if trust_file is not None else
+            Path('/etc/modbus-gateway/ota.pub'))['sha256'] != trust['publicKeySha256']:
+        raise ValueError('production signature public-key fingerprint drift')
+    return enabled
+
+
+def production_require_ota(baseline):
+    if not production_trust_policy(baseline['trust'], allow_disabled=baseline['format'] == 'runtime-baseline-v2'):
+        raise ValueError('OTA is disabled by the approved runtime policy')
 
 
 def production_schema(baseline, home):
@@ -315,11 +342,13 @@ def production_roles(home, baseline, config_root=None, helper=None):
             protected.get('identitySha256') != baseline['configSha256'].get('device_identity.json') or
             protected.get('otaPublicKeySha256') != baseline['trust']['publicKeySha256']):
         raise ValueError('configured role protected identity changed')
+    options = dict(simulator_bindings=profile['simulatorBindings'], capabilities=profile['capabilities'],
+                   watchdog='gateway-health-watchdog.service' in baseline['allowedUnits'])
+    if not production_trust_policy(baseline['trust'], allow_disabled=True):
+        options['ota_enabled'] = False
     actual = policy['resolve'](config_root if config_root is not None else home / 'config/runtime',
                             Path('/etc/systemd/system'), protected, Path('/etc/modbus-gateway/ota.pub'),
-                            simulator_bindings=profile['simulatorBindings'],
-                            capabilities=profile['capabilities'],
-                            watchdog='gateway-health-watchdog.service' in baseline['allowedUnits'])
+                            **options)
     if actual != resolved:
         raise ValueError('configured role result differs from approved config/templates')
     for role in actual['roles']:
@@ -673,8 +702,7 @@ def production_boot_lineage_depth(home, baseline):
 
 def production_verify(home, baseline, files=True, units=True, segments=True, config=True, roles=True):
     production_schema(baseline, home)
-    if production_pin(Path('/etc/modbus-gateway/ota.pub'))['sha256'] != baseline['trust']['publicKeySha256']:
-        raise ValueError('production signature public-key fingerprint drift')
+    production_trust_verify(baseline['trust'], allow_disabled=baseline['format'] == 'runtime-baseline-v2')
     config_root = home / 'config/runtime'
     if production_json(config_root / 'device_identity.json').get('machineCode') != baseline['machineCode']:
         raise ValueError('production configuration/identity drift')

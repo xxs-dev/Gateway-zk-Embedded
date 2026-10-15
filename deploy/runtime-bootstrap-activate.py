@@ -74,8 +74,7 @@ def prepared(name, ready_sha):
     require(reprovision.tree(transaction / 'config') == ready['configTree'], 'prepared config changed')
     prepare.retained(approval)
     prepare.verify_created(ready['segments'])
-    require(guard.production_pin(prepare.TRUST)['sha256'] == ready['trust']['publicKeySha256'],
-            'prepared signature trust changed')
+    guard.production_trust_verify(ready['trust'], prepare.TRUST, allow_disabled=True)
     return transaction, approval, ready
 
 

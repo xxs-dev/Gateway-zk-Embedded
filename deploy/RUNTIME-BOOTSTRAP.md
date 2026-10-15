@@ -20,8 +20,9 @@ production baseline, or delete/reinitialize existing shared memory.
   supporting `create-empty --shm <new-name>`. Old binaries are rejected without
   executing an unknown command. Do not patch a reprovisioned image in place:
   deploy a new reviewed package through its own stopped transaction first.
-- Obtain the approved OTA public key at `/etc/modbus-gateway/ota.pub` and the
-  approved HTTPS artifact origins. Fixture keys/origins are not production trust.
+- Select signed OTA trust, or the explicit offline policy below. Signed OTA
+  requires the approved public key at `/etc/modbus-gateway/ota.pub` and approved
+  HTTPS artifact origins. Fixture keys/origins are never production trust.
 - Keep the candidate config outside both `/opt/modbus-gateway` and
   `/opt/gateway-runtime-bootstrap`. Identity, package manifest, network and TLS
   bytes/pins must match the installed configuration.
@@ -42,6 +43,41 @@ All JSON is root-owned, single-link, canonical and nonwritable-to-others.
 sorted unique set of all resolved role SHM names, with 1-128 entries. Names must
 be fresh, never reused from existing host objects. Config may contain the pinned
 `edge-package-manifest.json`; it is metadata, not an additional service config.
+
+## Offline Local Runtime
+
+Local startup, boot recovery and supervised operation do not require OTA to be
+enabled. A reviewed v2 first-runtime approval may explicitly select:
+
+```json
+{
+  "otaEnabled": false,
+  "requireSignature": true,
+  "checksumRequired": true,
+  "allowInsecureHttp": false,
+  "publicKeySha256": null,
+  "httpsOrigins": []
+}
+```
+
+Its protected authority must have `otaPublicKeySha256: null`. Every selected app
+JSON must explicitly set `ota.enabled: false` and `mqtt.otaRequestTopic: ""`,
+including Monitor and other app entrypoints. Native defaults enable OTA and its
+request subscription, so omission is rejected. No public key is created, read,
+removed or substituted in this mode; placing a key later does not enable OTA.
+
+The same file/config/template pins, device identity, role resolution, SHM ABI,
+startup fences, separate activation approval, health promotion and reboot proof
+remain mandatory. The OTA handoff owner rejects this policy before reading or
+staging an artifact. This is not unsigned OTA. Existing signed policies retain
+their key requirement and never fall back to offline mode on missing trust.
+Legacy v1 baselines cannot select this new mode. Ordinary runtime upgrades must
+preserve trust unchanged; enabling OTA requires a separate reviewed trust
+provisioning procedure, not editing a live app JSON or baseline in place.
+
+This policy does not authorize physical controls, host-network/device access,
+power-loss testing, or visual acceptance. The simulator profile and deployment
+isolation must still be reviewed before real services are activated.
 
 ## CLI Sequence
 
@@ -113,7 +149,7 @@ of existing objects and two concurrent creators with exactly one winner.
 
 Exception-injected preparation tests are not SIGKILL or power-loss acceptance.
 The separate activation helper below adds first-baseline promotion and stopped
-recovery. Neither helper is deployed in the installed factory candidate on 22.7.
+recovery. Installed helper availability depends on the pinned factory release.
 Actual canonical startup, reboot, running upgrade/rollback and sustained
 operation remain release gates.
 

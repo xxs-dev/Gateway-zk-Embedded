@@ -126,6 +126,37 @@ class BootstrapTest(unittest.TestCase):
         path, pin = self.approval()
         return self.runtime.prepare(path, pin), pin
 
+    def disable_ota(self):
+        self.m.TRUST.unlink()
+        self.authority['otaPublicKeySha256'] = None
+        self.trust.update(otaEnabled=False, publicKeySha256=None, httpsOrigins=[])
+        for path in (self.source / 'apps').glob('*.json'):
+            value = json.loads(path.read_text())
+            value['ota'] = {'enabled': False}
+            value.setdefault('mqtt', {})['otaRequestTopic'] = ''
+            self.f.write(path, json.dumps(value).encode())
+
+    def test_explicit_offline_policy_prepares_without_key_or_origins(self):
+        self.disable_ota()
+        transaction, _ = self.prepare()
+        self.assertFalse(self.m.TRUST.exists())
+        self.assertIs(self.f.m.read_record(transaction / 'ready.json')['trust']['otaEnabled'], False)
+        self.assert_untouched()
+
+    def test_offline_policy_rejects_implicit_or_enabled_ota(self):
+        self.disable_ota()
+        path = self.source / 'apps/monitor-service.json'
+        original = json.loads(path.read_text())
+        for key, value in (('ota', {}), ('ota', {'enabled': True}),
+                           ('mqtt', {'enabled': False}), ('mqtt', {'otaRequestTopic': 'edge/ota/request'})):
+            with self.subTest(key=key, value=value):
+                changed = dict(original, **{key: value})
+                self.f.write(path, json.dumps(changed).encode())
+                with self.assertRaisesRegex(ValueError, 'disabled OTA requires'):
+                    self.approval()
+        self.assertFalse(self.m.ROOT.exists())
+        self.assert_untouched()
+
     def assert_untouched(self):
         f, m = self.f, self.m
         self.assertEqual(f.m.tree(f.home), self.initial_home)
@@ -395,7 +426,7 @@ class BootstrapTest(unittest.TestCase):
             self.f.write(self.m.TRUST, b'changed external trust')
             return result
         with mock.patch.object(self.m.subprocess, 'run', rotate):
-            with self.assertRaisesRegex(ValueError, 'signature trust changed|state changed before receipt'):
+            with self.assertRaisesRegex(ValueError, 'fingerprint drift|state changed before receipt'):
                 self.runtime.prepare(path, pin)
         self.runtime.recover('BOOTSTRAP_ONE', pin)
         self.assert_untouched()

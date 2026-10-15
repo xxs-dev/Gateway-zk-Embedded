@@ -125,22 +125,15 @@ def configuration(source, authority, profile, trust):
         actual = {p.relative_to(source).as_posix(): guard.production_pin(p)
                   for p in (source / prefix).rglob('*') if p.is_file() or p.is_symlink()}
         require(actual == expected, 'bootstrap network/TLS change is not approved')
-    require(isinstance(trust, dict) and set(trust) == {'requireSignature', 'checksumRequired',
-            'allowInsecureHttp', 'publicKeySha256', 'httpsOrigins'} and
-            trust['requireSignature'] is True and trust['checksumRequired'] is True and
-            trust['allowInsecureHttp'] is False and isinstance(trust['httpsOrigins'], list) and
-            trust['httpsOrigins'] and len(set(trust['httpsOrigins'])) == len(trust['httpsOrigins']) and
-            all(isinstance(o, str) and re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', o)
-                for o in trust['httpsOrigins']) and
-            guard.production_pin(TRUST)['sha256'] == trust['publicKeySha256'] == authority['otaPublicKeySha256'],
-            'bootstrap requires the approved installed signature trust')
+    ota_enabled = guard.production_trust_verify(trust, TRUST, allow_disabled=True)
+    require(trust['publicKeySha256'] == authority['otaPublicKeySha256'], 'bootstrap OTA authority differs')
     require(isinstance(profile, dict) and set(profile) == {'format', 'machineCode', 'ramMiB',
             'capabilities', 'simulatorBindings', 'allowedUnits', 'segmentNames'} and
             profile['format'] == 'board-simulator-profile-v1' and profile['ramMiB'] in (2048, 4096) and
             profile['machineCode'] == authority['machineCode'], 'invalid bootstrap board profile')
     resolved = policy.resolve(source, reprovision.UNIT_DIR, authority, TRUST,
         simulator_bindings=profile['simulatorBindings'], capabilities=profile['capabilities'],
-        watchdog='gateway-health-watchdog.service' in profile['allowedUnits'])
+        watchdog='gateway-health-watchdog.service' in profile['allowedUnits'], ota_enabled=ota_enabled)
     names = sorted({n for role in resolved['roles'] for n in role['shm']['names']})
     require(profile['allowedUnits'] == [r['unit'] for r in resolved['roles']] and
             profile['segmentNames'] == names and 0 < len(names) <= 128,
@@ -255,8 +248,7 @@ class Bootstrap:
                     'bootstrap boot/window changed')
             require(origin() == approval['origin'] and helper_pins() == approval['helperPins'],
                     'bootstrap origin/helper drift')
-            require(guard.production_pin(TRUST)['sha256'] == approval['trust']['publicKeySha256'],
-                    'bootstrap signature trust changed')
+            guard.production_trust_verify(approval['trust'], TRUST, allow_disabled=True)
             stopped(approval['boardProfile']['allowedUnits'])
             current = retained(approval)
             verify_created(state['segments'])
@@ -285,9 +277,9 @@ class Bootstrap:
             state['inProgress'] = None
             self.checkpoint(transaction, state, 'CREATING')
         require(origin() == approval['origin'] and retained(approval) and boot_id() == approval['bootId'] and
-                time.time() < approval['expiresAtUnix'] and helper_pins() == approval['helperPins'] and
-                guard.production_pin(TRUST)['sha256'] == approval['trust']['publicKeySha256'],
+                time.time() < approval['expiresAtUnix'] and helper_pins() == approval['helperPins'],
                 'bootstrap state changed before receipt')
+        guard.production_trust_verify(approval['trust'], TRUST, allow_disabled=True)
         stopped(approval['boardProfile']['allowedUnits'])
         verify_created(state['segments'])
         require(reprovision.tree(transaction / 'config') == approval['configTree'], 'bootstrap staged config drift')
