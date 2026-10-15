@@ -1,7 +1,6 @@
 [Unit]
 Description=KY EMS Native Point Store Qt Local Display
-After=graphical.target
-Wants=graphical.target
+After=display-manager.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 

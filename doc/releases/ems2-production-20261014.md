@@ -920,7 +920,7 @@ python3 -B /opt/gateway-reprovision-tools-d71730e-20261014/gateway-reprovision-t
   prerequisites for activation. The user was asked for the public key only,
   never a private key. Do not use fixture trust or remove STOP to force startup.
 
-Status: in progress, not production-ready. 22.7 now contains the `dfb8108`
+Historical status before offline continuation: in progress, not production-ready. 22.7 contains the `dfb8108`
 first-runtime candidate under its own stopped reprovision transaction. All
 canonical gateway/EMS business services remain stopped; the installed UI is
 not running outside bounded isolated tests.
@@ -929,3 +929,116 @@ upgrade/rollback, reboot/power-loss, sustained operation, physical display/touch
 multi-vehicle/HIL and >=95% visual acceptance remain open. Do not remove STOP or
 legacy guards to force startup. Incremental Qt validation binaries are not the
 final release artifact.
+
+## Offline Local Runtime Continuation
+
+This section supersedes the stopped-only status above. OTA provisioning is not
+a prerequisite for an explicitly offline local runtime. Production readiness
+and physical display/control acceptance remain separate.
+
+- Offline policy commits `2c5fecd`, `5a11076` and `52b44d2` require a v2 baseline,
+  `otaEnabled=false`, a null OTA public-key pin, an empty HTTPS-origin list,
+  `ota.enabled=false` and an empty MQTT OTA subscription in every selected app.
+  File, identity, unit, shared-memory and health admission remain enforced.
+  OTA requests fail before artifact access; signed policies never fall back to
+  offline operation when trust is missing. No test key was installed.
+- The `52b44d2ea97a7fd9d314e9477717ebc580a53a5a` factory was repackaged on
+  22.11 from clean source, reusing all 18 unchanged, verified dfb8108 native
+  binaries. Factory SHA256:
+  `6f28c5e2580d0aab56e9e8c91e3009e3fde1fbd089e9c6c589ad654f21749714`.
+  Paired tools SHA256:
+  `bb67a56386fc8f15f1a8a2e07671ecc60795283bc0010ab24a9e5f754463a95b`.
+- Before replacement, a complete stopped backup of the installed home,
+  reprovision chain, previous tools and systemd units was returned locally.
+  All 2784 entries and regular-file hashes were checked. Archive size is
+  137850484 bytes; SHA256:
+  `bbc52e779cacbabd7da1984372642fef8c7819069949a815537ee77c3dc361e8`.
+  No SHM content was restored or replayed. Historical images/tools are retained.
+- Canonical stopped replacement `ems2-offline-52b44d2-v2` passed with approval
+  `2f0ad92fed4a497c447261b88291e6774c8b753bc6709a125057fcefc0ab2505`.
+  All 18 component hashes/dependencies, device identity and service fences were
+  checked. Evidence: `board7-offline-canonical-52b44d2-v2/` under the generated
+  production directory. A failed private-image permission setup was retained
+  and retried in a fresh image; installer path policy was not weakened.
+- A real probe showed that systemd `IPAddressDeny` did not isolate TCP on this
+  board. The accepted profile instead uses a shared private network namespace,
+  only loopback routes, private devices, zero process capabilities, seccomp,
+  NoNewPrivileges, read-only sysfs and inaccessible host manager sockets. Each
+  business-service start executes an isolation preflight. Only a host-loopback
+  health proxy reaches the isolated Monitor. The simulator has three meters;
+  every device write point is disabled. No physical-control acceptance is claimed.
+- The first canonical activation exposed a real template/instance gate-name
+  collision. systemd hid the template drop-in, correctly failing the full
+  inventory check. `LOCAL_ACTIVATE_A1` recovered to `RECOVERED_STOPPED` and its
+  preparation was aborted with the original paired tools. New runtime data
+  and stores remain retained; no manual STOP removal or helper patch occurred.
+- Fix `aa2e576ecb877254fb24589c2fc916323fd1dac0` gives template and concrete
+  gates distinct filenames and models systemd shadowing in the fixture. The
+  real manager metadata probe reproduced the failure before the fix and passed
+  afterward without starting a business service. Final ARM regressions passed
+  60 tests: 2 gate tests, 25 activation tests, 27 preparation tests and 6 offline
+  policy tests. One opt-in native preparation case was skipped, not passed.
+- Corrected external tools were packaged on 22.11, returned and installed into
+  `/opt/gateway-offline-tools-aa2e576-retry/gateway-bootstrap-tools`.
+  Bundle SHA256:
+  `6fe533e8fe1e02f5443932102ec0ef192656fc35d6c425bcdebd7d38228b96bb`.
+  Every package pin and all four installed/runtime helper pairings were checked.
+  The installed image remains 52b44d2; only the external activation helper
+  changes. The separately generated aa2e576 factory is not the installed image.
+- Fresh preparation `LOCAL_PREPARE_A2` and activation `LOCAL_ACTIVATE_A2`
+  completed through the real systemd manager and native health endpoint.
+  Activation approval:
+  `b225c63b84b634bb18bba4f500caf3a291a9068525a98e79e14ed35e709b9bb8`.
+  Current generation-one baseline SHA256:
+  `d488228f838b27940b0b7490998f0fb37253c5010e2c2f616365436f54406814`.
+  ModbusRtu, SystemMonitor and native Qt are running in the isolated namespace;
+  the real gateway launcher is active/exited. Three simulated voltage values
+  have good quality and fresh timestamps. EMS 2.0 runs offscreen because no
+  display is attached. Evidence: `board7-offline-runtime-aa2e576/`.
+
+Current continuation checklist:
+
+- [x] Explicit offline policy without weakening signed OTA admission.
+- [x] Real canonical startup and fresh simulated acquisition.
+- [x] Real driver SIGKILL and automatic service/data recovery.
+- [x] Monitor and native Qt crash recovery.
+- [ ] Actual OS reboot and automatic fresh-store/data recovery.
+- [ ] Bounded continuous operation with restart/freshness/resource evidence.
+- [ ] Real-device acquisition, signed OTA provisioning, physical screen/touch,
+  power-loss, field/HIL and full production release acceptance.
+
+### Reboot Failure Investigation
+
+The running-state statement above describes activation before the reboot test,
+not the current board state. The first actual OS reboot did not pass acceptance.
+22.7 business services are stopped by the boot failure handler; no sustained
+operation result is claimed yet. The user confirmed no manual operation.
+
+- The second, unsolicited orderly reboot is correlated with the vendor
+  `/data/szrl/netinfo.log` entry at board time 2026-10-15 09:15:52:
+  `restore PHY OK cfgnum[4] >= curnum[4] and reboot`. It immediately precedes
+  systemd shutdown. SSH login alone is not evidence of a human reboot.
+- The native Qt unit pulled `graphical.target` on each start. A real systemd
+  probe with harmless unique units reproduced a completed initialization child
+  running twice while its parent target was still starting. With an already
+  active target it did not reproduce. Native Qt now orders after
+  `display-manager.service`, without pulling the entire graphical target;
+  `WantedBy=graphical.target` is retained. Vendor scripts/network configuration
+  were not changed. Evidence: `qt-target-red-v3/`; the earlier v1 was a parser
+  harness error, and v2 only exercised the already-active target.
+- Monitor's realtime HTTP handler unconditionally opened the camera store even
+  when the camera feature was disabled. The native ARM handler test reproduced
+  unwanted store creation, then passed with the enabled check. The full direct
+  maintenance contract test passed in 19.749s with private network, devices,
+  SHM, PID/procfs and zero runtime capabilities. Evidence:
+  `realtime-camera-{red,green}/board7-v2.log`. The initial red launcher failed
+  on old libcap-ng syntax before executing the test and is not product evidence.
+- A failed startup followed by a failed stop/quiescence check left the boot
+  journal at `STARTING`. The handler now persists `FAILED_STOP_UNCONFIRMED`
+  before cleanup, moves to `FAILED_STOPPED` only after complete stop proof, and
+  refuses worker retries from the unconfirmed state. It does not delete the
+  unexpected SHM or weaken admission. Two focused tests first failed and now
+  pass; broader Linux native-boot regressions are in progress.
+- Driver, Monitor and Qt SIGKILL recovery all passed before reboot. The installed
+  package remains 52b44d2 and the paired activation tools remain aa2e576; the
+  above follow-up fixes have not yet replaced the canonical image.

@@ -3144,7 +3144,8 @@ def production_boot_work_read(runtime, path):
             value.get('kind') in ('current', 'runtime', 'job') and
             isinstance(value.get('transaction'), str) and NAME.fullmatch(value['transaction']) and
             isinstance(value.get('approvalSha256'), str) and re.fullmatch('[0-9a-f]{64}', value['approvalSha256']) and
-            value.get('phase') in ('PREPARED', 'DISPATCH_INTENT', 'DISPATCHED', 'STARTING', 'FAILED_STOPPED', 'FINISHED') and
+            value.get('phase') in ('PREPARED', 'DISPATCH_INTENT', 'DISPATCHED', 'STARTING',
+                                   'FAILED_STOPPED', 'FAILED_STOP_UNCONFIRMED', 'FINISHED') and
             isinstance(value.get('entryPins'), dict) and set(value['entryPins']) ==
             {'offline-runtime-upgrade.py', 'runtime-upgrade-guard.py', 'ota-health-result.py'} and
             all(isinstance(pin, str) and re.fullmatch('[0-9a-f]{64}', pin) for pin in value['entryPins'].values()),
@@ -3317,6 +3318,7 @@ def production_boot_begin_start(runtime, work_path):
 
 def production_boot_start_current(runtime, baseline, work_path):
     work = production_boot_work_read(runtime, work_path)
+    require(work['phase'] != 'FAILED_STOP_UNCONFIRMED', 'boot failure stop unconfirmed; reviewed recovery required')
     if work['phase'] == 'FAILED_STOPPED':
         production_boot_repair_gates(runtime, baseline)
     guard.production_verify(runtime.home, baseline)
@@ -3332,6 +3334,11 @@ def production_boot_start_current(runtime, baseline, work_path):
         production_boot_record_health(runtime, work_path, health)
         return health
     except BaseException:
+        # Fencing/stop validation can itself fail. Persist that uncertainty before
+        # cleanup so a dead worker cannot masquerade as an in-progress start.
+        work = production_boot_work_read(runtime, work_path)
+        work['phase'] = 'FAILED_STOP_UNCONFIRMED'
+        save(work_path, work)
         for path in baseline['gates'].values():
             require(guard.production_pin(Path(path)) == baseline['unitFiles'][path], 'foreign boot failure gate')
         for path in baseline['gates'].values():
@@ -3459,6 +3466,7 @@ def production_boot_finish(args):
     runtime = ProductionRuntime(args.home)
     path = production_boot_work(runtime)
     work = production_boot_work_read(runtime, path)
+    require(work['phase'] != 'FAILED_STOP_UNCONFIRMED', 'boot failure stop unconfirmed; reviewed recovery required')
     require(all(digest(Path(__file__).with_name(name)) == pin for name, pin in work['entryPins'].items()),
             'boot continuation loaded entry differs from dispatch pair')
     # This worker is ordered AFTER the recovery oneshot, never run inside its gate.

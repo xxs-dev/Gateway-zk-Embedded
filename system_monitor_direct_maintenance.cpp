@@ -716,7 +716,8 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
             sharedMemoryNames.push_back(name);
         }
     }
-    if (!context->appConfig.cameraService.sharedMemoryName.empty() &&
+    if (context->appConfig.cameraService.enabled &&
+        !context->appConfig.cameraService.sharedMemoryName.empty() &&
         seen.insert(context->appConfig.cameraService.sharedMemoryName).second) {
         sharedMemoryNames.push_back(context->appConfig.cameraService.sharedMemoryName);
     }

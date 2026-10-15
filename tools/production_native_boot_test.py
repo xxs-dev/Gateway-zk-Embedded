@@ -819,6 +819,26 @@ class NativeBootTest(unittest.TestCase):
         self.assertEqual(old_files[0].read_bytes(), old_bytes, 'retain the previous attempt proof byte-for-byte')
         self.assertEqual(f.live, set(f.allowed))
 
+    def test_retired_source_during_health_records_unconfirmed_stop_without_retry(self):
+        self.boot()
+        f = self.f
+        def failed_health(runtime, baseline):
+            f.write(f.path('/dev/shm/retired_v10'), b'unexpected source')
+            raise ValueError('injected endpoint health failure')
+        with mock.patch.object(f.m.ProductionRuntime, 'health', failed_health):
+            with self.assertRaisesRegex(ValueError, 'retired source recreated'):
+                self.finish()
+        self.assertFalse(f.live)
+        path = f.m.production_boot_work(f.runtime)
+        failed_bytes = path.read_bytes()
+        self.assertEqual(f.g.production_json(path)['phase'], 'FAILED_STOP_UNCONFIRMED')
+        start_count = sum(c[0] == 'start' for c in f.calls)
+        with self.assertRaisesRegex(ValueError, 'unconfirmed'):
+            self.finish()
+        self.assertEqual(path.read_bytes(), failed_bytes)
+        self.assertEqual(sum(c[0] == 'start' for c in f.calls), start_count)
+        self.assertEqual(f.path('/dev/shm/retired_v10').read_bytes(), b'unexpected source')
+
 
 if __name__ == '__main__':
     unittest.main()

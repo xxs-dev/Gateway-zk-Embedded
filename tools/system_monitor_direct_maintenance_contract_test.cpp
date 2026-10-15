@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -30,6 +31,45 @@ void require(bool condition, const std::string& message) {
 
 bool startsWith(const std::string& value, const std::string& prefix) {
     return value.compare(0, prefix.size(), prefix) == 0;
+}
+
+void verifyDisabledCameraDoesNotCreateStore() {
+    char directory[] = "/tmp/gateway-realtime-camera-XXXXXX";
+    require(::mkdtemp(directory) != nullptr, "private realtime fixture directory");
+    const std::string root(directory);
+    const auto suffix = root.substr(root.find_last_of('/') + 1);
+    const auto primary = suffix + "-primary";
+    const auto camera = suffix + "-camera";
+    const auto app = root + "/app.json";
+    const auto cleanup = [&] {
+        ::shm_unlink(("/" + primary).c_str());
+        ::shm_unlink(("/" + camera).c_str());
+        std::remove(app.c_str());
+        ::rmdir(root.c_str());
+    };
+    try {
+        edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig config;
+        config.appConfigFile = app;
+        config.scadaUpperComputerSafetyEnabled = false;
+        for (const bool enabled : {false, true}) {
+            {
+                std::ofstream file(app);
+                file << "{\"deviceConfigFiles\":[],\"identityConfigFile\":\"\","
+                     << "\"mqttDriver\":{\"sharedMemoryName\":\"" << primary << "\"},"
+                     << "\"cameraService\":{\"enabled\":" << (enabled ? "true" : "false")
+                     << ",\"sharedMemoryName\":\"" << camera << "\"}}";
+                require(file.good(), "write realtime fixture app");
+            }
+            const auto response = edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+                config, "GET", "/api/v1/realtime/points", "", "", "", "127.0.0.1");
+            require(startsWith(response, "HTTP/1.1 200"), "real realtime handler must succeed");
+            require(::access(("/dev/shm/" + primary).c_str(), F_OK) == 0,
+                    "realtime handler must open configured primary store");
+            const bool cameraExists = ::access(("/dev/shm/" + camera).c_str(), F_OK) == 0;
+            require(cameraExists == enabled, "disabled camera must not create a shared memory store");
+        }
+    } catch (...) { cleanup(); throw; }
+    cleanup();
 }
 
 std::string loopbackRequest(int port, const std::string& request) {
@@ -517,6 +557,7 @@ void verifyMaintenanceCredential(bool ownerMode) {
 
 int main(int argc, char** argv) {
     try {
+        verifyDisabledCameraDoesNotCreateStore();
         const auto json = edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson();
         require(json.find("\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]") != std::string::npos,
                 "OTA package capabilities are incomplete");
