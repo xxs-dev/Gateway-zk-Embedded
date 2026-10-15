@@ -1,4 +1,5 @@
 #include "edge_gateway/iec_client.hpp"
+#include "edge_gateway/channel_trace.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -969,6 +970,7 @@ void IecTcpClient::sendAll(const std::vector<std::uint8_t>& bytes) {
             disconnect(socketGeneration);
             throw std::runtime_error("IEC TCP send failed");
         }
+        traceBytes(true, bytes.data() + sent, static_cast<std::size_t>(rc));
         sent += static_cast<std::size_t>(rc);
     }
     {
@@ -1042,6 +1044,7 @@ std::vector<std::uint8_t> IecTcpClient::readSome(int timeoutMs) {
         return {};
     }
     bytes.resize(static_cast<std::size_t>(rc));
+    traceBytes(false, bytes.data(), bytes.size());
     return bytes;
 }
 

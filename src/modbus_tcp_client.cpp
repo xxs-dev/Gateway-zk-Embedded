@@ -1,4 +1,5 @@
 #include "edge_gateway/modbus_tcp_client.hpp"
+#include "edge_gateway/channel_trace.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -711,6 +712,7 @@ std::vector<std::uint8_t> ModbusTcpClient::readExact(
             disconnect();
             throw ModbusError(ModbusFailureKind::Transport, "modbus tcp recv failed");
         }
+        traceBytes(false, bytes.data() + received, static_cast<std::size_t>(rc));
         received += static_cast<std::size_t>(rc);
     }
     return bytes;
@@ -746,6 +748,7 @@ void ModbusTcpClient::sendAll(
             disconnect();
             throw ModbusError(ModbusFailureKind::Transport, "modbus tcp send failed");
         }
+        traceBytes(true, bytes.data() + sent, static_cast<std::size_t>(rc));
         sent += static_cast<std::size_t>(rc);
     }
 }

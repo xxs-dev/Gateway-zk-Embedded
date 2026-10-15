@@ -1,4 +1,5 @@
 #include "edge_gateway/am5se_iec103_client.hpp"
+#include "edge_gateway/channel_trace.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -607,6 +608,7 @@ void Am5seIec103Client::sendAll(const std::vector<std::uint8_t>& bytes) {
             disconnect();
             throw std::runtime_error("AM5SE IEC103 TCP send failed");
         }
+        traceBytes(true, bytes.data() + sent, static_cast<std::size_t>(result));
         sent += static_cast<std::size_t>(result);
     }
 }
@@ -647,6 +649,7 @@ std::vector<std::vector<std::uint8_t>> Am5seIec103Client::readFrames(int timeout
             throw std::runtime_error("AM5SE IEC103 TCP connection closed");
         }
         chunk.resize(static_cast<std::size_t>(received));
+        traceBytes(false, chunk.data(), chunk.size());
         rxBuffer_.insert(rxBuffer_.end(), chunk.begin(), chunk.end());
 
         while (!rxBuffer_.empty() && static_cast<int>(frames.size()) < maxFrames) {

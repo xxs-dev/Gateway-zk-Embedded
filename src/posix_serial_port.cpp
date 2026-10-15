@@ -1,6 +1,7 @@
 #ifndef _WIN32
 
 #include "edge_gateway/posix_serial_port.hpp"
+#include "edge_gateway/channel_trace.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -125,6 +126,7 @@ void PosixSerialPort::write(const std::vector<std::uint8_t>& bytes, const Before
             close();
             throw std::runtime_error("serial write returned zero bytes");
         }
+        traceBytes(true, bytes.data() + written, static_cast<std::size_t>(rc));
         written += static_cast<std::size_t>(rc);
     }
     check();
@@ -189,6 +191,7 @@ std::vector<std::uint8_t> PosixSerialPort::read(std::size_t maxBytes, int timeou
             throw std::runtime_error("serial connection closed");
         }
         buffer.resize(static_cast<std::size_t>(rc));
+        traceBytes(false, buffer.data(), buffer.size());
         return buffer;
     }
 }

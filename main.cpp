@@ -56,6 +56,7 @@ void setProcessName(const std::string& name) {
 
 }  // namespace
 
+#include "edge_gateway/channel_trace.hpp"
 int main(int argc, char* argv[]) {
     using namespace edge_gateway;
 
@@ -79,6 +80,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    edge_gateway::setTraceChannel(configPath);
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;

@@ -8,8 +8,16 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 option(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS "Enable function/data section GC for smaller edge binaries" ON)
 include(CTest)
+if(BUILD_TESTING AND UNIX)
+    add_executable(channel_trace_test tools/channel_trace_test.cpp src/channel_trace.cpp)
+    target_include_directories(channel_trace_test PRIVATE include)
+    target_link_libraries(channel_trace_test PRIVATE pthread)
+    add_test(NAME channel_trace COMMAND channel_trace_test)
+    set_tests_properties(channel_trace PROPERTIES TIMEOUT 10)
+endif()
 
 add_library(edge_gateway
+    src/channel_trace.cpp
     src/agc_avc_controller.cpp
     src/agc_avc_command_mailbox.cpp
     src/agc_avc_service.cpp
@@ -91,6 +99,12 @@ add_library(edge_gateway
 )
 
 target_include_directories(edge_gateway PUBLIC include)
+if(BUILD_TESTING AND UNIX)
+    add_executable(channel_trace_api_test tools/channel_trace_api_test.cpp system_monitor_direct_maintenance.cpp)
+    target_link_libraries(channel_trace_api_test PRIVATE edge_gateway pthread ${CMAKE_DL_LIBS})
+    add_test(NAME channel_trace_api COMMAND channel_trace_api_test)
+    set_tests_properties(channel_trace_api PROPERTIES TIMEOUT 30)
+endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8)
     target_link_libraries(edge_gateway PUBLIC stdc++fs)
 endif()

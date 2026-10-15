@@ -13,6 +13,7 @@
 #include "edge_gateway/common/command_executor_interface.hpp"
 #include "edge_gateway/am5se_iec103_client.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/channel_trace.hpp"
 #include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/iec_client.hpp"
@@ -107,6 +108,7 @@ int main(int argc, char* argv[]) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(appConfig.identityConfigFile);
     }
     auto config = ConfigLoader::loadFromFile(configPath, identity);
+    edge_gateway::setTraceChannel(configPath);
     TimingPolicyResolver::apply(config, &appConfig.timingPolicy);
     config.memoryStore.historyRetentionDays = appConfig.pointHistory.retentionDays;
     config.mqttDriver = appConfig.mqttDriver;

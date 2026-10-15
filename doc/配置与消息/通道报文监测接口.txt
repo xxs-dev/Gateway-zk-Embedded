@@ -1,0 +1,53 @@
+通道报文监测接口 v1
+
+合入基线：realese1.0 / aac6e5e1636f82df3a98b084653ffc977af7f25c
+用途：工程工具查看现有采集连接的实际 TX/RX 字节。不会建立第二条设备连接，
+不会发送探测报文，不会修改测点、配置、控制命令或采集时序。
+
+四个接口均为 POST：
+  /api/v1/channel-trace/capabilities
+  /api/v1/channel-trace/start
+  /api/v1/channel-trace/read
+  /api/v1/channel-trace/stop
+
+共同请求字段：machineCode、passwordSha256（沿用现有维护接口的密码摘要）。
+必须经过新版统一维护鉴权：设备凭据已配置、密码正确、客户端未被锁定，
+且敏感接口开关已启用。没有新增固定密码或旁路鉴权。
+  401：认证失败；403：敏感接口关闭；429：认证失败锁定；503：凭据未配置。
+其他参数/会话错误返回 400，success=false，message 给出原因。
+
+capabilities：返回 version=1、supported、transport=direct、boundary=io-chunk、
+maxDurationSec=300、capacity=512、maxChunkBytes=2048 和支持的协议列表。
+旧边端没有此扩展时可返回 404；客户端应禁用实时抓取，仍允许离线查看。
+
+start 附加字段：
+  channel：边端 app 引用的 devices 配置文件的规范化绝对路径。
+  sessionId：1–64 位字母、数字或连字符，客户端生成唯一值。
+  durationSec：1–300 的整数，必须显式指定。
+同一边端同时只允许一个会话；重复 start 不覆盖正在运行的会话。
+
+read 附加字段：sessionId、after（从 0 开始，后续使用返回的 cursor）。
+每次最多返回 128 块，返回 active、expiresAt、cursor、overwritten、channel。
+chunks 含 seq、ts（Unix 毫秒）、direction（TX/RX）、originalLength、hex。
+缓存最多 512 块；每块最多保留 2048 字节，originalLength 保留原始长度。
+overwritten 表示当前游标之前已被覆盖而无法补取的块数，不是链路丢包率。
+锁竞争时抓取允许丢块，不阻塞设备 I/O；不能将抓取结果用于证明零丢包。
+
+stop 附加字段：sessionId。只停止匹配的会话，不清空已捕获的数据。
+到时自动停止采集，仍可用原 sessionId 分页读取；新会话会重置缓存。
+
+边界与资源：
+  - 数据是系统 I/O 块，不保证一块就是一帧；TCP 可能拆包/合包。
+  - 不提供帧重组、CRC 判定、协议解码或通道内单设备归属。
+  - 当前采集 Modbus RTU/TCP、IEC101/103/104（包括 AM5SE TCP）。
+  - CAN、DIO、MQTT 报文订阅不在本扩展范围。
+  - 缓存 /run/modbus-gateway/channel-trace-v1.bin，0600，同 UID 跨进程访问。
+  - 运行目录必须是当前 UID 拥有的真实目录，不能允许组/其他用户写入。
+  - 本地 POSIX 测试使用私有临时目录；接口测试不启动监听、不接触现场设备。
+
+兼容性：
+既有取数、配置快照、dry-run、下发、控制、诊断和 OTA 接口保持上游实现。
+特别是生产模式下配置正式写入需要 approved provision transaction 的限制，
+本扩展没有解除。桌面工具通过 dry-run 不代表生产模式下允许直接正式写入。
+桌面端 Gateway Workbench 0.1.3 的监测请求载荷保持兼容；桌面源码独立管理。
+编译与 QEMU 测试不代表现场部署或真实设备验收。

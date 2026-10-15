@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
@@ -26,6 +27,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/channel_trace.hpp"
 #include "edge_gateway/diagnostic_process.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
@@ -2969,6 +2971,10 @@ bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
         return false;
     }
     static const char* const kSensitivePaths[] = {
+        "/api/v1/channel-trace/capabilities",
+        "/api/v1/channel-trace/start",
+        "/api/v1/channel-trace/read",
+        "/api/v1/channel-trace/stop",
         "/api/v1/config/snapshot",
         "/api/v1/control/batch",
         "/api/v1/diag/execute",
@@ -3005,6 +3011,63 @@ std::string handleRequest(
                 "{\"success\":false,\"message\":\"sensitive maintenance API is disabled (authState.sensitiveApiEnabled=false)\"}");
         }
         tl_requestAuthorized = true;
+    }
+    if (method == "POST" && path.rfind("/api/v1/channel-trace/", 0) == 0) {
+        if (!maintenancePasswordAccepted(config, body)) return response(401, "Unauthorized", "{\"success\":false,\"message\":\"invalid maintenance password\"}");
+        try {
+            const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
+            const auto machine = resolveMachineCode(config, app);
+            if (machine.empty() || jsonString(body, "machineCode") != machine) throw std::runtime_error("machineCode mismatch");
+            const auto action = path.substr(std::string("/api/v1/channel-trace/").size());
+            std::ostringstream out;
+            out << "{\"success\":true,\"machineCode\":\"" << jsonEscape(machine) << "\"";
+            if (action == "capabilities") {
+                out << ",\"version\":1,\"supported\":true,\"transport\":\"direct\",\"maxDurationSec\":300,\"capacity\":512,\"maxChunkBytes\":2048,\"boundary\":\"io-chunk\",\"protocols\":[\"modbus_rtu\",\"modbus_tcp\",\"iec101\",\"iec103\",\"iec104\",\"iec103_tcp\",\"iec103_serial\"]}";
+                return response(200, "OK", out.str());
+            }
+            const auto session = jsonString(body, "sessionId");
+            edge_gateway::ChannelTrace trace;
+            if (action == "start") {
+                const auto requested = jsonString(body, "channel");
+                std::vector<std::string> files;
+                collectConfigFilesFromAppConfig(files, config.otaAppConfigFile);
+                bool found = false;
+                for (const auto& file : files) {
+                    if (file.find("/devices/") != std::string::npos) {
+                        try { if (edge_gateway::traceChannelKey(file) == requested) { found = true; break; } } catch (...) { /* Ignore absent unrelated files. */ }
+                    }
+                }
+                if (!found) throw std::runtime_error("channel is not referenced by edge app configuration");
+                const auto protocol = edge_gateway::ConfigLoader::loadFromFile(requested).protocol.type;
+                const std::set<std::string> supported{"modbus_rtu", "modbus_tcp", "iec101", "iec103", "iec104", "iec103_tcp", "iec103_serial"};
+                if (!supported.count(protocol)) throw std::runtime_error("channel protocol capture not supported");
+#ifndef _WIN32
+                if (mkdir("/run/modbus-gateway", 0750) && errno != EEXIST) throw std::runtime_error("cannot create trace runtime directory");
+                struct stat st{};
+                if (lstat("/run/modbus-gateway", &st) || !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 0022)) throw std::runtime_error("unsafe trace runtime directory");
+#endif
+                double duration = 60;
+                if (!tryJsonDouble(body, "durationSec", &duration) || !std::isfinite(duration) || duration < 1 || duration > 300 || std::floor(duration) != duration) throw std::runtime_error("durationSec must be an integer in 1-300");
+                trace.start(requested, session, static_cast<int>(duration));
+            } else if (action == "stop") { trace.stop(session); }
+            else if (action != "read") throw std::runtime_error("unknown trace action");
+            double after = 0;
+            if (action == "read" && (!tryJsonDouble(body, "after", &after) || !std::isfinite(after) || after < 0 || after > 9007199254740991.0 || std::floor(after) != after)) throw std::runtime_error("invalid cursor");
+            auto page = trace.read(session, static_cast<std::uint64_t>(after));
+            out << ",\"sessionId\":\"" << jsonEscape(session) << "\",\"channel\":\"" << jsonEscape(page.channel)
+                << "\",\"active\":" << (page.active ? "true" : "false") << ",\"expiresAt\":" << page.expiresAt
+                << ",\"cursor\":" << page.cursor << ",\"overwritten\":" << page.overwritten << ",\"boundary\":\"io-chunk\",\"chunks\":[";
+            bool first = true; const char* hex = "0123456789ABCDEF";
+            for (const auto& chunk : page.chunks) {
+                if (!first) out << ','; first = false;
+                out << "{\"seq\":" << chunk.seq << ",\"ts\":" << chunk.ts << ",\"direction\":\"" << (chunk.tx ? "TX" : "RX") << "\",\"originalLength\":" << chunk.originalLength << ",\"hex\":\"";
+                for (const auto byte : chunk.bytes) out << hex[byte >> 4] << hex[byte & 15];
+                out << "\"}";
+            }
+            out << "]}"; return response(200, "OK", out.str());
+        } catch (const std::exception& ex) {
+            return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+        }
     }
     if (method == "GET" && path == "/api/v1/health") {
         return response(200, "OK", healthJson());
