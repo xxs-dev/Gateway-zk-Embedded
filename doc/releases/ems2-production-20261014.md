@@ -1002,8 +1002,8 @@ Current continuation checklist:
 - [x] Real canonical startup and fresh simulated acquisition.
 - [x] Real driver SIGKILL and automatic service/data recovery.
 - [x] Monitor and native Qt crash recovery.
-- [ ] Actual OS reboot and automatic fresh-store/data recovery.
-- [ ] Bounded continuous operation with restart/freshness/resource evidence.
+- [x] Actual OS reboot and automatic fresh-store/data recovery (ff75a52).
+- [x] Bounded 15-minute operation with restart/freshness/resource evidence (ff75a52).
 - [ ] Real-device acquisition, signed OTA provisioning, physical screen/touch,
   power-loss, field/HIL and full production release acceptance.
 
@@ -1071,3 +1071,78 @@ the bootstrap namespace and prevents a new image from being prepared.
   test was skipped, not passed. Evidence: `bootstrap-reprovision-final-green/`.
   Device trial/restore, final replacement, new activation, actual reboot and
   sustained-operation validation are still pending at this source checkpoint.
+
+### Verified Boot Repair Deployment
+
+This section supersedes the stopped/pending statements at the preceding source
+checkpoints. The deployed source is `ff75a5271e5be4d9a532084ed5ea038e69cf342a`.
+
+- Clean isolated Allwinner build/package on 22.11 rebuilt SystemMonitor and
+  reused 17 unchanged verified dfb8108 binaries. Factory SHA256:
+  `dc2c16f106e25dda3ec59c4fdbedc3b74160d1b5b5d64d19240a9ec89f3d8b6f`.
+  Paired tools SHA256:
+  `d43000686edef494a9f502069dd666428e704f946a8c00a17d1e2a6578b3e3b1`.
+  The newly built ARM direct-maintenance test passed in 19.939s with private
+  network/devices/SHM/PID and zero runtime capabilities. Factory installation
+  checked all 18 hashes/dependencies and project `2.0.14-lanhu` in isolation.
+- A fresh stopped backup returned 158625100 bytes and 3674 verified entries.
+  SHA256 `b1981cf223f1dbf071b63f18929782f66afa6a67cf471c942c466a6965f5ec8f`
+  matches the earlier stopped snapshot. No SHM content was archived or replayed.
+- Actual stopped trial `ems2-boot-repair-ff75a52-20261015-trial` installed the
+  candidate and restored the original image/journal pair and directory inodes.
+  Trial approval: `392a7c9b3d83b0ef76d8fec4efb79e28d3afac456eeb483d4308970936ad6d07`.
+  Final transaction `ems2-boot-repair-ff75a52-20261015-final` then installed the
+  candidate under approval
+  `c7b522c297290d965d44c8efcd40191c69e58fba2d820204afffb7eb505fd0c2`.
+  Previous images, paired tools and the completed A2 bootstrap journal remain
+  retained. The unused 4f5a3b2 approval was not applied.
+- Native preparation `LOCAL_PREPARE_BR1` created only new `offline_data_BR1`
+  and `offline_monitor_BR1` stores. `LOCAL_ACTIVATE_BR1` completed through the
+  real systemd manager with approval
+  `98e7306626927a19c102b443427a0495e2955e040eb074b09404bc486c368787`.
+  Baseline SHA256:
+  `ee2c46196992fb159ea7e5f0382ad5684369accfacd8ca0bf829a65f48d6f169`.
+  The isolation profile remains loopback-only, private devices, zero runtime
+  capabilities and write-disabled simulated points. OTA remains explicitly off.
+- All three actual SIGKILL cases passed: driver, Monitor and native Qt restarted
+  automatically, recovered good fresh data and left other processes unchanged.
+  End-to-end checks took 35.062s, 32.698s and 29.236s respectively; these include
+  postchecks and are not pure process restart latency.
+- One authorized OS reboot changed boot ID from
+  `17d0795d-9b21-4cae-aeb9-5c189820bd0d` to
+  `22f9677c-e379-42ec-9fa0-ca67c3170db0`. Boot continuation reached `FINISHED`
+  with one start and one health attempt, without manual business-service starts.
+  Fresh stores, three healthy simulated measurements, offscreen Qt and unchanged
+  baseline were verified. All three process restart counters are zero in the
+  new boot. Vendor initialization occurred once; all three retired SHM names
+  were absent. The 900-second continuous-operation check passed with 61 samples
+  and no unexpected restarts. Including its postcheck, elapsed time was 906.350s;
+  maximum point age was 278ms and maximum HTTP latency was 28.505ms.
+- RSS first/last/peak, in KiB: driver 14516/17420/17420, Monitor
+  18108/18700/18700, Qt 82552/82552/82552. This short test does not establish
+  a memory plateau or absence of leaks; longer-duration qualification remains
+  pending. Services were left running in the accepted isolated profile.
+- Final independent read-only verification at 2026-10-15 02:36 UTC passed all
+  18 components, 374 tool files, paired helpers, retained previous image and
+  bootstrap journal, no pending transactions and zero post-boot service restarts.
+  Journal history confirms exactly one new boot after the authorized reboot;
+  vendor startup files match their original contents and selected business
+  services have no warning-or-higher entries in this boot.
+- The final summary is `boot-repair-verified-ff75a52/summary.json`. Its evidence
+  manifest pins 130 files, including harness snapshots and failed harness
+  attempts. Manifest SHA256:
+  `afd5aa180930038620c1ae8eb02fe39dd333f10334ed8bbb77420d82eff9e83e`.
+- Evidence directories are `board7-boot-repair-ff75a52/`,
+  `boot-repair-artifacts-ff75a52/` and
+  `board7-boot-repair-acceptance-ff75a52/` under the generated production root.
+  Two harness-only issues are retained: a local log-name collision after
+  successful preparation, fixed before collection without replaying prepare;
+  and a Monitor precheck started during driver recovery, refused before sending
+  any signal and rerun successfully after driver verification completed.
+
+Current acceptance is isolated canonical software/deployment operation, not
+field production: physical screen/touch, 95% visual fidelity, real equipment,
+multi-vehicle/HIL, abrupt power-loss, signed OTA provisioning and long-duration
+reliability remain unaccepted. 22.6 and vendor startup/network/watchdog scripts
+were not modified. Never use the old stopped-reprovision receipt to overwrite
+the new active bootstrap journal; keep each lifecycle's own paired recovery path.
