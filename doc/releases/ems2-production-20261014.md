@@ -1038,7 +1038,36 @@ operation result is claimed yet. The user confirmed no manual operation.
   before cleanup, moves to `FAILED_STOPPED` only after complete stop proof, and
   refuses worker retries from the unconfirmed state. It does not delete the
   unexpected SHM or weaken admission. Two focused tests first failed and now
-  pass; broader Linux native-boot regressions are in progress.
+  pass. The selected ARM regression run passed 220 tests: 2 target-dependency,
+  2 failure-state, 4 health-publication, 37 publication, 33 native-boot,
+  84 baseline, 25 activation and 33 role-policy tests. Evidence:
+  `boot-repair-green-v1/`.
 - Driver, Monitor and Qt SIGKILL recovery all passed before reboot. The installed
   package remains 52b44d2 and the paired activation tools remain aa2e576; the
   above follow-up fixes have not yet replaced the canonical image.
+
+### Retaining Completed Bootstrap Journals
+
+Replacing an image after successful first activation must retain the external
+bootstrap journal with its original image. Otherwise `current.json` reserves
+the bootstrap namespace and prevents a new image from being prepared.
+
+- `gateway-reprovision.py plan --retire-bootstrap` produces an explicit v2
+  approval containing the complete old journal tree and directory identity.
+  It requires completed preparation/activation lineage, no pending operation,
+  matching installed image and the original promoted baseline. Later unrelated
+  baselines are deliberately outside this narrow operation.
+- Apply first proves all participants stopped, then atomically retains the
+  journal as `previous-bootstrap` before switching the image. Recovery restores
+  the original journal/image pair and inodes. Foreign or modified journals
+  prevent switching; no journal pointer or shared-memory object is deleted.
+  Default v1 planning refuses to orphan an existing bootstrap journal.
+- First-runtime preparation accepts both approval versions, and checks the v2
+  retained journal before accepting the new image. A regression reproduced
+  the previously missing archive-drift check. The complete fixture path from
+  first activation through replacement to second preparation also passed.
+- Final selected ARM regression passed 103 tests: 11 journal/integration,
+  40 reprovision, 27 preparation and 25 activation. One opt-in native constructor
+  test was skipped, not passed. Evidence: `bootstrap-reprovision-final-green/`.
+  Device trial/restore, final replacement, new activation, actual reboot and
+  sustained-operation validation are still pending at this source checkpoint.

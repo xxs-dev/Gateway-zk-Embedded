@@ -30,6 +30,7 @@ class ReprovisionTest(unittest.TestCase):
         self.journal = self.root / 'journal'
         for name, value in (('HOME', self.home), ('ROOT', self.journal), ('UNIT_DIR', self.units)):
             self.patch(self.m, name, value)
+        self.patch(self.m, 'BOOTSTRAP_ROOT', self.root / 'bootstrap')
         self.patch(self.m.os, 'uname', lambda: types.SimpleNamespace(machine='aarch64'))
         self.patch(self.m.guard, 'SYSTEMD_ROOTS', (str(self.units),))
         self.original_units = {'gateway-services.service', 'system-monitor@.service',

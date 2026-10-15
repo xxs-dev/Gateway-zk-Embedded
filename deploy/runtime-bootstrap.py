@@ -94,6 +94,14 @@ def origin():
     state = reprovision.read_record(transaction / 'state.json')
     require(approval['gatewayHome'] == str(HOME) and approval['controlEnabled'] is False and
             approval['activation'] == 'stopped-only', 'invalid bootstrap reprovision origin')
+    require(approval.get('format') in ('gateway-reprovision-approval-v1', 'gateway-reprovision-approval-v2') and
+            ('bootstrapJournal' in approval) == (approval['format'] == 'gateway-reprovision-approval-v2'),
+            'invalid bootstrap reprovision format')
+    if approval['format'] == 'gateway-reprovision-approval-v2':
+        archived = transaction / 'previous-bootstrap'
+        expected = approval['bootstrapJournal']
+        require(reprovision.identity(archived) == expected['identity'] and
+                reprovision.tree(archived) == expected['tree'], 'retained bootstrap journal drift')
     require(reprovision.tree(HOME) == approval['imageTree'], 'installed bootstrap image drift')
     require(reprovision.tree(transaction / 'previous-home') == state['previousTree'] and
             reprovision.identity(transaction / 'previous-home') == approval['previousIdentity'],

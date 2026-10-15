@@ -25,6 +25,7 @@ guard = lifecycle.guard
 require = lifecycle.require
 HOME = Path('/opt/modbus-gateway')
 ROOT = Path('/opt/gateway-reprovision')
+BOOTSTRAP_ROOT = Path('/opt/gateway-runtime-bootstrap')
 UNIT_DIR = Path('/etc/systemd/system')
 FENCE_NAME = 'zz-gateway-reprovision-stop.conf'
 STOP_BODY = b'gateway full reprovision: explicit activation required\n'
@@ -355,10 +356,68 @@ def capacity_preflight(approval):
     require(available.f_bavail * available.f_frsize >= size, 'insufficient durable staging space')
 
 
-def plan(image, unit_source, transaction, expires):
+def bootstrap_journal_snapshot():
+    for path in (BOOTSTRAP_ROOT / 'pending.json', BOOTSTRAP_ROOT / 'activations/pending.json',
+                 HOME / 'data/runtime-production/pending.json'):
+        require(not path.exists() and not path.is_symlink(), 'pending bootstrap/runtime transaction cannot be retired')
+    trusted(BOOTSTRAP_ROOT, directory=True)
+    require(mount_id(BOOTSTRAP_ROOT) == mount_id(ROOT) and
+            BOOTSTRAP_ROOT.stat().st_dev == ROOT.stat().st_dev, 'bootstrap journal must share the reprovision mount')
+    pointer = read_record(BOOTSTRAP_ROOT / 'activations/current.json')
+    require(isinstance(pointer, dict) and set(pointer) == {'transaction', 'approvalSha256'} and
+            isinstance(pointer['transaction'], str) and re.fullmatch('[A-Za-z0-9_-]{1,63}', pointer['transaction']) and
+            isinstance(pointer['approvalSha256'], str) and re.fullmatch('[0-9a-f]{64}', pointer['approvalSha256']),
+            'invalid completed bootstrap pointer')
+    transaction = BOOTSTRAP_ROOT / 'activations' / pointer['transaction']
+    approval = read_record(transaction / 'approval.json', pointer['approvalSha256'])
+    state = read_record(transaction / 'state.json')
+    require(state.get('phase') == 'COMPLETED' and state.get('transaction') == pointer['transaction'] and
+            state.get('approvalSha256') == pointer['approvalSha256'] and
+            approval.get('format') == 'runtime-bootstrap-activation-v1' and approval.get('operation') == 'bootstrap' and
+            approval.get('transaction') == pointer['transaction'] and approval.get('gatewayHome') == str(HOME),
+            'bootstrap activation is not completed')
+    origin = approval.get('origin', {})
+    require({key: origin.get(key) for key in ('transaction', 'approvalSha256')} == current_pointer() and
+            origin.get('imageIdentity') == identity(HOME), 'bootstrap journal belongs to a different installed image')
+    prepared = read_record(BOOTSTRAP_ROOT / 'current.json')
+    require(prepared == dict(transaction=approval.get('preparedTransaction'),
+                            approvalSha256=approval.get('prepareApprovalSha256'),
+                            readySha256=approval.get('preparedSha256')) and
+            isinstance(prepared['transaction'], str) and re.fullmatch('[A-Za-z0-9_-]{1,63}', prepared['transaction']) and
+            all(isinstance(prepared[k], str) and re.fullmatch('[0-9a-f]{64}', prepared[k])
+                for k in ('approvalSha256', 'readySha256')),
+            'bootstrap preparation lineage mismatch')
+    directory = BOOTSTRAP_ROOT / 'transactions' / prepared['transaction']
+    read_record(directory / 'approval.json', prepared['approvalSha256'])
+    read_record(directory / 'ready.json', prepared['readySha256'])
+    current = read_record(HOME / 'data/runtime-production/current.json')
+    require(current.get('transaction') == pointer['transaction'] and isinstance(current.get('baselineId'), str) and
+            re.fullmatch('[A-Za-z0-9_-]{1,63}', current['baselineId']) and
+            isinstance(current.get('sha256'), str) and re.fullmatch('[0-9a-f]{64}', current['sha256']),
+            'bootstrap retirement requires the original completed baseline')
+    require(read_record(HOME / 'data/runtime-production/baselines' / (current['baselineId'] + '.json'),
+                        current['sha256']) == approval.get('candidate'), 'bootstrap baseline changed')
+    return {'identity': identity(BOOTSTRAP_ROOT), 'tree': tree(BOOTSTRAP_ROOT)}
+
+
+def bootstrap_recovery_location(transaction, approval):
+    expected = approval.get('bootstrapJournal')
+    require(approval['format'] == 'gateway-reprovision-approval-v2' and isinstance(expected, dict) and
+            set(expected) == {'identity', 'tree'}, 'invalid bootstrap journal recovery authority')
+    archived = transaction / 'previous-bootstrap'
+    existing = [path for path in (BOOTSTRAP_ROOT, archived) if path.exists() or path.is_symlink()]
+    require(len(existing) == 1 and identity(existing[0]) == expected['identity'] and
+            tree(existing[0]) == expected['tree'], 'bootstrap journal missing, changed or replaced; keep stopped')
+    return existing[0]
+
+
+def plan(image, unit_source, transaction, expires, retire_bootstrap=False):
     require(re.fullmatch('[A-Za-z0-9_-]{1,63}', transaction), 'invalid transaction ID')
     require(time.time() < expires <= time.time() + 86400, 'approval expiry must be within one day')
     require(not (ROOT / 'pending.json').exists(), 'unfinished reprovision transaction')
+    bootstrap = bootstrap_journal_snapshot() if retire_bootstrap else None
+    require(retire_bootstrap or not (BOOTSTRAP_ROOT.exists() or BOOTSTRAP_ROOT.is_symlink()),
+            'existing bootstrap journal requires explicit --retire-bootstrap')
     image, unit_source = image.absolute(), unit_source.absolute()
     require(HOME not in image.parents and image != HOME and image not in HOME.parents and
             ROOT not in image.parents and image != ROOT and image not in ROOT.parents,
@@ -388,7 +447,7 @@ def plan(image, unit_source, transaction, expires):
                 'new image must not carry runtime state/queued work')
         if pin['kind'] == 'file' and name.split('/')[0] in ('bin', 'ky-ems'):
             guard.production_architecture(image / name)
-    return {'format': 'gateway-reprovision-approval-v1', 'transaction': transaction,
+    result = {'format': 'gateway-reprovision-approval-v1', 'transaction': transaction,
             'expiresAtUnix': expires, 'gatewayHome': str(HOME), 'architecture': 'aarch64',
             'controlEnabled': False, 'activation': 'stopped-only', 'machineCode': old_identity['machineCode'],
             'helperSha256': helper_pins(), 'image': str(image), 'imageTree': new_tree,
@@ -396,6 +455,9 @@ def plan(image, unit_source, transaction, expires):
             'previousImmutable': immutable(old_tree), 'previousIdentity': identity(HOME),
             'previousUnits': previous_units,
             'previousPointer': current_pointer()}
+    if bootstrap is not None:
+        result.update(format='gateway-reprovision-approval-v2', bootstrapJournal=bootstrap)
+    return result
 
 
 def persistent_stop(units):
@@ -440,7 +502,8 @@ class Reprovision:
         root_setup()
         approval = read_record(path, approval_sha)
         require(approval == plan(Path(approval['image']), Path(approval['unitSource']),
-                                 approval['transaction'], approval['expiresAtUnix']),
+                                 approval['transaction'], approval['expiresAtUnix'],
+                                 retire_bootstrap=approval.get('format') == 'gateway-reprovision-approval-v2'),
                 'approval drift or unrecognized fields')
         capacity_preflight(approval)
         transaction = ROOT / 'transactions' / approval['transaction']
@@ -474,6 +537,12 @@ class Reprovision:
         require(time.time() < approval['expiresAtUnix'], 'approval expired after stop')
         state['previousTree'] = tree(HOME)
         self.checkpoint(transaction, state, 'SWITCH_INTENT')
+        if 'bootstrapJournal' in approval:
+            require(bootstrap_journal_snapshot() == approval['bootstrapJournal'], 'bootstrap journal drift after stop')
+            os.rename(str(BOOTSTRAP_ROOT), str(transaction / 'previous-bootstrap'))
+            lifecycle.sync_dir(BOOTSTRAP_ROOT.parent)
+            lifecycle.sync_dir(transaction)
+            self.checkpoint(transaction, state, 'BOOTSTRAP_RETIRED')
         os.rename(str(HOME), str(transaction / 'previous-home'))
         lifecycle.sync_dir(HOME.parent)
         lifecycle.sync_dir(transaction)
@@ -546,14 +615,18 @@ class Reprovision:
         state = read_record(transaction / 'state.json')
         require(approval['transaction'] == state['transaction'] == transaction_id and
                 state['approvalSha256'] == approval_sha and
-                approval['format'] == 'gateway-reprovision-approval-v1' and
+                approval['format'] in ('gateway-reprovision-approval-v1', 'gateway-reprovision-approval-v2') and
                 approval['gatewayHome'] == str(HOME) and approval['controlEnabled'] is False and
                 approval['activation'] == 'stopped-only', 'recovery authority mismatch')
+        require(('bootstrapJournal' in approval) == (approval['format'] == 'gateway-reprovision-approval-v2'),
+                'bootstrap journal recovery format mismatch')
         require(state['oldUnits'] == {name: 'old-units/' + str(index) for index, name in
                                      enumerate(sorted(approval['previousUnits']))}, 'unit backup journal changed')
         require(all(unit_name(u) for u in approval['units']), 'recovery unit scope invalid')
         for name in approval['newUnits']:
             unit_relative(name)
+        bootstrap_location = (bootstrap_recovery_location(transaction, approval)
+                              if approval['format'] == 'gateway-reprovision-approval-v2' else None)
         pending = ROOT / 'pending.json'
         pointer = ROOT / 'current.json'
         expected = {'transaction': transaction_id, 'approvalSha256': approval_sha}
@@ -590,6 +663,12 @@ class Reprovision:
             lifecycle.sync_dir(transaction)
         require(identity(HOME) == approval['previousIdentity'] and
                 immutable(tree(HOME, IMMUTABLE)) == approval['previousImmutable'], 'restored original image drift')
+        if bootstrap_location is not None:
+            location = bootstrap_recovery_location(transaction, approval)
+            if location != BOOTSTRAP_ROOT:
+                os.rename(str(location), str(BOOTSTRAP_ROOT))
+                lifecycle.sync_dir(BOOTSTRAP_ROOT.parent)
+                lifecycle.sync_dir(transaction)
         self.switch_units(transaction, approval, state, recover=True)
         lifecycle.systemctl('daemon-reload')
         require(installed_units(approval['units']) == approval['previousUnits'] and not processes(),
@@ -616,6 +695,8 @@ def main():
     prepare.add_argument('--transaction', required=True)
     prepare.add_argument('--expires-at', type=int, required=True)
     prepare.add_argument('--output', type=Path, required=True)
+    prepare.add_argument('--retire-bootstrap', action='store_true',
+                         help='retain the completed first-runtime journal with the previous image')
     apply = sub.add_parser('apply')
     apply.add_argument('--approval', type=Path, required=True)
     apply.add_argument('--approval-sha256', required=True)
@@ -626,7 +707,7 @@ def main():
     with lifecycle.production_lock():
         if args.action == 'plan':
             root_setup()
-            value = plan(args.image, args.units, args.transaction, args.expires_at)
+            value = plan(args.image, args.units, args.transaction, args.expires_at, args.retire_bootstrap)
             trusted(args.output.parent, directory=True)
             record(args.output, value, new=True)
             print(digest(args.output))
