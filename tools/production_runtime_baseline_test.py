@@ -43,6 +43,10 @@ def load():
 @unittest.skipUnless(getattr(os, 'geteuid', lambda: -1)() == 0,
                      'root-owned private lifecycle fixture required')
 class ProductionRuntimeTest(unittest.TestCase):
+    def map_system_path(self, path):
+        """Default private namespace; specialized isolated-container tests may override."""
+        return self.root / 'system' / str(path).lstrip('/')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='production-runtime-')
         self.addCleanup(self.temp.cleanup)
@@ -52,7 +56,7 @@ class ProductionRuntimeTest(unittest.TestCase):
         def mapped(*parts):
             path = Path(*parts)
             if path.is_absolute() and path.parts[1] in ('opt', 'etc', 'proc', 'dev', 'run'):
-                return self.root / 'system' / str(path).lstrip('/')
+                return self.map_system_path(path)
             return path
         self.path = mapped
         self.patch(self.m, 'Path', mapped)
