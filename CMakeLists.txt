@@ -716,6 +716,8 @@ target_link_libraries(EmsParityCheck PRIVATE edge_gateway)
 target_compile_options(EmsParityCheck PRIVATE -fdiagnostics-color=never)
 
 add_executable(ota_service_test tools/ota_service_test.cpp)
+add_executable(ota_production_inspection_probe EXCLUDE_FROM_ALL tools/ota_production_inspection_probe.cpp system_monitor_direct_maintenance.cpp)
+target_link_libraries(ota_production_inspection_probe PRIVATE edge_gateway)
 add_executable(ota_runtime_handoff_service_test tools/ota_runtime_handoff_service_test.cpp)
 target_link_libraries(ota_runtime_handoff_service_test PRIVATE edge_gateway)
 target_link_libraries(ota_service_test PRIVATE edge_gateway)

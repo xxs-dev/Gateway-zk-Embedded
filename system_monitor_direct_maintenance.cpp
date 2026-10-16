@@ -2981,6 +2981,7 @@ bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
         "/api/v1/config/apply",
         "/api/v1/config/delete",
         "/api/v1/config/restore",
+        "/api/v1/ota/production-inspect",
         "/api/v1/ota/jobs"
     };
     for (const auto* candidate : kSensitivePaths) {
@@ -3143,6 +3144,32 @@ std::string handleRequest(
     }
     if (method == "GET" && path == "/api/v1/ota/status") {
         return response(200, "OK", otaStatusJson(config));
+    }
+    if (method == "POST" && path == "/api/v1/ota/production-inspect") {
+        try {
+            const auto request = edge_gateway::ota_request_json::parseRoot(body);
+            const auto requestId = edge_gateway::ota_request_json::stringField(request, "requestId");
+            if (requestId.empty() || requestId.size() > 128 ||
+                requestId.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") != std::string::npos)
+                throw std::runtime_error("invalid production inspection request ID");
+            const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
+            const auto machine = resolveMachineCode(config, app);
+            if (machine.empty() || edge_gateway::ota_request_json::stringField(request, "machineCode") != machine)
+                throw std::runtime_error("machineCode mismatch");
+            const auto value = edge_gateway::OtaService(app.ota).inspectProduction(machine);
+            std::ostringstream out;
+            out << "{\"format\":\"gateway-production-inspection/1\",\"success\":true,\"requestId\":\"" << jsonEscape(requestId)
+                << "\",\"machineCode\":\"" << jsonEscape(machine)
+                << "\",\"installer\":\"production-owner-v2\",\"baselineJson\":\"" << jsonEscape(value.baselineJson)
+                << "\",\"baselineSha256\":\"" << value.baselineSha256
+                << "\",\"pointerSha256\":\"" << value.pointerSha256
+                << "\",\"publicKeySha256\":\"" << value.publicKeySha256
+                << "\",\"installerSha256\":\"" << value.installerSha256
+                << "\",\"runtimeVerified\":false,\"reservationCreated\":false,\"ts\":" << nowMs() << "}";
+            return response(200, "OK", out.str());
+        } catch (const std::exception&) {
+            return response(409, "Conflict", "{\"success\":false,\"message\":\"production baseline or installer cannot be verified\"}");
+        }
     }
     if (method == "POST" && path == "/api/v1/ota/jobs") {
         try {

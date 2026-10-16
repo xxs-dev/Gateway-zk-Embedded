@@ -2736,6 +2736,108 @@ OtaReply OtaService::createAcceptedReply(
     return reply;
 }
 
+OtaProductionInspection OtaService::inspectProduction(const std::string& machineCode) const {
+#ifdef _WIN32
+    (void)machineCode;
+    throw std::runtime_error("production inspection requires Linux");
+#else
+    if (!config_.enabled || !config_.requireSignature || !config_.checksumRequired || config_.allowInsecureHttp)
+        throw std::runtime_error("production OTA trust policy is not enabled");
+    const std::string suffix = "/bin/offline-runtime-upgrade.py";
+    if (config_.applyScript.size() <= suffix.size() ||
+        config_.applyScript.substr(config_.applyScript.size() - suffix.size()) != suffix)
+        throw std::runtime_error("production configuration requires the transaction owner installer");
+    const auto home = config_.applyScript.substr(0, config_.applyScript.size() - suffix.size());
+    char* resolved = realpath(home.c_str(), nullptr);
+    const bool canonical = resolved && home == resolved && home != "/";
+    free(resolved);
+    if (!canonical || config_.stagingDir != home + "/ota/staging" || machineCode.empty())
+        throw std::runtime_error("production inspection paths or target are inconsistent");
+    // Every read is bounded and refuses symlinks, non-regular files and writable
+    // ownership. Reopen the entire observation to detect pointer/file replacement.
+    const auto snapshot = [&]() {
+        std::map<std::string, ReadOnlyEvidenceFile> files;
+        std::size_t remaining = 8 * 1024 * 1024;
+        const QueryDirectoryFd homeFd(openTrustedQueryDirectory(home));
+        const QueryDirectoryFd data(openTrustedQueryChild(homeFd.value, "data"));
+        const QueryDirectoryFd root(openTrustedQueryChild(data.value, "runtime-production"));
+        const auto get = [&](int fd, const std::string& name, const std::string& label, std::size_t limit) {
+            const auto file = readOriginalEvidenceFile(fd, name, limit, remaining);
+            if (!file.present) throw std::runtime_error("production inspection evidence is missing");
+            files.emplace(label, file);
+            return file.bytes;
+        };
+        struct stat pending{};
+        if (fstatat(root.value, "pending.json", &pending, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
+            throw std::runtime_error("production transaction is still pending");
+        const auto pointerBytes = get(root.value, "current.json", "pointer", 4096);
+        const auto pointer = json::JsonParser(pointerBytes, 4, 32).parse();
+        requireUniqueQueryJson(pointer);
+        if (!pointer.isObject() || pointer.asObject().values.size() != 4)
+            throw std::runtime_error("invalid production inspection pointer");
+        const auto baselineId = pendingField(pointer, "baselineId");
+        const auto transactionId = pendingField(pointer, "transaction");
+        if (!isSafeOtaId(baselineId) || !isSafeOtaId(transactionId))
+            throw std::runtime_error("invalid production inspection identity");
+        const QueryDirectoryFd baselines(openTrustedQueryChild(root.value, "baselines"));
+        const auto baselineBytes = get(baselines.value, baselineId + ".json", "baseline", 1024 * 1024);
+        if (ota_query_detail::sha256Hex(baselineBytes) != pendingField(pointer, "sha256"))
+            throw std::runtime_error("production baseline digest changed");
+        const auto baseline = json::JsonParser(baselineBytes, 32, 100000).parse();
+        requireUniqueQueryJson(baseline);
+        if (pendingField(baseline, "format") != "runtime-baseline-v2" ||
+            pendingField(baseline, "gatewayHome") != home || pendingField(baseline, "machineCode") != machineCode ||
+            pendingField(baseline, "baselineId") != baselineId)
+            throw std::runtime_error("production baseline target or format mismatch");
+        const QueryDirectoryFd transactions(openTrustedQueryChild(root.value, "transactions"));
+        const QueryDirectoryFd tx(openTrustedQueryChild(transactions.value, transactionId));
+        const auto healthBytes = get(tx.value, "health.json", "health", 65536);
+        const auto health = json::JsonParser(healthBytes, 16, 4096).parse();
+        requireUniqueQueryJson(health);
+        if (ota_query_detail::sha256Hex(healthBytes) != pendingField(pointer, "healthSha256") ||
+            pendingField(health, "status") != "healthy" || pendingField(health, "transaction") != transactionId ||
+            pendingField(health, "baselineSha256") != pendingField(pointer, "sha256"))
+            throw std::runtime_error("production promotion evidence mismatch");
+        const auto* pins = baseline.find("files");
+        const auto* trust = baseline.find("trust");
+        if (!pins || !pins->isObject() || !trust || !trust->isObject())
+            throw std::runtime_error("production installer or trust pins missing");
+        const QueryDirectoryFd bin(openTrustedQueryChild(homeFd.value, "bin"));
+        for (const auto* name : {"offline-runtime-upgrade.py", "runtime-upgrade-guard.py", "gateway-services.sh",
+                                 "ota-health-result.py", "ota-rollback.sh", "factory-lifecycle-stage.py", "production_role_policy.py"}) {
+            const auto relative = std::string("bin/") + name;
+            const auto* pin = pins->find(relative);
+            const auto bytes = get(bin.value, name, relative, 1024 * 1024);
+            if (!pin || !pin->isObject() || ota_query_detail::sha256Hex(bytes) != pendingField(*pin, "sha256"))
+                throw std::runtime_error("production paired installer digest changed");
+        }
+        const auto slash = config_.signaturePublicKeyPath.find_last_of('/');
+        if (slash == std::string::npos || slash == 0)
+            throw std::runtime_error("production public key path invalid");
+        const QueryDirectoryFd keyDir(openTrustedQueryDirectory(config_.signaturePublicKeyPath.substr(0, slash)));
+        const auto keyBytes = get(keyDir.value, config_.signaturePublicKeyPath.substr(slash + 1), "public-key", 32768);
+        if (ota_query_detail::sha256Hex(keyBytes) != pendingField(*trust, "publicKeySha256"))
+            throw std::runtime_error("production verification key changed");
+        return files;
+    };
+    const auto first = snapshot(), second = snapshot();
+    if (first.size() != second.size()) throw std::runtime_error("production inspection changed");
+    for (const auto& item : first) {
+        const auto found = second.find(item.first);
+        if (found == second.end() || found->second.bytes != item.second.bytes ||
+            found->second.dev != item.second.dev || found->second.inode != item.second.inode)
+            throw std::runtime_error("production inspection changed");
+    }
+    OtaProductionInspection result;
+    result.baselineJson = first.at("baseline").bytes;
+    result.baselineSha256 = ota_query_detail::sha256Hex(result.baselineJson);
+    result.pointerSha256 = ota_query_detail::sha256Hex(first.at("pointer").bytes);
+    result.publicKeySha256 = ota_query_detail::sha256Hex(first.at("public-key").bytes);
+    result.installerSha256 = ota_query_detail::sha256Hex(first.at("bin/offline-runtime-upgrade.py").bytes);
+    return result;
+#endif
+}
+
 void OtaService::execute(
     const OtaRequest& request,
     const std::string& machineCode,

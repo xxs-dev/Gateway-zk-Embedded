@@ -55,6 +55,14 @@ struct OtaReadOnlyFinalStatuses {
     bool truncated = false;
 };
 
+struct OtaProductionInspection {
+    std::string baselineJson;
+    std::string baselineSha256;
+    std::string pointerSha256;
+    std::string publicKeySha256;
+    std::string installerSha256;
+};
+
 class OtaRequestRejected : public std::runtime_error {
 public:
     OtaRequestRejected(OtaRejectionReason reason, const std::string& message)
@@ -96,6 +104,10 @@ public:
     // Local evidence only. No transport authentication is implied by this result.
     // This method never creates a file, takes an execution/journal lock, or repairs state.
     OtaOriginalJobEvidence readOriginalJob(const std::string& jobId) const;
+    // Authenticated transport must establish the device identity before calling.
+    // Reads published baseline/health and pinned installer files only. Does not
+    // reserve a job or prove live processes, physical health or future admission.
+    OtaProductionInspection inspectProduction(const std::string& machineCode) const;
     OtaOriginalJobEvidence readOriginalJob(const std::string& jobId,
                                           const std::string& expectedMachineCode,
                                           const std::string& expectedOccurrenceId) const;
