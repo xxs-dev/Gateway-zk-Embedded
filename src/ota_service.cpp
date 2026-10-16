@@ -1982,10 +1982,11 @@ struct ReadOnlyEvidenceFile {
 };
 
 ReadOnlyEvidenceFile readOriginalEvidenceFile(int directoryFd, const std::string& name, std::size_t limit,
-                                             std::size_t& remaining, std::size_t* displayReadBudget = nullptr) {
+                                             std::size_t& remaining, std::size_t* displayReadBudget = nullptr,
+                                             bool allowEmpty = false) {
     ReadOnlyEvidenceFile result;
 #ifdef _WIN32
-    (void)directoryFd; (void)name; (void)limit; (void)remaining; (void)displayReadBudget;
+    (void)directoryFd; (void)name; (void)limit; (void)remaining; (void)displayReadBudget; (void)allowEmpty;
     return result;
 #else
     const int fd = openat(directoryFd, name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
@@ -1996,7 +1997,7 @@ ReadOnlyEvidenceFile readOriginalEvidenceFile(int directoryFd, const std::string
     try {
         struct stat before{}, after{}, named{};
         if (fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) || before.st_uid != 0 ||
-            before.st_nlink != 1 || (before.st_mode & 0022) || before.st_size < 1 ||
+            before.st_nlink != 1 || (before.st_mode & 0022) || before.st_size < (allowEmpty ? 0 : 1) ||
             static_cast<std::uint64_t>(before.st_size) > limit ||
             static_cast<std::uint64_t>(before.st_size) > remaining)
             throw std::runtime_error("invalid OTA query evidence metadata");
@@ -2736,9 +2737,10 @@ OtaReply OtaService::createAcceptedReply(
     return reply;
 }
 
-OtaProductionInspection OtaService::inspectProduction(const std::string& machineCode) const {
+OtaProductionInspection OtaService::inspectProduction(const std::string& machineCode, bool fullConfiguration) const {
 #ifdef _WIN32
     (void)machineCode;
+    (void)fullConfiguration;
     throw std::runtime_error("production inspection requires Linux");
 #else
     if (!config_.enabled || !config_.requireSignature || !config_.checksumRequired || config_.allowInsecureHttp)
@@ -2818,6 +2820,69 @@ OtaProductionInspection OtaService::inspectProduction(const std::string& machine
         const auto keyBytes = get(keyDir.value, config_.signaturePublicKeyPath.substr(slash + 1), "public-key", 32768);
         if (ota_query_detail::sha256Hex(keyBytes) != pendingField(*trust, "publicKeySha256"))
             throw std::runtime_error("production verification key changed");
+        if (fullConfiguration) {
+            const auto* expected = baseline.find("configSha256");
+            if (!expected || !expected->isObject() || expected->asObject().values.empty() ||
+                expected->asObject().values.size() > 1024)
+                throw std::runtime_error("production configuration inventory invalid");
+            const QueryDirectoryFd configFd(openTrustedQueryChild(homeFd.value, "config"));
+            const QueryDirectoryFd runtimeFd(openTrustedQueryChild(configFd.value, "runtime"));
+            std::size_t configBudget = 64 * 1024 * 1024, entries = 0, fileCount = 0;
+            std::function<void(int, const std::string&, int)> visit;
+            visit = [&](int fd, const std::string& prefix, int depth) {
+                if (depth > 16) throw std::runtime_error("production configuration tree too deep");
+                struct stat before{}, after{};
+                if (fstat(fd, &before) != 0) throw std::runtime_error("configuration directory unavailable");
+                const int copy = dup(fd);
+                if (copy < 0) throw std::runtime_error("configuration directory unavailable");
+                DIR* opened = fdopendir(copy);
+                if (!opened) { close(copy); throw std::runtime_error("configuration directory unavailable"); }
+                const std::unique_ptr<DIR, int(*)(DIR*)> directory(opened, closedir);
+                for (;;) {
+                    errno = 0;
+                    const auto* entry = readdir(directory.get());
+                    if (!entry) {
+                        if (errno) throw std::runtime_error("configuration directory read failed");
+                        break;
+                    }
+                    const std::string name(entry->d_name);
+                    if (name == "." || name == "..") continue;
+                    if (++entries > 4096 || !isSafeOtaId(name))
+                        throw std::runtime_error("configuration inventory path or count invalid");
+                    struct stat info{};
+                    if (fstatat(fd, name.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0)
+                        throw std::runtime_error("configuration entry changed");
+                    const auto relative = prefix + name;
+                    if (S_ISDIR(info.st_mode)) {
+                        const QueryDirectoryFd child(openTrustedQueryChild(fd, name));
+                        visit(child.value, relative + "/", depth + 1);
+                    } else {
+                        if (!S_ISREG(info.st_mode) || ++fileCount > 1024)
+                            throw std::runtime_error("configuration entry is not a regular file");
+                        auto file = readOriginalEvidenceFile(fd, name, 4 * 1024 * 1024, configBudget, nullptr, true);
+                        if (!file.present) throw std::runtime_error("configuration entry disappeared");
+                        const auto digest = ota_query_detail::sha256Hex(file.bytes);
+                        if (digest != pendingField(*expected, relative.c_str()))
+                            throw std::runtime_error("production configuration differs from baseline");
+                        // Retain only the digest, never secret file contents, across observations.
+                        file.bytes = digest;
+                        files.emplace("configuration:" + relative, std::move(file));
+                    }
+                }
+                if (fstat(fd, &after) != 0 || before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
+                    before.st_mtim.tv_sec != after.st_mtim.tv_sec || before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
+                    before.st_ctim.tv_sec != after.st_ctim.tv_sec || before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)
+                    throw std::runtime_error("configuration directory changed during inspection");
+                ReadOnlyEvidenceFile directoryIdentity;
+                directoryIdentity.present = true;
+                directoryIdentity.dev = before.st_dev;
+                directoryIdentity.inode = before.st_ino;
+                files.emplace("configuration-directory:" + prefix, directoryIdentity);
+            };
+            visit(runtimeFd.value, "", 0);
+            if (fileCount != expected->asObject().values.size())
+                throw std::runtime_error("production configuration inventory incomplete");
+        }
         return files;
     };
     const auto first = snapshot(), second = snapshot();
@@ -2834,6 +2899,9 @@ OtaProductionInspection OtaService::inspectProduction(const std::string& machine
     result.pointerSha256 = ota_query_detail::sha256Hex(first.at("pointer").bytes);
     result.publicKeySha256 = ota_query_detail::sha256Hex(first.at("public-key").bytes);
     result.installerSha256 = ota_query_detail::sha256Hex(first.at("bin/offline-runtime-upgrade.py").bytes);
+    for (const auto& item : first)
+        if (item.first.compare(0, 14, "configuration:") == 0)
+            result.configSha256.emplace(item.first.substr(14), item.second.bytes);
     return result;
 #endif
 }

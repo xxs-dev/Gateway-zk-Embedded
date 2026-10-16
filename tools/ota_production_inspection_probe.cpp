@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
         body += "\"}";
         if (scenario == "duplicate") body.insert(1, "\"requestId\":\"DUPLICATE\",");
         std::cout << dm::handleHttpRequest(c, scenario == "get" ? "GET" : "POST",
-            "/api/v1/ota/production-inspect", "", "", body, "127.0.0.1");
+            scenario == "legacy" ? "/api/v1/ota/production-inspect" : "/api/v1/ota/production-inspect-v2", "", "", body, "127.0.0.1");
         return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

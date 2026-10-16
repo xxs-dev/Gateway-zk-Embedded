@@ -52,13 +52,75 @@ def main():
             results.append({'case': name, 'httpStatus': expected, 'runtimeFilesUnchanged': True})
             return value
         first = call()
-        fixture.assertEqual(first['format'], 'gateway-production-inspection/1')
+        fixture.assertEqual(first['format'], 'gateway-production-inspection/2')
+        fixture.assertEqual(first['configSha256'], candidate['configSha256'])
+        for relative in candidate['configSha256']:
+            if relative.startswith('tls/'):
+                content = (fixture.home / 'config/runtime' / relative).read_text().strip()
+                if len(content) >= 8:
+                    fixture.assertNotIn(content, json.dumps(first))
+        legacy = call('legacy')
+        fixture.assertEqual(legacy['format'], 'gateway-production-inspection/1')
+        fixture.assertNotIn('configSha256', legacy)
         fixture.assertEqual(first['requestId'], 'INSPECT_1')
         fixture.assertEqual(first['machineCode'], previous['machineCode'])
         fixture.assertEqual(json.loads(first['baselineJson']), candidate)
         fixture.assertEqual(hashlib.sha256(first['baselineJson'].encode()).hexdigest(), first['baselineSha256'])
         fixture.assertFalse(first['runtimeVerified'])
         fixture.assertFalse(first['reservationCreated'])
+        runtime = fixture.home / 'config/runtime'
+        for name, relative in [('runtime-drift', 'apps/monitor-service.json'),
+                               ('protected-drift', 'tls/mqtt-service-stunnel.conf')]:
+            file = runtime / relative
+            if not file.exists():
+                # Select a real fixture pin of the corresponding category.
+                paths = [p for p in candidate['configSha256'] if (p.startswith('tls/') if name == 'protected-drift' else p.startswith('apps/'))]
+                fixture.assertTrue(paths, name)
+                file = runtime / paths[0]
+            original = file.read_bytes()
+            try:
+                file.write_bytes(original + b'\n')
+                call(name, 409)
+            finally:
+                file.write_bytes(original)
+        added = runtime / 'unexpected-config.json'
+        try:
+            added.write_text('{}\n')
+            call('untracked-runtime-file', 409)
+        finally:
+            added.unlink()
+        file = runtime / next(iter(candidate['configSha256']))
+        backup = fixture.root / 'runtime-original-private'
+        file.rename(backup)
+        try:
+            call('missing-runtime-file', 409)
+            file.symlink_to(backup)
+            call('symlink-runtime-file', 409)
+            file.unlink()
+            file.hardlink_to(backup)
+            call('hardlink-runtime-file', 409)
+            file.unlink()
+        finally:
+            if file.is_symlink() or file.exists(): file.unlink()
+            backup.rename(file)
+        original_mode = file.stat().st_mode & 0o777
+        try:
+            file.chmod(0o666)
+            call('writable-runtime-file', 409)
+        finally:
+            file.chmod(original_mode)
+        original = file.read_bytes()
+        try:
+            with file.open('wb') as handle: handle.truncate(4 * 1024 * 1024 + 1)
+            call('oversize-runtime-file', 409)
+        finally:
+            file.write_bytes(original)
+        link = runtime / 'external-directory'
+        try:
+            link.symlink_to(fixture.root, target_is_directory=True)
+            call('symlink-runtime-directory', 409)
+        finally:
+            link.unlink()
         for name, status in [('wrong-password', 401), ('unprovisioned', 503),
                              ('sensitive-disabled', 403), ('wrong-target', 409), ('duplicate', 409), ('get', 404)]:
             call(name, status)

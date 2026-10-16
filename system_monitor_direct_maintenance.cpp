@@ -2982,6 +2982,7 @@ bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
         "/api/v1/config/delete",
         "/api/v1/config/restore",
         "/api/v1/ota/production-inspect",
+        "/api/v1/ota/production-inspect-v2",
         "/api/v1/ota/jobs"
     };
     for (const auto* candidate : kSensitivePaths) {
@@ -3145,7 +3146,7 @@ std::string handleRequest(
     if (method == "GET" && path == "/api/v1/ota/status") {
         return response(200, "OK", otaStatusJson(config));
     }
-    if (method == "POST" && path == "/api/v1/ota/production-inspect") {
+    if (method == "POST" && (path == "/api/v1/ota/production-inspect" || path == "/api/v1/ota/production-inspect-v2")) {
         try {
             const auto request = edge_gateway::ota_request_json::parseRoot(body);
             const auto requestId = edge_gateway::ota_request_json::stringField(request, "requestId");
@@ -3156,16 +3157,27 @@ std::string handleRequest(
             const auto machine = resolveMachineCode(config, app);
             if (machine.empty() || edge_gateway::ota_request_json::stringField(request, "machineCode") != machine)
                 throw std::runtime_error("machineCode mismatch");
-            const auto value = edge_gateway::OtaService(app.ota).inspectProduction(machine);
+            const bool fullConfiguration = path == "/api/v1/ota/production-inspect-v2";
+            const auto value = edge_gateway::OtaService(app.ota).inspectProduction(machine, fullConfiguration);
             std::ostringstream out;
-            out << "{\"format\":\"gateway-production-inspection/1\",\"success\":true,\"requestId\":\"" << jsonEscape(requestId)
+            out << "{\"format\":\"gateway-production-inspection/" << (fullConfiguration ? "2" : "1") << "\",\"success\":true,\"requestId\":\"" << jsonEscape(requestId)
                 << "\",\"machineCode\":\"" << jsonEscape(machine)
                 << "\",\"installer\":\"production-owner-v2\",\"baselineJson\":\"" << jsonEscape(value.baselineJson)
                 << "\",\"baselineSha256\":\"" << value.baselineSha256
                 << "\",\"pointerSha256\":\"" << value.pointerSha256
                 << "\",\"publicKeySha256\":\"" << value.publicKeySha256
-                << "\",\"installerSha256\":\"" << value.installerSha256
-                << "\",\"runtimeVerified\":false,\"reservationCreated\":false,\"ts\":" << nowMs() << "}";
+                << "\",\"installerSha256\":\"" << value.installerSha256 << "\"";
+            if (fullConfiguration) {
+                out << ",\"configSha256\":{";
+                bool first = true;
+                for (const auto& item : value.configSha256) {
+                    if (!first) out << ",";
+                    first = false;
+                    out << "\"" << jsonEscape(item.first) << "\":\"" << item.second << "\"";
+                }
+                out << "}";
+            }
+            out << ",\"runtimeVerified\":false,\"reservationCreated\":false,\"ts\":" << nowMs() << "}";
             return response(200, "OK", out.str());
         } catch (const std::exception&) {
             return response(409, "Conflict", "{\"success\":false,\"message\":\"production baseline or installer cannot be verified\"}");

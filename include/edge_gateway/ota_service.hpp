@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <stdexcept>
@@ -61,6 +62,7 @@ struct OtaProductionInspection {
     std::string pointerSha256;
     std::string publicKeySha256;
     std::string installerSha256;
+    std::map<std::string, std::string> configSha256;
 };
 
 class OtaRequestRejected : public std::runtime_error {
@@ -107,7 +109,7 @@ public:
     // Authenticated transport must establish the device identity before calling.
     // Reads published baseline/health and pinned installer files only. Does not
     // reserve a job or prove live processes, physical health or future admission.
-    OtaProductionInspection inspectProduction(const std::string& machineCode) const;
+    OtaProductionInspection inspectProduction(const std::string& machineCode, bool fullConfiguration = false) const;
     OtaOriginalJobEvidence readOriginalJob(const std::string& jobId,
                                           const std::string& expectedMachineCode,
                                           const std::string& expectedOccurrenceId) const;
