@@ -100,6 +100,10 @@ add_library(edge_gateway
 
 target_include_directories(edge_gateway PUBLIC include)
 if(BUILD_TESTING AND UNIX)
+    add_executable(system_monitor_realtime_test tools/system_monitor_realtime_test.cpp system_monitor_direct_maintenance.cpp)
+    target_link_libraries(system_monitor_realtime_test PRIVATE edge_gateway pthread ${CMAKE_DL_LIBS})
+    add_test(NAME system_monitor_realtime COMMAND system_monitor_realtime_test)
+    set_tests_properties(system_monitor_realtime PROPERTIES TIMEOUT 30)
     add_executable(channel_trace_api_test tools/channel_trace_api_test.cpp system_monitor_direct_maintenance.cpp)
     target_link_libraries(channel_trace_api_test PRIVATE edge_gateway pthread ${CMAKE_DL_LIBS})
     add_test(NAME channel_trace_api COMMAND channel_trace_api_test)

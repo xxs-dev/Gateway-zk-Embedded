@@ -864,6 +864,7 @@ std::string realtimePointsJson(
             << "\",\"value\":" << item.value
             << ",\"quality\":" << item.quality
             << ",\"ts\":" << item.ts
+            << ",\"expireAt\":" << item.expireAt
             << ",\"stale\":" << (item.stale ? "true" : "false")
             << "}";
     }
@@ -894,6 +895,7 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
                << "\",\"value\":" << item.value
                << ",\"quality\":" << item.quality
                << ",\"ts\":" << item.ts
+               << ",\"expireAt\":" << item.expireAt
                << ",\"stale\":" << (item.stale ? "true" : "false")
                << "}";
     }
