@@ -1,6 +1,7 @@
 #include "edge_gateway/compute_engine_service.hpp"
 #include "edge_gateway/compute_process_identity.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
+#include "ota_query_sha256.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -11,6 +12,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <locale>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -536,6 +539,21 @@ bool isDeviceWriteMode(const std::string& mode) {
     return mode == "deviceWrite" || mode == "both";
 }
 
+std::string graphProfileDigest(const std::unordered_map<std::string, std::string>& profile) {
+    // Sort UTF-8 bytes and encode each key/value as hex, separated by ':' and '\n'.
+    // No profile values (which may be installation-specific) leave the process.
+    const std::map<std::string, std::string> sorted(profile.begin(), profile.end());
+    const char* digits = "0123456789abcdef";
+    auto hex = [&](const std::string& value) {
+        std::string result;
+        for (const unsigned char c : value) { result += digits[c >> 4]; result += digits[c & 15]; }
+        return result;
+    };
+    std::string canonical;
+    for (const auto& entry : sorted) canonical += hex(entry.first) + ':' + hex(entry.second) + '\n';
+    return ota_query_detail::sha256Hex(canonical);
+}
+
 }  // namespace
 
 ComputeEngineService::ComputeEngineService(
@@ -709,7 +727,21 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
             << ",\"controlQueueMaxMs\":" << queueMaxMs
             << ",\"pendingWrites\":" << router_.peekPendingWrites(2048).size()
             << ",\"graphObservationVersion\":1,\"processIdentity\":\""
-            << escapeDiagnosticOutputJson(processIdentity_) << "\",\"loadedGraphs\":[";
+            << escapeDiagnosticOutputJson(processIdentity_)
+            << "\",\"executionObservationVersion\":1,\"execution\":{\"scanIntervalMs\":" << std::max(1, config_.scanIntervalMs)
+            << ",\"maxRuleEvalPerScan\":" << config_.maxRuleEvalPerScan
+            << ",\"maxWritesPerScan\":" << config_.maxWritesPerScan
+            << ",\"graphNodeErrorsUnhealthy\":" << (config_.graphNodeErrorsUnhealthy ? "true" : "false")
+            << ",\"enabledRuleOrder\":[";
+    bool firstRule = true;
+    for (const auto& rule : config_.rules) {
+        if (!rule.enabled) continue;
+        if (!firstRule) payload << ',';
+        firstRule = false;
+        payload << "{\"ruleCode\":\"" << escapeDiagnosticOutputJson(safeRuleCode(rule))
+                << "\",\"type\":\"" << escapeDiagnosticOutputJson(rule.script.type) << "\"}";
+    }
+    payload << "]},\"loadedGraphs\":[";
     bool firstGraph = true;
     for (const auto& rule : config_.rules) {
         const auto found = graphEmsStates_.find(safeRuleCode(rule));
@@ -718,7 +750,8 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
         firstGraph = false;
         payload << "{\"ruleCode\":\"" << escapeDiagnosticOutputJson(safeRuleCode(rule))
                 << "\",\"graphFile\":\"" << escapeDiagnosticOutputJson(found->second->config.sourcePath)
-                << "\",\"sha256\":\"" << found->second->config.sourceSha256 << "\"}";
+                << "\",\"sha256\":\"" << found->second->config.sourceSha256
+                << "\",\"execution\":" << found->second->executionObservation << '}';
     }
     payload << "]}";
     writeComputeHealthFile(config_.healthFile, payload.str());
@@ -1001,6 +1034,28 @@ void ComputeEngineService::preloadGraphEmsEngine(const ComputeRuleConfig& rule) 
         ? std::max<std::int64_t>(config_.graphRateLimitMaxGapMs, 2 * evaluationIntervalMs)
         : 0;
     state->engine->setOptions(options);
+    std::ostringstream observation;
+    observation.imbue(std::locale::classic());
+    observation << std::setprecision(17)
+                << "{\"triggerType\":\"" << escapeDiagnosticOutputJson(rule.trigger.type.empty() ? "interval" : rule.trigger.type)
+                << "\",\"intervalMs\":" << std::max(1, rule.trigger.intervalMs)
+                << ",\"minIntervalMs\":" << std::max(0, rule.trigger.minIntervalMs)
+                << ",\"deadband\":" << rule.trigger.deadband
+                << ",\"outputTtlMs\":" << graphTtlMs
+                << ",\"rateLimitMaxGapMs\":" << options.rateLimitMaxGapMs
+                << ",\"restoreSetpointOutputs\":" << (options.restoreSetpointOutputs ? "true" : "false")
+                << ",\"inputMaxFutureSkewMs\":" << options.maxInputFutureSkewMs
+                << ",\"stateFile\":\"" << escapeDiagnosticOutputJson(stateFile)
+                << "\",\"profileSha256\":\"" << graphProfileDigest(rule.script.graphProfile)
+                << "\",\"inputIndexes\":[";
+    bool firstInput = true;
+    for (const auto index : collectInputIndexes(rule)) {
+        if (!firstInput) observation << ',';
+        firstInput = false;
+        observation << index;
+    }
+    observation << "]}";
+    state->executionObservation = observation.str();
     graphEmsStates_[key] = std::move(state);
 }
 

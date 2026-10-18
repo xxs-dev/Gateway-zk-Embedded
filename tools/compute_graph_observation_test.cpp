@@ -37,21 +37,44 @@ int main(int argc, char** argv) {
         ComputeRuleConfig rule;
         rule.ruleCode = "rule\"\\name"; rule.enabled = true; rule.script.type = "graphEms"; rule.script.graphFile = relative;
         rule.script.graphStateFile = dir + "/state.json";
+        rule.trigger.intervalMs = 2000;
+        rule.trigger.deadband = 0.125;
+        rule.inputs.push_back({"second", 12, true});
+        rule.inputs.push_back({"first", 7, true});
+        rule.inputs.push_back({"duplicate", 12, true});
+        rule.script.graphProfile = {{"stateSaveIntervalMs", "5000"}, {"\xEE\x80\x80", "private-value"}, {"\xF0\x9F\x99\x82", "unicode"}};
         config.rules.push_back(rule);
         std::string oldObservation;
         {
             ComputeEngineService service(config, router);
+            // Mutating caller configuration must not relabel the process's loaded options.
+            config.scanIntervalMs = 20;
+            config.maxWritesPerScan = 0;
+            config.rules[0].trigger.intervalMs = 3000;
+            config.rules[0].script.graphProfile["stateSaveIntervalMs"] = "0";
             // Replacement after constructor must not change the loaded fingerprint.
             write(graph, updated);
             service.start();
             for (int i = 0; i < 50; ++i) {
-                try { oldObservation = observeComputeGraphs(health, now()); break; } catch (...) {}
+                try {
+                    oldObservation = observeComputeGraphs(health, now());
+                    if (json::JsonParser(oldObservation).parse().find("healthy")->asBool()) break;
+                } catch (...) {}
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
             service.stop();
         }
         require(oldObservation.find(ota_query_detail::sha256Hex(initial)) != std::string::npos, "old running graph was relabelled after disk replacement");
         require(oldObservation.find(ota_query_detail::sha256Hex(updated)) == std::string::npos, "disk bytes confused with loaded bytes");
+        const auto oldParsed = json::JsonParser(oldObservation).parse();
+        require(oldParsed.find("healthy")->asBool(), "initial service did not reach healthy publication");
+        require(oldParsed.find("execution")->find("scanIntervalMs")->asNumber() == 5, "loaded scan replaced by caller configuration");
+        const auto& oldExecution = *oldParsed.find("graphs")->asArray().values[0]->find("execution");
+        require(oldExecution.find("outputTtlMs")->asNumber() == 6000, "effective output TTL not observed");
+        require(oldExecution.find("rateLimitMaxGapMs")->asNumber() == 4000, "effective gap not observed");
+        require(oldExecution.find("deadband")->asNumber() == 0.125, "fractional deadband lost precision");
+        require(oldExecution.find("inputIndexes")->asArray().values.size() == 2, "trigger inputs not unique");
+        require(oldObservation.find("private-value") == std::string::npos, "profile values leaked");
 #ifdef __linux__
         require(oldObservation.find("\"processPresent\":true") != std::string::npos, "live Linux process identity not recognised");
 #endif
@@ -61,12 +84,22 @@ int main(int argc, char** argv) {
             ComputeEngineService service(config, router);
             service.start();
             for (int i = 0; i < 50; ++i) {
-                try { newObservation = observeComputeGraphs(health, now()); break; } catch (...) {}
+                try {
+                    newObservation = observeComputeGraphs(health, now());
+                    if (json::JsonParser(newObservation).parse().find("healthy")->asBool()) break;
+                } catch (...) {}
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
             service.stop();
         }
         require(newObservation.find(ota_query_detail::sha256Hex(updated)) != std::string::npos, "service reconstruction did not load new bytes");
+        const auto newParsed = json::JsonParser(newObservation).parse();
+        require(newParsed.find("healthy")->asBool(), "reconstructed service did not reach healthy publication");
+        const auto& newExecution = *newParsed.find("graphs")->asArray().values[0]->find("execution");
+        require(newParsed.find("execution")->find("scanIntervalMs")->asNumber() == 20, "reconstructed scan not observed");
+        require(newParsed.find("execution")->find("maxWritesPerScan")->asNumber() == 0, "zero device write budget lost");
+        require(newExecution.find("outputTtlMs")->asNumber() == 9000, "reconstructed TTL not observed");
+        require(newExecution.find("profileSha256")->asString() != oldExecution.find("profileSha256")->asString(), "changed profile not detected");
         const auto stale = observeComputeGraphs(health, now() + 31000);
         require(json::JsonParser(stale).parse().find("ageMs")->asNumber() >= 31000, "stale file lost its age");
         std::ifstream savedHealth(health);
@@ -91,6 +124,6 @@ int main(int argc, char** argv) {
         try { observeComputeGraphs(health, now()); } catch (...) { rejected = true; }
         require(rejected, "legacy health was treated as loaded graph proof");
         std::remove(graph.c_str()); std::remove(health.c_str()); std::remove(rule.script.graphStateFile.c_str());
-        std::cout << "{\"passed\":true,\"replacementWhileLoaded\":true,\"reloadChangesDigest\":true,\"staleAndReusedPidChecked\":true,\"physicalWrites\":false}\n";
+        std::cout << "{\"passed\":true,\"replacementWhileLoaded\":true,\"reloadChangesDigest\":true,\"staleAndReusedPidChecked\":true,\"physicalWrites\":false,\"old\":" << oldObservation << ",\"reloaded\":" << newObservation << "}\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

@@ -10,6 +10,7 @@
 #include <unistd.h>
 #endif
 #include "edge_gateway/compute_process_identity.hpp"
+#include "edge_gateway/compute_execution_observation.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/json_value.hpp"
 
@@ -41,7 +42,9 @@ inline std::string observeComputeGraphs(const std::string& healthPath, std::int6
     if (bytes.empty() || bytes.size() > 1024 * 1024 || input.bad())
         throw std::runtime_error("compute graph observation unavailable");
 #endif
-    const auto root = json::JsonParser(bytes, 16, 16384).parse();
+    // Execution settings add nested fields per graph. Keep the existing 1024
+    // graph ceiling usable while retaining the 1 MiB file and depth limits.
+    const auto root = json::JsonParser(bytes, 16, 65536).parse();
     auto field = [](const json::JsonValue& object, const std::string& key) -> const json::JsonValue& {
         const auto* value = object.find(key);
         if (!value) throw std::runtime_error("compute graph observation field missing");
@@ -65,11 +68,18 @@ inline std::string observeComputeGraphs(const std::string& healthPath, std::int6
         }
     }
     std::ostringstream out;
+    const auto* executionVersion = root.find("executionObservationVersion");
+    if (executionVersion && executionVersion->asNumber() != 1)
+        throw std::runtime_error("unsupported execution observation version");
     out << "{\"sampledAt\":" << static_cast<std::int64_t>(timestamp)
         << ",\"ageMs\":" << (now - static_cast<std::int64_t>(timestamp))
         << ",\"healthy\":" << (field(root, "healthy").asBool() ? "true" : "false")
         << ",\"processPresent\":" << (processPresent ? "true" : "false")
-        << ",\"processIdentity\":\"" << escapeDiagnosticOutputJson(identity) << "\",\"graphs\":[";
+        << ",\"processIdentity\":\"" << escapeDiagnosticOutputJson(identity) << '"';
+    if (executionVersion)
+        out << ",\"executionObservationVersion\":1,\"execution\":"
+            << compute_observation_detail::engine(field(root, "execution"));
+    out << ",\"graphs\":[";
     std::set<std::string> rules;
     bool first = true;
     for (const auto& graph : graphs) {
@@ -82,7 +92,10 @@ inline std::string observeComputeGraphs(const std::string& healthPath, std::int6
         if (!first) out << ',';
         first = false;
         out << "{\"ruleCode\":\"" << escapeDiagnosticOutputJson(rule) << "\",\"graphFile\":\""
-            << escapeDiagnosticOutputJson(path) << "\",\"sha256\":\"" << sha << "\"}";
+            << escapeDiagnosticOutputJson(path) << "\",\"sha256\":\"" << sha << '"';
+        if (executionVersion)
+            out << ",\"execution\":" << compute_observation_detail::graph(field(*graph, "execution"));
+        out << '}';
     }
     out << "]}";
     return out.str();

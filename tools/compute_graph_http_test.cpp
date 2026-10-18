@@ -32,6 +32,25 @@ int main(int argc, char** argv) {
         require(response.find("HTTP/1.1 200") == 0, "valid graph request failed");
         require(response.find("gateway-loaded-graphs/1") != std::string::npos && response.find("read_1") != std::string::npos, "response correlation missing");
         require(response.find("DO_NOT_EXPORT") == std::string::npos && response.find("passwordSha256") == std::string::npos, "unrelated private fields exposed");
+        const auto prefix = "{\"graphObservationVersion\":1,\"ts\":" + std::to_string(ts) + ",\"healthy\":true,\"processIdentity\":\"" + edge_gateway::computeProcessIdentity(getpid()) + "\",\"loadedGraphs\":[],";
+        write(health, prefix + "\"executionObservationVersion\":1,\"execution\":{\"scanIntervalMs\":200,\"maxRuleEvalPerScan\":1000,\"maxWritesPerScan\":0,\"graphNodeErrorsUnhealthy\":true,\"enabledRuleOrder\":[],\"privateExtra\":\"DO_NOT_EXPORT\"}}");
+        const auto executionResponse = request(body);
+        require(executionResponse.find("HTTP/1.1 200") == 0 && executionResponse.find("\"maxWritesPerScan\":0") != std::string::npos, "execution projection missing");
+        require(executionResponse.find("DO_NOT_EXPORT") == std::string::npos, "nested private fields exposed");
+        write(health, prefix + "\"executionObservationVersion\":1,\"execution\":{}}");
+        require(request(body).find("HTTP/1.1 503") == 0, "partial execution accepted");
+        write(health, prefix + "\"executionObservationVersion\":2}");
+        require(request(body).find("HTTP/1.1 503") == 0, "unknown execution schema accepted");
+        std::string graphRows, ruleRows;
+        for (int i = 0; i < 1024; ++i) {
+            const auto code = "graph_" + std::to_string(i);
+            if (i) { graphRows += ','; ruleRows += ','; }
+            ruleRows += "{\"ruleCode\":\"" + code + "\",\"type\":\"graphEms\"}";
+            graphRows += "{\"ruleCode\":\"" + code + "\",\"graphFile\":\"/isolated/" + code + ".json\",\"sha256\":\"" + std::string(64, 'a') + "\",\"execution\":{\"triggerType\":\"interval\",\"intervalMs\":1000,\"minIntervalMs\":0,\"deadband\":0.125,\"outputTtlMs\":5000,\"rateLimitMaxGapMs\":2000,\"restoreSetpointOutputs\":false,\"inputMaxFutureSkewMs\":1000,\"stateFile\":\"/isolated/" + code + ".state\",\"profileSha256\":\"" + std::string(64, 'b') + "\",\"inputIndexes\":[7,12]}}";
+        }
+        write(health, "{\"graphObservationVersion\":1,\"executionObservationVersion\":1,\"ts\":" + std::to_string(ts) + ",\"healthy\":true,\"processIdentity\":\"" + edge_gateway::computeProcessIdentity(getpid()) + "\",\"loadedGraphs\":[" + graphRows + "],\"execution\":{\"scanIntervalMs\":200,\"maxRuleEvalPerScan\":1000,\"maxWritesPerScan\":0,\"graphNodeErrorsUnhealthy\":true,\"enabledRuleOrder\":[" + ruleRows + "]}}");
+        const auto large = request(body);
+        require(large.find("HTTP/1.1 200") == 0 && large.find("graph_1023") != std::string::npos, "1024-graph execution observation truncated or rejected");
         write(health, "{\"schemaVersion\":\"1.1\"}");
         require(request(body).find("HTTP/1.1 503") == 0, "legacy health not rejected");
 #ifdef __linux__

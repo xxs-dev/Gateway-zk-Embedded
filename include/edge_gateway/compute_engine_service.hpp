@@ -55,6 +55,8 @@ private:
     struct GraphEmsRuntimeState {
         GraphEmsConfig config;
         std::unique_ptr<GraphEmsEngine> engine;
+        // Captured from the options actually passed to this engine at preload.
+        std::string executionObservation;
     };
 
     void loop();
