@@ -1,4 +1,6 @@
 #include "edge_gateway/compute_engine_service.hpp"
+#include "edge_gateway/compute_process_identity.hpp"
+#include "edge_gateway/diagnostic_output_json.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -542,6 +544,9 @@ ComputeEngineService::ComputeEngineService(
 ) : config_(std::move(config)),
     router_(router),
     running_(false) {
+#ifndef _WIN32
+    processIdentity_ = computeProcessIdentity(getpid());
+#endif
     for (const auto& rule : config_.rules) {
         if (rule.script.type == "legacyEms") {
             throw std::invalid_argument(
@@ -703,7 +708,19 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
             << ",\"controlQueueP99Ms\":" << queueP99Ms
             << ",\"controlQueueMaxMs\":" << queueMaxMs
             << ",\"pendingWrites\":" << router_.peekPendingWrites(2048).size()
-            << '}';
+            << ",\"graphObservationVersion\":1,\"processIdentity\":\""
+            << escapeDiagnosticOutputJson(processIdentity_) << "\",\"loadedGraphs\":[";
+    bool firstGraph = true;
+    for (const auto& rule : config_.rules) {
+        const auto found = graphEmsStates_.find(safeRuleCode(rule));
+        if (!rule.enabled || rule.script.type != "graphEms" || found == graphEmsStates_.end()) continue;
+        if (!firstGraph) payload << ',';
+        firstGraph = false;
+        payload << "{\"ruleCode\":\"" << escapeDiagnosticOutputJson(safeRuleCode(rule))
+                << "\",\"graphFile\":\"" << escapeDiagnosticOutputJson(found->second->config.sourcePath)
+                << "\",\"sha256\":\"" << found->second->config.sourceSha256 << "\"}";
+    }
+    payload << "]}";
     writeComputeHealthFile(config_.healthFile, payload.str());
     lastHealthPublishMs_ = wallNowMs;
 }

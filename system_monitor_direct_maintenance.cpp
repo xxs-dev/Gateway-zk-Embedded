@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/compute_graph_observation.hpp"
 #include "edge_gateway/channel_trace.hpp"
 #include "edge_gateway/diagnostic_process.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
@@ -2978,6 +2979,7 @@ bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
         "/api/v1/channel-trace/read",
         "/api/v1/channel-trace/stop",
         "/api/v1/config/snapshot",
+        "/api/v1/compute/loaded-graphs",
         "/api/v1/control/batch",
         "/api/v1/diag/execute",
         "/api/v1/config/apply",
@@ -3079,6 +3081,22 @@ std::string handleRequest(
     }
     if (method == "POST" && path == "/api/v1/config/snapshot") {
         return configSnapshotResponse(config, body);
+    }
+    if (method == "POST" && path == "/api/v1/compute/loaded-graphs") {
+        const auto requestId = jsonString(body, "requestId");
+        const auto machine = loadIdentity(config.identityConfigFile).machineCode;
+        if (machine.empty() || jsonString(body, "machineCode") != machine || requestId.empty() || requestId.size() > 128)
+            return response(400, "Bad Request", "{\"success\":false,\"message\":\"invalid observation identity\"}");
+        try {
+            const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.otaAppConfigFile);
+            const auto observedAt = nowMs();
+            const auto observation = edge_gateway::observeComputeGraphs(app.computeEngine.healthFile, observedAt);
+            return response(200, "OK", "{\"format\":\"gateway-loaded-graphs/1\",\"machineCode\":\"" + jsonEscape(machine) +
+                "\",\"requestId\":\"" + jsonEscape(requestId) + "\",\"appPath\":\"" + jsonEscape(config.otaAppConfigFile) +
+                "\",\"observedAt\":" + std::to_string(observedAt) + ",\"observation\":" + observation + "}");
+        } catch (...) {
+            return response(503, "Service Unavailable", "{\"success\":false,\"message\":\"loaded graph observation unavailable; check ComputeEngine version and health publication\"}");
+        }
     }
     if (method == "POST" && path == "/api/v1/control/batch") {
         return batchControlResponse(config, body);

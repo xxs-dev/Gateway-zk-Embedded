@@ -1,4 +1,6 @@
 #include "edge_gateway/graph_ems_engine.hpp"
+#include "ota_query_sha256.hpp"
+#include <cstdlib>
 
 #include "edge_gateway/flexible_phase_balance.hpp"
 
@@ -2434,14 +2436,17 @@ GraphEmsV2Port parseV2Port(
     return port;
 }
 
-JsonValue readGraphJson(const std::string& path) {
+JsonValue readGraphJson(const std::string& path, std::string* digest = nullptr) {
     std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
     if (!input.is_open()) {
         throw std::runtime_error("failed to open graph EMS config file: " + path);
     }
     std::stringstream buffer;
     buffer << input.rdbuf();
-    return JsonParser(buffer.str()).parse();
+    if (input.bad()) throw std::runtime_error("failed to read graph EMS config");
+    const auto bytes = buffer.str();
+    if (digest) *digest = ota_query_detail::sha256Hex(bytes);
+    return JsonParser(bytes).parse();
 }
 
 GraphEmsConfig parseLegacyV1Graph(const JsonObject& object) {
@@ -2792,8 +2797,27 @@ GraphEmsConfig parseExecutableV2Graph(const JsonObject& object) {
 }  // namespace
 
 GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
-    const auto root = readGraphJson(path);
-    return parseExecutableV2Graph(root.asObject());
+    std::string digest;
+    // ConfigLoader can retain a cwd-relative reference when that file exists.
+    // Capture the actual load location; do not resolve it later in the monitor.
+    // Avoid std::filesystem: the Allwinner production compiler is GCC 6.3.1.
+    std::string sourcePath = path;
+#ifdef _WIN32
+    std::unique_ptr<char, decltype(&std::free)> absolute(_fullpath(nullptr, path.c_str(), 0), &std::free);
+    if (!absolute) throw std::runtime_error("cannot resolve graph load location");
+    sourcePath = absolute.get();
+#else
+    if (path.empty() || path.front() != '/') {
+        std::unique_ptr<char, decltype(&std::free)> directory(getcwd(nullptr, 0), &std::free);
+        if (!directory) throw std::runtime_error("cannot resolve graph load location");
+        sourcePath = std::string(directory.get()) + "/" + path;
+    }
+#endif
+    const auto root = readGraphJson(sourcePath, &digest);
+    auto config = parseExecutableV2Graph(root.asObject());
+    config.sourceSha256 = std::move(digest);
+    config.sourcePath = sourcePath;
+    return config;
 }
 
 GraphEmsConfig GraphEmsConfig::loadLegacyV1ForMigration(const std::string& path) {

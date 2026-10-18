@@ -39,6 +39,9 @@ struct GraphEmsIndexClaim {
 };
 
 struct GraphEmsConfig {
+    // Digest of the exact bytes parsed at load time, never re-read from disk.
+    std::string sourceSha256;
+    std::string sourcePath;
     std::string schemaVersion = "2.0.0";
     std::string graphCode;
     std::size_t maxNodes = 256;

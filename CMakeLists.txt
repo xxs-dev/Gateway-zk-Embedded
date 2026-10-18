@@ -633,6 +633,13 @@ target_compile_options(event_engine_service_test PRIVATE -fdiagnostics-color=nev
 add_executable(compute_engine_service_test tools/compute_engine_service_test.cpp)
 target_link_libraries(compute_engine_service_test PRIVATE edge_gateway)
 target_compile_options(compute_engine_service_test PRIVATE -fdiagnostics-color=never)
+add_executable(compute_graph_observation_test tools/compute_graph_observation_test.cpp)
+target_link_libraries(compute_graph_observation_test PRIVATE edge_gateway)
+target_compile_options(compute_graph_observation_test PRIVATE -fdiagnostics-color=never)
+if(UNIX)
+    add_executable(compute_graph_http_test EXCLUDE_FROM_ALL tools/compute_graph_http_test.cpp system_monitor_direct_maintenance.cpp)
+    target_link_libraries(compute_graph_http_test PRIVATE edge_gateway pthread ${CMAKE_DL_LIBS})
+endif()
 
 add_executable(ems_cluster_test tools/ems_cluster_test.cpp)
 target_link_libraries(ems_cluster_test PRIVATE edge_gateway)
