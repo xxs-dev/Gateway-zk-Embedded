@@ -29,11 +29,13 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
+#include <windows.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/file.h>
 #endif
 
 namespace edge_gateway {
@@ -1718,7 +1720,28 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         return;
     }
 
-    if (node.type == "controlWrite") {
+    if (node.type == "controlWrite" || node.type == "confirmedControlWrite") {
+        if (node.type == "confirmedControlWrite") {
+            std::set<std::uint32_t> roles;
+            for (const auto* key : {"inputIndex", "targetIndex", "permitIndex", "resetIndex", "stoppedIndex", "feedbackIndex", "outputIndex"}) {
+                if (!hasParam(node, key)) throw std::runtime_error(std::string("confirmedControlWrite requires ") + key);
+                validatePositiveIndex(node, key);
+                if (!roles.insert(paramIndex(node, key)).second) throw std::runtime_error("confirmedControlWrite roles must be distinct");
+            }
+            for (const auto* key : {"receiptTimeoutMs", "maxInputAgeMs", "maxGapMs"}) {
+                const auto v = paramDouble(node, key);
+                if (!v || !std::isfinite(*v) || std::floor(*v) != *v || *v < 1 || *v > 60000)
+                    throw std::runtime_error(std::string("confirmedControlWrite invalid ") + key);
+            }
+            const auto stop = paramDouble(node, "stoppedTolerance");
+            if (!stop || !std::isfinite(*stop) || *stop < 0 || !paramBool(node, "sameDirection", false))
+                throw std::runtime_error("confirmedControlWrite requires stopped tolerance and matching power direction");
+            if (paramDouble(node, "permitValue").value_or(1) != 1 || paramDouble(node, "permitTolerance").value_or(0) != 0)
+                throw std::runtime_error("confirmedControlWrite requires exact binary permission");
+            for (const auto& p : node.params)
+                if (p.first.find("ProfileKey") != std::string::npos || p.first.find("profile") == 0)
+                    throw std::runtime_error("confirmedControlWrite cannot be skipped by profile switches");
+        }
         const char* requiredIndexes[] = {"inputIndex", "targetIndex"};
         for (const auto* key : requiredIndexes) {
             if (!hasParam(node, key)) {
@@ -1976,6 +1999,7 @@ bool isKnownNodeType(const std::string& type) {
         "manualRecovery",
         "feedbackRecovery",
         "controlWrite",
+        "confirmedControlWrite",
         "rateLimit",
         "hysteresis",
         "debounce",
@@ -2885,6 +2909,27 @@ GraphEmsEngine::GraphEmsEngine(
     ruleCode_(ruleCode.empty() ? config_.graphCode : std::move(ruleCode)) {
     executionOrder_ = executionOrder(config_);
 
+    for (const auto& node : config_.nodes) {
+        if (node.type != "confirmedControlWrite") continue;
+        confirmedControls_.emplace(node.id, ConfirmedControl{});
+    }
+    if (!confirmedControls_.empty()) {
+        if (stateFile_.empty()) throw std::runtime_error("confirmedControlWrite requires a persistent graphStateFile");
+        makeDirectory(directoryOf(stateFile_));
+        const auto lockPath = stateFile_ + ".commands.lock";
+#ifdef _WIN32
+        const auto handle = CreateFileA(lockPath.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) throw std::runtime_error("command state already owned or unavailable");
+        commandStateLock_ = std::shared_ptr<void>(handle, [](void* p) { CloseHandle(p); });
+#else
+        const int fd = ::open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0) throw std::runtime_error("command state lock unavailable");
+        if (::flock(fd, LOCK_EX | LOCK_NB) != 0) { ::close(fd); throw std::runtime_error("command state already owned"); }
+        commandStateLock_ = std::shared_ptr<void>(new int(fd), [](void* p) { ::close(*static_cast<int*>(p)); delete static_cast<int*>(p); });
+#endif
+    }
+
     std::set<std::uint32_t> indexes;
     for (const auto& node : config_.nodes) {
         if (!shouldRunNode(node)) {
@@ -2919,6 +2964,7 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
         try {
             restoreState(nowMs);
         } catch (const std::exception& ex) {
+            if (!confirmedControls_.empty()) commandStateFault_ = true;
             result.errors.push_back(std::string("restoreState: ") + ex.what());
         }
         stateRestored_ = true;
@@ -3000,6 +3046,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
                 runManualRecovery(node, nowMs, result);
             } else if (node.type == "controlWrite") {
                 runControlWrite(node, nowMs, result);
+            } else if (node.type == "confirmedControlWrite") {
+                runConfirmedControlWrite(node, nowMs, result);
             } else if (node.type == "rateLimit") {
                 runRateLimit(node, nowMs, result);
             } else if (node.type == "hysteresis") {
@@ -3020,6 +3068,10 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
     try {
         saveState(nowMs);
     } catch (const std::exception& ex) {
+        if (!confirmedControls_.empty()) {
+            commandStateFault_ = true;
+            for (auto& entry : confirmedControls_) entry.second.trip(-3);
+        }
         result.errors.push_back(std::string("saveState: ") + ex.what());
     }
     snapshotActive_ = false;
@@ -3202,6 +3254,8 @@ void GraphEmsEngine::restoreState(std::int64_t nowMs) {
     }
     std::ifstream input(stateFile_.c_str(), std::ios::in | std::ios::binary);
     if (!input.is_open()) {
+        if (!confirmedControls_.empty() && errno != ENOENT)
+            throw std::runtime_error("cannot read existing command state");
         return;
     }
     std::stringstream buffer;
@@ -3210,7 +3264,46 @@ void GraphEmsEngine::restoreState(std::int64_t nowMs) {
     const auto& object = root.asObject();
     const auto graphCode = stringValue(object, "graphCode");
     if (!graphCode.empty() && !config_.graphCode.empty() && graphCode != config_.graphCode) {
+        if (!confirmedControls_.empty()) throw std::runtime_error("command state belongs to a different graph");
         return;
+    }
+    if (const auto* records = findValue(object, "commandFlights")) {
+        if (stringValue(object, "commandOwner") != ruleCode_)
+            throw std::runtime_error("command state owner changed");
+        const auto sequence = numberValue(object, "commandSequence");
+        if (!std::isfinite(sequence) || sequence < 0 || sequence >= 9007199254740991.0 || std::floor(sequence) != sequence)
+            throw std::runtime_error("invalid command sequence");
+        commandSequence_ = static_cast<std::uint64_t>(sequence);
+        std::set<std::string> seen;
+        for (const auto& row : records->asArray().values) {
+            const auto& entry = row->asObject();
+            const auto id = stringValue(entry, "nodeId");
+            const auto found = confirmedControls_.find(id);
+            if (found == confirmedControls_.end() || !seen.insert(id).second)
+                throw std::runtime_error("command state node changed or duplicated; reconcile original transactions first");
+            auto& flight = found->second;
+            flight.cmdId = stringValue(entry, "cmdId");
+            flight.index = uint32Value(entry, "index");
+            flight.value = numberValue(entry, "value");
+            const auto requested = numberValue(entry, "requestedAt");
+            const auto fault = numberValue(entry, "fault");
+            const auto* pending = findValue(entry, "pending");
+            if (!pending || !pending->isBool() || !std::isfinite(requested) || requested < 0 ||
+                requested > 9007199254740991.0 || std::floor(requested) != requested ||
+                !std::isfinite(flight.value) || std::floor(fault) != fault || fault < -4 || fault > 0)
+                throw std::runtime_error("invalid saved command state");
+            flight.pending = pending->asBool();
+            flight.fault = static_cast<int>(fault);
+            flight.requestedAt = static_cast<std::int64_t>(requested);
+            if (!flight.cmdId.empty()) {
+                const auto node = std::find_if(config_.nodes.begin(), config_.nodes.end(), [&](const GraphEmsNodeConfig& n) { return n.id == id; });
+                if (flight.cmdId.size() > 63 || flight.requestedAt <= 0 || flight.index != paramIndex(*node, "targetIndex"))
+                    throw std::runtime_error("saved command target or identity changed");
+            } else if (flight.pending || flight.requestedAt || flight.index) {
+                throw std::runtime_error("missing saved command identity");
+            }
+        }
+        if (seen.size() != confirmedControls_.size()) throw std::runtime_error("command state node set changed");
     }
     const auto* pointsValue = findValue(object, "points");
     const auto allowedIndexes = stateOutputIndexes();
@@ -3469,12 +3562,13 @@ void GraphEmsEngine::restoreState(std::int64_t nowMs) {
     lastStateSaveAt_ = nowMs;
 }
 
-void GraphEmsEngine::saveState(std::int64_t nowMs) {
+void GraphEmsEngine::saveState(std::int64_t nowMs, bool force) {
+    if (commandStateFault_) throw std::runtime_error("command state unavailable; original file preserved");
     if (stateFile_.empty()) {
         return;
     }
     const auto saveIntervalMs = std::max(0, profileInt("stateSaveIntervalMs", 5000));
-    if (stateSaved_ && nowMs >= lastStateSaveAt_ && nowMs - lastStateSaveAt_ < saveIntervalMs) {
+    if (!force && stateSaved_ && nowMs >= lastStateSaveAt_ && nowMs - lastStateSaveAt_ < saveIntervalMs) {
         return;
     }
     const auto indexes = stateOutputIndexes();
@@ -3491,6 +3585,22 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
     output << "  \"schemaVersion\": \"1.1.0\",\n";
     output << "  \"graphCode\": \"" << jsonEscape(config_.graphCode) << "\",\n";
     output << "  \"savedAt\": " << nowMs << ",\n";
+    if (!confirmedControls_.empty()) {
+        output << "  \"commandOwner\": \"" << jsonEscape(ruleCode_) << "\",\n";
+        output << "  \"commandSequence\": " << commandSequence_ << ",\n";
+        output << "  \"commandFlights\": [";
+        bool comma = false;
+        for (const auto& entry : confirmedControls_) {
+            if (comma) output << ',';
+            comma = true;
+            const auto& f = entry.second;
+            output << "{\"nodeId\":\"" << jsonEscape(entry.first) << "\",\"cmdId\":\"" << jsonEscape(f.cmdId)
+                   << "\",\"index\":" << f.index << ",\"value\":" << std::setprecision(17) << f.value
+                   << ",\"requestedAt\":" << f.requestedAt << ",\"pending\":" << (f.pending ? "true" : "false")
+                   << ",\"fault\":" << f.fault << '}';
+        }
+        output << "],\n";
+    }
     output << "  \"points\": [\n";
     output << std::setprecision(15);
     for (std::size_t i = 0; i < points.size(); ++i) {
@@ -3663,7 +3773,14 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
             throw std::runtime_error("failed to write graph EMS state file: " + temporaryFile);
         }
     }
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    if (!confirmedControls_.empty()) {
+        const auto handle = CreateFileA(temporaryFile.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        const bool synced = handle != INVALID_HANDLE_VALUE && FlushFileBuffers(handle);
+        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        if (!synced) throw std::runtime_error("failed to sync command state");
+    }
+#else
     // Durable replace: the data must reach disk before the rename, otherwise a power loss can
     // leave an empty/garbled state file behind the new name.
     {
@@ -3679,20 +3796,23 @@ void GraphEmsEngine::saveState(std::int64_t nowMs) {
     }
 #endif
 #if defined(_WIN32)
-    std::remove(stateFile_.c_str());
-#endif
+    if (!MoveFileExA(temporaryFile.c_str(), stateFile_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        std::remove(temporaryFile.c_str());
+        throw std::runtime_error("failed to replace graph EMS state file: " + stateFile_);
+    }
+#else
     if (std::rename(temporaryFile.c_str(), stateFile_.c_str()) != 0) {
         std::remove(temporaryFile.c_str());
         throw std::runtime_error("failed to replace graph EMS state file: " + stateFile_);
     }
-#if !defined(_WIN32)
     {
         const auto parent = directoryOf(stateFile_).empty() ? std::string(".") : directoryOf(stateFile_);
         const int dirFd = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        const bool synced = dirFd >= 0 && ::fsync(dirFd) == 0;
         if (dirFd >= 0) {
-            ::fsync(dirFd);
             ::close(dirFd);
         }
+        if (!synced && !confirmedControls_.empty()) throw std::runtime_error("command state directory sync failed");
     }
 #endif
     stateSaved_ = true;
@@ -6341,6 +6461,111 @@ bool GraphEmsEngine::runControlWrite(
     return true;
 }
 
+bool GraphEmsEngine::runConfirmedControlWrite(
+    const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result
+) {
+    auto& flight = confirmedControls_.at(node.id);
+    const auto gap = static_cast<std::int64_t>(paramDouble(node, "maxGapMs").value());
+    const auto maxAge = static_cast<std::int64_t>(paramDouble(node, "maxInputAgeMs").value());
+    const auto publish = [&] {
+        const auto written = set(paramIndex(node, "outputIndex"), flight.status(), nowMs,
+                                 std::min(defaultTtlMs_, gap));
+        if (!written.accepted) throw std::runtime_error("confirmedControlWrite status output rejected");
+        ++result.latestWrites;
+    };
+    const auto persist = [&] {
+        try { saveState(nowMs, true); }
+        catch (...) { commandStateFault_ = true; flight.trip(-3); throw; }
+    };
+    const auto read = [&](const char* key) -> Optional<PointSnapshot> {
+        const auto p = latestPoint(paramIndex(node, key), nowMs);
+        if (!p || p->quality != 1 || p->stale || !std::isfinite(p->value) || p->ts <= 0 ||
+            p->ts > nowMs || nowMs - p->ts > maxAge || p->expireAt <= p->ts || nowMs > p->expireAt)
+            return NullOpt;
+        return p;
+    };
+    bool submitted = false;
+    try {
+        if (commandStateFault_) { flight.trip(-3); publish(); return false; }
+        const auto oldFault = flight.fault;
+        const auto oldPending = flight.pending;
+        const auto route = router_.routeByIndex(paramIndex(node, "targetIndex"));
+        // A completed receipt is evidence only for this exact original transaction.
+        // Apply the deadline before observing it so a late success cannot erase a timeout.
+        flight.checkTimeout(nowMs, static_cast<std::int64_t>(paramDouble(node, "receiptTimeoutMs").value()));
+        if (flight.pending && route) {
+            const auto receipt = router_.getWritebackResult(*route, flight.cmdId, flight.index);
+            if (receipt) flight.observeReceipt(*receipt, nowMs);
+        }
+        const bool first = flight.lastScan == 0;
+        const bool discontinuity = !first && (nowMs <= flight.lastScan || nowMs - flight.lastScan > gap);
+        flight.lastScan = nowMs;
+        const auto input = read("inputIndex"), permit = read("permitIndex"), reset = read("resetIndex"),
+                   stopped = read("stoppedIndex"), readback = read("targetIndex"), actual = read("feedbackIndex");
+        const auto binary = [](const Optional<PointSnapshot>& p) {
+            return p && (p->value == 0 || p->value == 1);
+        };
+        const bool valid = input && readback && actual && binary(permit) && binary(reset) && binary(stopped);
+        const bool edge = flight.observeReset(binary(reset) ? static_cast<int>(reset->value) : -1,
+                                              reset ? reset->ts : 0);
+        const double minimum = paramDouble(node, "minValue").value(), maximum = paramDouble(node, "maxValue").value();
+        double value = input ? input->value : 0;
+        const auto mode = node.params.find("valueMode");
+        if (mode != node.params.end() && normalizedToken(mode->second) == "round") value = std::round(value);
+        if (mode != node.params.end() && normalizedToken(mode->second) == "truncate") value = std::trunc(value);
+        if (!valid || discontinuity || (input && (input->value < minimum || input->value > maximum || value < minimum || value > maximum))) {
+            flight.trip(-4);
+        } else {
+            // Withdrawal after operation requires a fresh reset. Waiting in the armed state
+            // with permission low is normal; it does not itself issue a device command.
+            if (permit->value == 0 && (flight.pending || flight.confirmed)) flight.armed = false;
+            const auto tolerance = paramDouble(node, "stoppedTolerance").value();
+            const bool isStopped = stopped->value == 1 && std::abs(readback->value) <= tolerance &&
+                                   std::abs(actual->value) <= tolerance;
+            if (!first) flight.reset(edge, isStopped, static_cast<int>(permit->value));
+        }
+        if (oldPending != flight.pending || oldFault != flight.fault) persist();
+        publish(); // If the status route cannot be written, do not enqueue a command.
+        if (!valid || discontinuity || first || flight.fault || flight.pending || !flight.armed ||
+            reset->value != 0 || permit->value != 1 || !paramBool(node, "submitWrites", false)) return false;
+        if (!route || !route->writable || !route->write.verifyAfterWrite || !route->write.verifyByRead)
+            throw std::runtime_error("confirmedControlWrite requires writable target with driver read verification");
+        // An equal point value does not substitute for the first command's receipt. Only
+        // a previously confirmed command can suppress unchanged output.
+        const auto deadband = paramDouble(node, "deadband").value_or(0.0);
+        if (flight.confirmed && std::abs(value - flight.value) <= deadband &&
+            std::abs(readback->value - value) <= deadband) return false;
+        for (const auto& pending : router_.peekPendingWrites()) {
+            if (pending.index == route->index) { flight.trip(-2); persist(); publish(); return false; }
+        }
+        if (result.deviceWrites >= maxDeviceWritesThisRun_) {
+            ++result.deviceWritesSkipped; result.writeLimitReached = true; return false;
+        }
+        PendingWriteCommand command;
+        command.index = route->index; command.value = value; command.ts = nowMs;
+        command.source = "graph-ems";
+        command.highPriority = paramBool(node, "highPriority", false);
+        command.clusterAuthorization = input->clusterAuthorization;
+        command.cmdId = graphCmdId(ruleCode_, node.id, command.index, nowMs, ++commandSequence_);
+        flight.cmdId = command.cmdId; flight.index = command.index; flight.value = value;
+        flight.requestedAt = nowMs; flight.pending = true; flight.confirmed = false;
+        // Write intent durably BEFORE enqueue. A crash between these operations remains
+        // unknown and is never automatically replayed with either the same or a new ID.
+        persist();
+        try {
+            const auto routed = submitDeviceWrite(node, command, result);
+            submitted = routed.accepted;
+            if (!routed.accepted) { flight.pending = false; flight.trip(-1); persist(); }
+        } catch (...) { flight.trip(-2); persist(); throw; }
+        publish();
+    } catch (const std::exception& ex) {
+        flight.trip(commandStateFault_ ? -3 : -2);
+        result.errors.push_back(std::string("confirmedControlWrite: ") + ex.what());
+        publish();
+    }
+    return submitted;
+}
+
 bool GraphEmsEngine::runRateLimit(
     const GraphEmsNodeConfig& node,
     std::int64_t nowMs,
@@ -7159,7 +7384,7 @@ CommandSubmitResult GraphEmsEngine::submitDeviceWrite(
         result.writeLimitReached = true;
         return rejected;
     }
-    command.cmdId = graphCmdId(ruleCode_, node.id, command.index, command.ts, ++commandSequence_);
+    if (command.cmdId.empty()) command.cmdId = graphCmdId(ruleCode_, node.id, command.index, command.ts, ++commandSequence_);
     const auto routed = router_.submitWriteCommand(command);
     if (routed.accepted) {
         ++result.deviceWrites;

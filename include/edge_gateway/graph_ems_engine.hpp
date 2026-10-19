@@ -9,6 +9,7 @@
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/manual_recovery.hpp"
 #include "edge_gateway/recovery_feedback.hpp"
+#include "edge_gateway/confirmed_control.hpp"
 #include "edge_gateway/point_store_router.hpp"
 
 namespace edge_gateway {
@@ -114,7 +115,7 @@ private:
     int profileInt(const std::string& key, int defaultValue) const;
     bool shouldRunNode(const GraphEmsNodeConfig& node) const;
     void restoreState(std::int64_t nowMs);
-    void saveState(std::int64_t nowMs);
+    void saveState(std::int64_t nowMs, bool force = false);
     std::vector<std::uint32_t> stateOutputIndexes() const;
     std::set<std::uint32_t> setpointOutputIndexes() const;
     bool runMeterAverage(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
@@ -148,6 +149,7 @@ private:
     bool runControlGate(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runFeedbackVerify(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runControlWrite(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
+    bool runConfirmedControlWrite(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runRateLimit(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runHysteresis(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runDebounce(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
@@ -236,6 +238,9 @@ private:
     std::unordered_map<std::string, SequenceState> sequenceStates_;
     std::unordered_map<std::string, ManualRecovery> manualRecoveryStates_;
     std::unordered_map<std::string, RecoveryFeedback> recoveryFeedbackStates_;
+    std::unordered_map<std::string, ConfirmedControl> confirmedControls_;
+    bool commandStateFault_ = false;
+    std::shared_ptr<void> commandStateLock_;
     std::unordered_map<std::string, bool> gridReserveCharging_;
     // pcsPowerSolve fail-safe log throttling: node id -> (last reported fault set, last log time).
     std::unordered_map<std::string, std::pair<std::string, std::int64_t>> limitFaultLogs_;
