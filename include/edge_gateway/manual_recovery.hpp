@@ -10,7 +10,8 @@ class ManualRecovery {
 public:
     enum State { Locked = 0, Ready = 1, Running = 2 };
     enum Reason { None = 0, Startup = 1, InvalidInput = 2, Fault = 3,
-                  PermitWithdrawn = 4, ConflictingActions = 5, ScanGap = 6 };
+                  PermitWithdrawn = 4, ConflictingActions = 5, ScanGap = 6,
+                  RequestTimeout = 7, FeedbackTimeout = 8 };
     struct Inputs {
         // Exact binary values; -1 means missing, stale, bad quality or non-binary.
         int healthy = -1, fault = -1, permit = -1, stopped = -1;
@@ -18,6 +19,9 @@ public:
         std::int64_t resetTs = 0, startTs = 0;
     };
     struct Result { State state; Reason reason; bool permitted; };
+    // Used only by the feedback-recovery node after its own complete input checks.
+    void trip(Reason reason) { lock(reason); }
+    Result current() const { return {state_, reason_, state_ == Running}; }
 
     Result update(const Inputs& input, std::int64_t now, std::int64_t maxGapMs) {
         const bool gap = initialized_ && (now <= lastAt_ || now - lastAt_ > maxGapMs);

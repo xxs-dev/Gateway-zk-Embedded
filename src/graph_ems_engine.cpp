@@ -1651,7 +1651,7 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         return;
     }
 
-    if (node.type == "manualRecovery") {
+    if (node.type == "manualRecovery" || node.type == "feedbackRecovery") {
         std::set<std::uint32_t> indexes;
         for (const auto* key : {"healthyIndex", "faultIndex", "permitIndex", "stoppedIndex",
                                 "resetIndex", "startIndex", "outputIndex", "stateOutputIndex", "reasonOutputIndex"}) {
@@ -1664,6 +1664,30 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
             const auto value = paramDouble(node, key);
             if (!value || !std::isfinite(*value) || std::floor(*value) != *value || *value < 1 || *value > 60000)
                 throw std::runtime_error(std::string("manualRecovery ") + key + " must be an integer from 1 to 60000");
+        }
+        if (node.type == "feedbackRecovery") {
+            if (!paramBool(node, "sameDirection", false))
+                throw std::runtime_error("feedbackRecovery requires explicit sameDirection confirmation");
+            for (const auto* key : {"requestIndex", "readbackIndex", "feedbackIndex"}) {
+                if (!hasParam(node, key)) throw std::runtime_error(std::string("feedbackRecovery requires ") + key);
+                validatePositiveIndex(node, key);
+                if (!indexes.insert(paramIndex(node, key)).second)
+                    throw std::runtime_error("feedbackRecovery roles must use distinct indexes");
+            }
+            for (const auto* key : {"requestTolerance", "feedbackTolerance", "stoppedTolerance"}) {
+                const auto value = paramDouble(node, key);
+                if (!value || !std::isfinite(*value) || *value < 0)
+                    throw std::runtime_error(std::string("feedbackRecovery requires nonnegative ") + key);
+            }
+            for (const auto* key : {"requestTimeoutMs", "feedbackTimeoutMs", "stableMs"}) {
+                const auto value = paramDouble(node, key);
+                const double minimum = std::string(key) == "stableMs" ? 0 : 1;
+                if (!value || !std::isfinite(*value) || std::floor(*value) != *value || *value < minimum || *value > 60000)
+                    throw std::runtime_error(std::string("feedbackRecovery invalid ") + key);
+            }
+            if (paramDouble(node, "stableMs").value() >= std::min(paramDouble(node, "requestTimeoutMs").value(),
+                    paramDouble(node, "feedbackTimeoutMs").value()))
+                throw std::runtime_error("feedbackRecovery stableMs must be shorter than both timeouts");
         }
         if (hasParam(node, "optionalProfileKey") || hasParam(node, "profileDisabledKey"))
             throw std::runtime_error("manualRecovery cannot be bypassed by profile switches");
@@ -1950,6 +1974,7 @@ bool isKnownNodeType(const std::string& type) {
         "controlGate",
         "feedbackVerify",
         "manualRecovery",
+        "feedbackRecovery",
         "controlWrite",
         "rateLimit",
         "hysteresis",
@@ -2971,7 +2996,7 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
                 runControlGate(node, nowMs, result);
             } else if (node.type == "feedbackVerify") {
                 runFeedbackVerify(node, nowMs, result);
-            } else if (node.type == "manualRecovery") {
+            } else if (node.type == "manualRecovery" || node.type == "feedbackRecovery") {
                 runManualRecovery(node, nowMs, result);
             } else if (node.type == "controlWrite") {
                 runControlWrite(node, nowMs, result);
@@ -6492,7 +6517,34 @@ bool GraphEmsEngine::runManualRecovery(
     inputs.reset = read("resetIndex", &inputs.resetTs);
     inputs.start = read("startIndex", &inputs.startTs);
     const auto gap = static_cast<std::int64_t>(paramDouble(node, "maxGapMs").value());
-    const auto status = manualRecoveryStates_[node.id].update(inputs, nowMs, gap);
+    auto& latch = manualRecoveryStates_[node.id];
+    auto& monitoring = recoveryFeedbackStates_[node.id];
+    Optional<double> request, readback, actual;
+    if (node.type == "feedbackRecovery") {
+        const auto number = [&](const char* key) -> Optional<double> {
+            const auto p = latestPoint(paramIndex(node, key), nowMs);
+            if (!p || p->quality != 1 || p->stale || p->ts <= 0 || p->ts > nowMs ||
+                nowMs - p->ts > maxAge || p->expireAt <= 0 || p->expireAt < p->ts ||
+                nowMs > p->expireAt || !std::isfinite(p->value)) return NullOpt;
+            return p->value;
+        };
+        request = number("requestIndex"); readback = number("readbackIndex"); actual = number("feedbackIndex");
+        if (!request || !readback || !actual) inputs.healthy = -1;
+        // A status bit cannot establish a stop if the actual measurements disagree.
+        if (inputs.stopped == 1 && (!readback || !actual ||
+            std::abs(*readback) > paramDouble(node, "stoppedTolerance").value() ||
+            std::abs(*actual) > paramDouble(node, "stoppedTolerance").value())) inputs.stopped = 0;
+    }
+    auto status = latch.update(inputs, nowMs, gap);
+    if (node.type == "feedbackRecovery" && status.permitted && request && readback && actual) {
+        const auto fault = monitoring.update(*request, *readback, *actual,
+            paramDouble(node, "requestTolerance").value(), paramDouble(node, "feedbackTolerance").value(),
+            nowMs, static_cast<std::int64_t>(paramDouble(node, "requestTimeoutMs").value()),
+            static_cast<std::int64_t>(paramDouble(node, "feedbackTimeoutMs").value()),
+            static_cast<std::int64_t>(paramDouble(node, "stableMs").value()));
+        if (fault != ManualRecovery::None) { latch.trip(fault); status = latch.current(); }
+    }
+    if (!status.permitted) monitoring.clear();
     const auto publish = [&](const char* key, double value) {
         const auto written = set(paramIndex(node, key), value, nowMs, std::min(defaultTtlMs_, gap));
         if (!written.accepted) throw std::runtime_error("manualRecovery output rejected: " + written.message);

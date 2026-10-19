@@ -1,4 +1,5 @@
 #include "edge_gateway/manual_recovery.hpp"
+#include "edge_gateway/recovery_feedback.hpp"
 #include <iostream>
 #include <stdexcept>
 using edge_gateway::ManualRecovery;
@@ -32,6 +33,24 @@ struct Fixture {
 };
 int main() {
     try {
+        {
+            edge_gateway::RecoveryFeedback feedback;
+            const auto step = [&](long now, double requested, double readback, double actual) {
+                return feedback.update(requested, readback, actual, .5, 1, now, 400, 600, 200);
+            };
+            require(step(1000, 20, 0, 0) == ManualRecovery::None, "allow command transit");
+            require(step(1100, 30, 0, 0) == ManualRecovery::None, "moving request within deadline");
+            require(step(1200, 30, 30, 30) == ManualRecovery::None, "brief matching");
+            require(step(1300, 40, 0, 0) == ManualRecovery::None, "no deadline reset by brief match");
+            require(step(1400, 40, 0, 0) == ManualRecovery::RequestTimeout, "moving target deadline expires");
+            feedback.clear();
+            require(step(2000, 20, 20, 0) == ManualRecovery::None, "readback is distinct from actual");
+            require(step(2600, 20, 20, 0) == ManualRecovery::FeedbackTimeout, "actual tracking deadline");
+            Fixture f; f.run();
+            f.latch.trip(ManualRecovery::FeedbackTimeout);
+            require(f.step().reason == ManualRecovery::FeedbackTimeout && !f.step().permitted,
+                    "feedback fault remains latched after normal inputs");
+        }
         {
             Fixture f;
             f.inputs.reset = f.inputs.start = f.inputs.permit = 1;

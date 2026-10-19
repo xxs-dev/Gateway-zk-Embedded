@@ -8,6 +8,7 @@
 
 #include "edge_gateway/models.hpp"
 #include "edge_gateway/manual_recovery.hpp"
+#include "edge_gateway/recovery_feedback.hpp"
 #include "edge_gateway/point_store_router.hpp"
 
 namespace edge_gateway {
@@ -234,6 +235,7 @@ private:
     };
     std::unordered_map<std::string, SequenceState> sequenceStates_;
     std::unordered_map<std::string, ManualRecovery> manualRecoveryStates_;
+    std::unordered_map<std::string, RecoveryFeedback> recoveryFeedbackStates_;
     std::unordered_map<std::string, bool> gridReserveCharging_;
     // pcsPowerSolve fail-safe log throttling: node id -> (last reported fault set, last log time).
     std::unordered_map<std::string, std::pair<std::string, std::int64_t>> limitFaultLogs_;
