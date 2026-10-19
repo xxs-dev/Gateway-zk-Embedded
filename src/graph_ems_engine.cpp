@@ -13,6 +13,7 @@
 #include <functional>
 #include <initializer_list>
 #include <iomanip>
+#include <locale>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -6459,6 +6460,32 @@ bool GraphEmsEngine::runControlWrite(
         throw std::runtime_error("controlWrite rejected: " + routed.message);
     }
     return true;
+}
+
+std::string GraphEmsEngine::commandObservation() const {
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << std::setprecision(17) << "{\"stateSavedAt\":" << lastStateSaveAt_
+        << ",\"storageFault\":" << (commandStateFault_ ? "true" : "false") << ",\"nodes\":[";
+    bool comma = false;
+    for (const auto& node : config_.nodes) {
+        const auto found = confirmedControls_.find(node.id);
+        if (found == confirmedControls_.end()) continue;
+        const auto& f = found->second;
+        if (comma) out << ',';
+        comma = true;
+        out << "{\"nodeId\":\"" << jsonEscape(node.id) << "\",\"targetIndex\":" << paramIndex(node, "targetIndex")
+            << ",\"outputIndex\":" << paramIndex(node, "outputIndex")
+            << ",\"maxGapMs\":" << paramDouble(node, "maxGapMs").value()
+            << ",\"lastScan\":" << f.lastScan << ",\"status\":" << f.status()
+            << ",\"cmdId\":\"" << jsonEscape(f.cmdId) << "\",\"index\":" << f.index
+            << ",\"value\":" << f.value << ",\"requestedAt\":" << f.requestedAt
+            << ",\"pending\":" << (f.pending ? "true" : "false")
+            << ",\"fault\":" << f.fault << ",\"armed\":" << (f.armed ? "true" : "false")
+            << ",\"confirmed\":" << (f.confirmed ? "true" : "false") << '}';
+    }
+    out << "]}";
+    return out.str();
 }
 
 bool GraphEmsEngine::runConfirmedControlWrite(

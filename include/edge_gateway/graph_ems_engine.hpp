@@ -97,6 +97,9 @@ public:
     GraphEmsRunResult runOnce(std::int64_t nowMs);
     GraphEmsRunResult runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites);
     void setOptions(const GraphEmsEngineOptions& options) { options_ = options; }
+    // Called by the owning compute thread between scans; never reads a command
+    // queue or mutates/restores the journal. This is a sampled owner view.
+    std::string commandObservation() const;
 
 private:
     struct PointSnapshot {

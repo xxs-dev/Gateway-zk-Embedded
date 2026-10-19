@@ -741,7 +741,7 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
         payload << "{\"ruleCode\":\"" << escapeDiagnosticOutputJson(safeRuleCode(rule))
                 << "\",\"type\":\"" << escapeDiagnosticOutputJson(rule.script.type) << "\"}";
     }
-    payload << "]},\"loadedGraphs\":[";
+    payload << "]},\"commandObservationVersion\":1,\"loadedGraphs\":[";
     bool firstGraph = true;
     for (const auto& rule : config_.rules) {
         const auto found = graphEmsStates_.find(safeRuleCode(rule));
@@ -751,7 +751,8 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
         payload << "{\"ruleCode\":\"" << escapeDiagnosticOutputJson(safeRuleCode(rule))
                 << "\",\"graphFile\":\"" << escapeDiagnosticOutputJson(found->second->config.sourcePath)
                 << "\",\"sha256\":\"" << found->second->config.sourceSha256
-                << "\",\"execution\":" << found->second->executionObservation << '}';
+                << "\",\"execution\":" << found->second->executionObservation
+                << ",\"commands\":" << found->second->engine->commandObservation() << '}';
     }
     payload << "]}";
     writeComputeHealthFile(config_.healthFile, payload.str());

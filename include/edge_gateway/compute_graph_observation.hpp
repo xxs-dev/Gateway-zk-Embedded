@@ -11,6 +11,7 @@
 #endif
 #include "edge_gateway/compute_process_identity.hpp"
 #include "edge_gateway/compute_execution_observation.hpp"
+#include "edge_gateway/compute_command_observation.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/json_value.hpp"
 
@@ -79,6 +80,12 @@ inline std::string observeComputeGraphs(const std::string& healthPath, std::int6
     if (executionVersion)
         out << ",\"executionObservationVersion\":1,\"execution\":"
             << compute_observation_detail::engine(field(root, "execution"));
+    const auto* commandVersion = root.find("commandObservationVersion");
+    if (commandVersion) {
+        if (commandVersion->asNumber() != 1) throw std::runtime_error("unsupported command observation version");
+        out << ",\"commandObservationVersion\":1";
+    }
+    std::size_t commandCount = 0;
     out << ",\"graphs\":[";
     std::set<std::string> rules;
     bool first = true;
@@ -95,6 +102,8 @@ inline std::string observeComputeGraphs(const std::string& healthPath, std::int6
             << escapeDiagnosticOutputJson(path) << "\",\"sha256\":\"" << sha << '"';
         if (executionVersion)
             out << ",\"execution\":" << compute_observation_detail::graph(field(*graph, "execution"));
+        if (commandVersion)
+            out << ",\"commands\":" << compute_observation_detail::commands(field(*graph, "commands"), static_cast<std::int64_t>(timestamp), commandCount);
         out << '}';
     }
     out << "]}";

@@ -68,6 +68,8 @@ int main(int argc, char** argv) {
         require(oldObservation.find(ota_query_detail::sha256Hex(updated)) == std::string::npos, "disk bytes confused with loaded bytes");
         const auto oldParsed = json::JsonParser(oldObservation).parse();
         require(oldParsed.find("healthy")->asBool(), "initial service did not reach healthy publication");
+        require(oldParsed.find("commandObservationVersion")->asNumber() == 1, "command observation capability missing");
+        require(oldParsed.find("graphs")->asArray().values[0]->find("commands")->find("nodes")->asArray().values.empty(), "empty graph cannot invent command owners");
         require(oldParsed.find("execution")->find("scanIntervalMs")->asNumber() == 5, "loaded scan replaced by caller configuration");
         const auto& oldExecution = *oldParsed.find("graphs")->asArray().values[0]->find("execution");
         require(oldExecution.find("outputTtlMs")->asNumber() == 6000, "effective output TTL not observed");
@@ -105,6 +107,14 @@ int main(int argc, char** argv) {
         std::ifstream savedHealth(health);
         auto bytes = std::string(std::istreambuf_iterator<char>(savedHealth), std::istreambuf_iterator<char>());
         savedHealth.close();
+        auto legacyBytes = bytes;
+        const std::string commandMarker = "\"commandObservationVersion\":1,";
+        const auto commandPos = legacyBytes.find(commandMarker);
+        require(commandPos != std::string::npos, "published command version missing");
+        legacyBytes.erase(commandPos, commandMarker.size());
+        write(health, legacyBytes);
+        require(!json::JsonParser(observeComputeGraphs(health, now())).parse().find("commandObservationVersion"), "legacy graph observation changed semantics");
+        write(health, bytes);
         const auto identity = computeProcessIdentity(
 #ifdef _WIN32
             0

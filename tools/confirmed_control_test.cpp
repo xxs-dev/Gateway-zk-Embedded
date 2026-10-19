@@ -1,4 +1,5 @@
 #include "edge_gateway/graph_ems_engine.hpp"
+#include "edge_gateway/compute_command_observation.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -52,6 +53,21 @@ struct Fixture {
         return r;
     }
     int status() { return static_cast<int>(router.getLatestByIndex(7, now)->value); }
+    void checkObservation(const PendingWriteCommand& command, int expected, bool pending, bool confirmed) {
+        const auto before = store->peekPendingWriteCommands().size();
+        const auto parsed = json::JsonParser(engine->commandObservation()).parse();
+        std::size_t count = 0;
+        const auto validated = json::JsonParser(compute_observation_detail::commands(parsed, now, count)).parse();
+        require(count == 1, "exactly one observed command owner");
+        const auto& n = *validated.find("nodes")->asArray().values[0];
+        require(n.find("nodeId")->asString() == "output" && n.find("targetIndex")->asNumber() == 2 &&
+            n.find("outputIndex")->asNumber() == 7, "observed node mapping");
+        require(n.find("cmdId")->asString() == command.cmdId && n.find("index")->asNumber() == command.index &&
+            n.find("value")->asNumber() == command.value && n.find("requestedAt")->asNumber() == command.ts, "exact owner transaction identity");
+        require(n.find("status")->asNumber() == expected && n.find("pending")->asBool() == pending &&
+            n.find("confirmed")->asBool() == confirmed, "owner phase distinct from receipt outcome");
+        require(store->peekPendingWriteCommands().size() == before, "observation must not consume or submit commands");
+    }
     void arm() { permit = reset = 0; readback = actual = 0; stopped = 1; step(); reset = 1; step(); require(status() == 1, "reset arms only"); reset = 0; step(); }
     PendingWriteCommand send() {
         arm(); permit = 1; require(step().deviceWrites == 1 && status() == 2, "one original transaction");
@@ -67,6 +83,21 @@ struct Fixture {
 }
 int main() {
     try {
+        { Fixture f; f.send();
+          const auto original = f.engine->commandObservation();
+          const auto reject = [&](const std::string& before, const std::string& after) {
+              auto bytes = original; const auto pos = bytes.find(before); require(pos != std::string::npos, "malformed fixture match");
+              bytes.replace(pos, before.size(), after); bool failed = false;
+              try { std::size_t count = 0; compute_observation_detail::commands(json::JsonParser(bytes).parse(), f.now, count); }
+              catch (...) { failed = true; }
+              require(failed, "malformed command publication accepted");
+          };
+          reject("\"status\":2", "\"status\":3");
+          reject("\"confirmed\":false", "\"confirmed\":true");
+          reject("\"index\":2", "\"index\":3");
+          reject("\"lastScan\":" + std::to_string(f.now), "\"lastScan\":" + std::to_string(f.now + 1));
+          reject("\"fault\":0", "\"fault\":-1");
+        }
         { Fixture f; f.reset = f.permit = 1; for (int i = 0; i < 4; ++i) require(f.step().deviceWrites == 0, "held startup never sends"); }
         { Fixture f; auto c = f.send(); f.request = 30; require(f.step().deviceWrites == 0, "moving target cannot bypass pending");
           auto wrong = f.receipt(c); wrong.requestedAt--; f.store->recordWritebackResult(wrong); f.step(); require(f.status() == 2, "wrong receipt identity ignored");
@@ -77,11 +108,15 @@ int main() {
           f.request = 30; f.step(); require(f.store->peekPendingWriteCommands().empty(), "failure cannot retry new ID");
           f.restart(); f.step(); require(f.status() == -1, "failure survives restart"); f.arm(); f.permit = 1;
           require(f.step().deviceWrites == 1, "stopped reset permits separate run"); }
-        { Fixture f; auto c = f.send(); for (int i = 0; i < 5; ++i) f.step(); require(f.status() == -2, "missing receipt timeout");
+        { Fixture f; auto c = f.send(); f.checkObservation(c, 2, true, false);
+          for (int i = 0; i < 5; ++i) f.step(); require(f.status() == -2, "missing receipt timeout");
+          f.checkObservation(c, -2, true, false);
           f.permit = 0; f.step(); f.reset = 1; f.step(); require(f.status() == -2, "unresolved pending cannot reset");
           f.store->recordWritebackResult(f.receipt(c)); f.step(); require(f.status() == -2, "late success never clears timeout");
+          f.checkObservation(c, -2, false, true);
           f.arm(); }
         { Fixture f; auto c = f.send(); f.restart(); f.step(); require(f.status() == 2, "restart retains original pending");
+          f.checkObservation(c, 2, true, false);
           f.store->recordWritebackResult(f.receipt(c)); f.step(); require(f.status() == 0, "receipt after restart cannot restore arming");
           require(f.store->peekPendingWriteCommands().empty(), "restart never replays"); }
         { Fixture f; auto c = f.send(); f.store->recordWritebackResult(f.receipt(c)); f.readback = f.actual = 20;
