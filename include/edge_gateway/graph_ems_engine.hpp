@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/manual_recovery.hpp"
 #include "edge_gateway/point_store_router.hpp"
 
 namespace edge_gateway {
@@ -150,6 +151,7 @@ private:
     bool runHysteresis(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runDebounce(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runSequence(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
+    bool runManualRecovery(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPcsPowerSolve(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool runPcsWriteback(const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result);
     bool submitPcsWritebackCommands(
@@ -231,6 +233,7 @@ private:
         std::int64_t enteredAt = 0;
     };
     std::unordered_map<std::string, SequenceState> sequenceStates_;
+    std::unordered_map<std::string, ManualRecovery> manualRecoveryStates_;
     std::unordered_map<std::string, bool> gridReserveCharging_;
     // pcsPowerSolve fail-safe log throttling: node id -> (last reported fault set, last log time).
     std::unordered_map<std::string, std::pair<std::string, std::int64_t>> limitFaultLogs_;

@@ -1651,6 +1651,25 @@ void validateGenericNode(const GraphEmsNodeConfig& node) {
         return;
     }
 
+    if (node.type == "manualRecovery") {
+        std::set<std::uint32_t> indexes;
+        for (const auto* key : {"healthyIndex", "faultIndex", "permitIndex", "stoppedIndex",
+                                "resetIndex", "startIndex", "outputIndex", "stateOutputIndex", "reasonOutputIndex"}) {
+            if (!hasParam(node, key)) throw std::runtime_error(std::string("manualRecovery requires ") + key);
+            validatePositiveIndex(node, key);
+            if (!indexes.insert(paramIndex(node, key)).second)
+                throw std::runtime_error("manualRecovery roles must use distinct indexes");
+        }
+        for (const auto* key : {"maxInputAgeMs", "maxGapMs"}) {
+            const auto value = paramDouble(node, key);
+            if (!value || !std::isfinite(*value) || std::floor(*value) != *value || *value < 1 || *value > 60000)
+                throw std::runtime_error(std::string("manualRecovery ") + key + " must be an integer from 1 to 60000");
+        }
+        if (hasParam(node, "optionalProfileKey") || hasParam(node, "profileDisabledKey"))
+            throw std::runtime_error("manualRecovery cannot be bypassed by profile switches");
+        return;
+    }
+
     if (node.type == "feedbackVerify") {
         const char* requiredIndexes[] = {"targetIndex", "feedbackIndex", "outputIndex"};
         for (const auto* key : requiredIndexes) {
@@ -1930,6 +1949,7 @@ bool isKnownNodeType(const std::string& type) {
         "switch",
         "controlGate",
         "feedbackVerify",
+        "manualRecovery",
         "controlWrite",
         "rateLimit",
         "hysteresis",
@@ -2951,6 +2971,8 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
                 runControlGate(node, nowMs, result);
             } else if (node.type == "feedbackVerify") {
                 runFeedbackVerify(node, nowMs, result);
+            } else if (node.type == "manualRecovery") {
+                runManualRecovery(node, nowMs, result);
             } else if (node.type == "controlWrite") {
                 runControlWrite(node, nowMs, result);
             } else if (node.type == "rateLimit") {
@@ -6447,6 +6469,40 @@ bool GraphEmsEngine::runDebounce(
         throw std::runtime_error("debounce output rejected: " + routed.message);
     }
     ++result.latestWrites;
+    return true;
+}
+
+bool GraphEmsEngine::runManualRecovery(
+    const GraphEmsNodeConfig& node, std::int64_t nowMs, GraphEmsRunResult& result
+) {
+    ManualRecovery::Inputs inputs;
+    const auto maxAge = static_cast<std::int64_t>(paramDouble(node, "maxInputAgeMs").value());
+    const auto read = [&](const char* key, std::int64_t* timestamp = nullptr) {
+        const auto p = latestPoint(paramIndex(node, key), nowMs);
+        if (!p || p->quality != 1 || p->stale || p->ts <= 0 || p->ts > nowMs ||
+            nowMs - p->ts > maxAge || p->expireAt <= 0 || p->expireAt < p->ts ||
+            nowMs > p->expireAt || (p->value != 0.0 && p->value != 1.0)) return -1;
+        if (timestamp) *timestamp = p->ts;
+        return static_cast<int>(p->value);
+    };
+    inputs.healthy = read("healthyIndex");
+    inputs.fault = read("faultIndex");
+    inputs.permit = read("permitIndex");
+    inputs.stopped = read("stoppedIndex");
+    inputs.reset = read("resetIndex", &inputs.resetTs);
+    inputs.start = read("startIndex", &inputs.startTs);
+    const auto gap = static_cast<std::int64_t>(paramDouble(node, "maxGapMs").value());
+    const auto status = manualRecoveryStates_[node.id].update(inputs, nowMs, gap);
+    const auto publish = [&](const char* key, double value) {
+        const auto written = set(paramIndex(node, key), value, nowMs, std::min(defaultTtlMs_, gap));
+        if (!written.accepted) throw std::runtime_error("manualRecovery output rejected: " + written.message);
+        ++result.latestWrites;
+    };
+    // Publish denial first; incomplete diagnostic output must not grant permission.
+    publish("outputIndex", 0.0);
+    publish("stateOutputIndex", status.state);
+    publish("reasonOutputIndex", status.reason);
+    if (status.permitted) publish("outputIndex", 1.0);
     return true;
 }
 
