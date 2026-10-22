@@ -1,0 +1,237 @@
+{
+  "generatedBy": "tools/live/gen-ticket-vectors.py（私钥只在生成时的内存里，已丢弃；这里只有公钥、载荷、签名）",
+  "signature": {
+    "algorithm": "Ed25519 (RFC 8032)",
+    "domainPrefix": "GZ-FIELD-TICKET-V1\\n",
+    "canonicalization": "RFC 8785 JCS（UTF-8，不转义非 ASCII）",
+    "wire": "base64url(JCS 载荷) + '.' + base64url(64 字节签名)，都不带 '=' 填充",
+    "clockSkewMs": 300000,
+    "checkOrder": [
+      "malformed",
+      "unknown_key",
+      "bad_signature",
+      "machine_mismatch",
+      "not_yet_valid / expired",
+      "action_not_allowed",
+      "level_too_low",
+      "path_not_allowed / point_not_allowed",
+      "replayed"
+    ]
+  },
+  "platformKeys": [
+    {
+      "keyId": "platform-ed25519-test-02",
+      "publicKeyHex": "548e84952f832dc8c775c36c03f58bdf6b2c8d14b06b5032434be4f9d6a87657",
+      "publicKeyBase64": "VI6ElS+DLcjHdcNsA/WL32ssjRSwa1AyQ0vk+daodlc="
+    }
+  ],
+  "untrustedKeyForUnknownKeyVector": {
+    "publicKeyHex": "c5aab87d8aea048ef2b0327ef4e59c5b154f3c7226fd150825d49ed1bf086058"
+  },
+  "vectors": [
+    {
+      "name": "valid",
+      "note": "签名、机器码、时间窗、动作、等级、路径都对",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
+        ]
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "machine-mismatch",
+      "note": "票是给另一台设备的",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600998",
+        "nowMs": 1792801000000,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
+        ]
+      },
+      "expect": "reject:machine_mismatch"
+    },
+    {
+      "name": "expired",
+      "note": "过期（超过 expiresAt + 允许时钟偏差 300 s）",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792807500001,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
+        ]
+      },
+      "expect": "reject:expired"
+    },
+    {
+      "name": "not-yet-valid",
+      "note": "早于 notBefore − 300 s",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792799699999,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
+        ]
+      },
+      "expect": "reject:not_yet_valid"
+    },
+    {
+      "name": "tampered",
+      "note": "签名后改了 actions（签名对应原载荷）",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIiwiY29udHJvbC5iYXRjaCJdLCJjb25zdHJhaW50cyI6eyJjb25maWdQYXRocyI6WyIvb3B0L21vZGJ1cy1nYXRld2F5L2NvbmZpZy9ydW50aW1lL2FwcHMvbW9uaXRvci1zZXJ2aWNlLmpzb24iXX0sImV4cGlyZXNBdCI6MTc5MjgwNzIwMDAwMCwiaXNzdWVkQXQiOjE3OTI4MDAwMDAwMDAsImlzc3VlciI6Imd6LXBsYXRmb3JtIiwia2V5SWQiOiJwbGF0Zm9ybS1lZDI1NTE5LXRlc3QtMDIiLCJsZXZlbCI6MywibWFjaGluZUNvZGUiOiJDT01NMjAyNjAwMTA0Iiwibm90QmVmb3JlIjoxNzkyODAwMDAwMDAwLCJvbmVUaW1lIjpmYWxzZSwib3BlcmF0b3IiOnsibmFtZSI6IueOsOWcuuW3peeoi-W4iEEiLCJ1c2VySWQiOiJ1LTEwMDEifSwicmVhc29uIjoi6LCD5pW057u05oqk6YCa6YGT5pS-6KGM572R5q61IiwidGlja2V0SWQiOiJGVC0yMDI2MTAyMy0wMDAxIiwidGlja2V0VmVyc2lvbiI6MX0.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\",\"control.batch\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "control.batch",
+        "level": 2,
+        "paths": []
+      },
+      "expect": "reject:bad_signature"
+    },
+    {
+      "name": "unknown-key",
+      "note": "keyId 不在设备内置的公钥列表里",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdW5rbm93biIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.CacFAvARx0oJzxNfBnpcjTWlRyah-BAIv8pXq-B6Y7jtvp1PHH4NUf5lwLn5m3-wOWM0oIJQlCZWVTLlP2IIDQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-unknown\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "09a70502f011c74a09cf135f067a5c8d35a54726a1f81008bfca57abe07a63b8edbe9d4f1c7e0d51fe65c0b9f99b7fb0396334a082509426565532e53f62080d",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
+        ]
+      },
+      "expect": "reject:unknown_key"
+    },
+    {
+      "name": "action-not-allowed",
+      "note": "票里没有 control.batch",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "control.batch",
+        "level": 2,
+        "paths": []
+      },
+      "expect": "reject:action_not_allowed"
+    },
+    {
+      "name": "level-too-low",
+      "note": "L2 的票不能做配置直推（要 L3）",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjoyLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.6fDzDRhKCXytjAUWqI31ahdSdOhcG_6LzxtiJxIQ9TfbQhqUEMLXtvPYvVaHVSskDBfaGp3l8BG_AAUJ3c4MDg",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":2,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "e9f0f30d184a097cad8c0516a88df56a175274e85c1bfe8bcf1b62271210f537db421a9410c2d7b6f3d8bd5687552b240c17da1a9de5f011bf000509ddce0c0e",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json"
+        ]
+      },
+      "expect": "reject:level_too_low"
+    },
+    {
+      "name": "path-not-allowed",
+      "note": "路径不在 constraints.configPaths 里",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbmZpZy5hcHBseSIsImNvbmZpZy5yZXN0b3JlIl0sImNvbnN0cmFpbnRzIjp7ImNvbmZpZ1BhdGhzIjpbIi9vcHQvbW9kYnVzLWdhdGV3YXkvY29uZmlnL3J1bnRpbWUvYXBwcy9tb25pdG9yLXNlcnZpY2UuanNvbiJdfSwiZXhwaXJlc0F0IjoxNzkyODA3MjAwMDAwLCJpc3N1ZWRBdCI6MTc5MjgwMDAwMDAwMCwiaXNzdWVyIjoiZ3otcGxhdGZvcm0iLCJrZXlJZCI6InBsYXRmb3JtLWVkMjU1MTktdGVzdC0wMiIsImxldmVsIjozLCJtYWNoaW5lQ29kZSI6IkNPTU0yMDI2MDAxMDQiLCJub3RCZWZvcmUiOjE3OTI4MDAwMDAwMDAsIm9uZVRpbWUiOmZhbHNlLCJvcGVyYXRvciI6eyJuYW1lIjoi546w5Zy65bel56iL5biIQSIsInVzZXJJZCI6InUtMTAwMSJ9LCJyZWFzb24iOiLosIPmlbTnu7TmiqTpgJrpgZPmlL7ooYznvZHmrrUiLCJ0aWNrZXRJZCI6IkZULTIwMjYxMDIzLTAwMDEiLCJ0aWNrZXRWZXJzaW9uIjoxfQ.zySajRyGpFTyAiuNOSgo44-o8fFN6B44dpmj0ayHTp-tq2HZXNbS-E-taHshDWVRUyOqNaWzadhy-GdOGTEAAQ",
+      "payloadJcs": "{\"actions\":[\"config.apply\",\"config.restore\"],\"constraints\":{\"configPaths\":[\"/opt/modbus-gateway/config/runtime/apps/monitor-service.json\"]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "cf249a8d1c86a454f2022b8d392828e38fa8f1f14de81e387699a3d1ac874e9fadab61d95cd6d2f84fad687b210d65515323aa35a5b369d872f8674e19310001",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "config.apply",
+        "level": 3,
+        "paths": [
+          "/opt/modbus-gateway/config/runtime/apps/monitor-service.json",
+          "/opt/modbus-gateway/config/runtime/apps/mqtt-service.json"
+        ]
+      },
+      "expect": "reject:path_not_allowed"
+    },
+    {
+      "name": "point-not-allowed",
+      "note": "写点不在 constraints.pointIndexes 里",
+      "ticket": "eyJhY3Rpb25zIjpbImNvbnRyb2wuYmF0Y2giXSwiY29uc3RyYWludHMiOnsicG9pbnRJbmRleGVzIjpbNDUxLDQ1Ml19LCJleHBpcmVzQXQiOjE3OTI4MDcyMDAwMDAsImlzc3VlZEF0IjoxNzkyODAwMDAwMDAwLCJpc3N1ZXIiOiJnei1wbGF0Zm9ybSIsImtleUlkIjoicGxhdGZvcm0tZWQyNTUxOS10ZXN0LTAyIiwibGV2ZWwiOjIsIm1hY2hpbmVDb2RlIjoiQ09NTTIwMjYwMDEwNCIsIm5vdEJlZm9yZSI6MTc5MjgwMDAwMDAwMCwib25lVGltZSI6ZmFsc2UsIm9wZXJhdG9yIjp7Im5hbWUiOiLnjrDlnLrlt6XnqIvluIhBIiwidXNlcklkIjoidS0xMDAxIn0sInJlYXNvbiI6Iuiwg-aVtOe7tOaKpOmAmumBk-aUvuihjOe9keautSIsInRpY2tldElkIjoiRlQtMjAyNjEwMjMtMDAwMSIsInRpY2tldFZlcnNpb24iOjF9.Sd5iIrq5dmtYNSNvJyh8LiwwTdpUOC5o8LXnFVvFA3F12xnWQfRA47wRDbPZp93Fg8WakCPiyi4gWyQZqehyDg",
+      "payloadJcs": "{\"actions\":[\"control.batch\"],\"constraints\":{\"pointIndexes\":[451,452]},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":2,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":false,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0001\",\"ticketVersion\":1}",
+      "signatureHex": "49de6222bab9766b5835236f27287c2e2c304dda54382e68f0b5e7155bc5037175db19d641f440e3bc110db3d9a7ddc583c59a9023e2ca2e205b2419a9e8720e",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "control.batch",
+        "level": 2,
+        "paths": [],
+        "points": [
+          451,
+          455
+        ]
+      },
+      "expect": "reject:point_not_allowed"
+    },
+    {
+      "name": "one-time-first",
+      "note": "一次性票第一次使用",
+      "ticket": "eyJhY3Rpb25zIjpbIm90YS5qb2IiXSwiY29uc3RyYWludHMiOnt9LCJleHBpcmVzQXQiOjE3OTI4MDcyMDAwMDAsImlzc3VlZEF0IjoxNzkyODAwMDAwMDAwLCJpc3N1ZXIiOiJnei1wbGF0Zm9ybSIsImtleUlkIjoicGxhdGZvcm0tZWQyNTUxOS10ZXN0LTAyIiwibGV2ZWwiOjMsIm1hY2hpbmVDb2RlIjoiQ09NTTIwMjYwMDEwNCIsIm5vdEJlZm9yZSI6MTc5MjgwMDAwMDAwMCwib25lVGltZSI6dHJ1ZSwib3BlcmF0b3IiOnsibmFtZSI6IueOsOWcuuW3peeoi-W4iEEiLCJ1c2VySWQiOiJ1LTEwMDEifSwicmVhc29uIjoi6LCD5pW057u05oqk6YCa6YGT5pS-6KGM572R5q61IiwidGlja2V0SWQiOiJGVC0yMDI2MTAyMy0wMDA5IiwidGlja2V0VmVyc2lvbiI6MX0.5xxPN9v_71AmfbT_pOTxPbyMlCVby_yU0C0iBGFECADXHN5-ikCYrJznMb7esMpyIoGyDZ4odCWxn2ooCpm8DA",
+      "payloadJcs": "{\"actions\":[\"ota.job\"],\"constraints\":{},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":true,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0009\",\"ticketVersion\":1}",
+      "signatureHex": "e71c4f37dbffef50267db4ffa4e4f13dbc8c94255bcbfc94d02d220461440800d71cde7e8a4098ac9ce731bedeb0ca722281b20d9e287425b19f6a280a99bc0c",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801000000,
+        "action": "ota.job",
+        "level": 3,
+        "paths": []
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "one-time-replay",
+      "note": "同一张一次性票第二次使用（设备记住已用的 ticketId 直到过期）",
+      "ticket": "eyJhY3Rpb25zIjpbIm90YS5qb2IiXSwiY29uc3RyYWludHMiOnt9LCJleHBpcmVzQXQiOjE3OTI4MDcyMDAwMDAsImlzc3VlZEF0IjoxNzkyODAwMDAwMDAwLCJpc3N1ZXIiOiJnei1wbGF0Zm9ybSIsImtleUlkIjoicGxhdGZvcm0tZWQyNTUxOS10ZXN0LTAyIiwibGV2ZWwiOjMsIm1hY2hpbmVDb2RlIjoiQ09NTTIwMjYwMDEwNCIsIm5vdEJlZm9yZSI6MTc5MjgwMDAwMDAwMCwib25lVGltZSI6dHJ1ZSwib3BlcmF0b3IiOnsibmFtZSI6IueOsOWcuuW3peeoi-W4iEEiLCJ1c2VySWQiOiJ1LTEwMDEifSwicmVhc29uIjoi6LCD5pW057u05oqk6YCa6YGT5pS-6KGM572R5q61IiwidGlja2V0SWQiOiJGVC0yMDI2MTAyMy0wMDA5IiwidGlja2V0VmVyc2lvbiI6MX0.5xxPN9v_71AmfbT_pOTxPbyMlCVby_yU0C0iBGFECADXHN5-ikCYrJznMb7esMpyIoGyDZ4odCWxn2ooCpm8DA",
+      "payloadJcs": "{\"actions\":[\"ota.job\"],\"constraints\":{},\"expiresAt\":1792807200000,\"issuedAt\":1792800000000,\"issuer\":\"gz-platform\",\"keyId\":\"platform-ed25519-test-02\",\"level\":3,\"machineCode\":\"COMM202600104\",\"notBefore\":1792800000000,\"oneTime\":true,\"operator\":{\"name\":\"现场工程师A\",\"userId\":\"u-1001\"},\"reason\":\"调整维护通道放行网段\",\"ticketId\":\"FT-20261023-0009\",\"ticketVersion\":1}",
+      "signatureHex": "e71c4f37dbffef50267db4ffa4e4f13dbc8c94255bcbfc94d02d220461440800d71cde7e8a4098ac9ce731bedeb0ca722281b20d9e287425b19f6a280a99bc0c",
+      "device": {
+        "machineCode": "COMM202600104",
+        "nowMs": 1792801005000,
+        "action": "ota.job",
+        "level": 3,
+        "paths": []
+      },
+      "expect": "reject:replayed"
+    }
+  ],
+  "tlsFingerprint": {
+    "certPem": "-----BEGIN CERTIFICATE-----\nMIIBaDCCAQ6gAwIBAgIUAlCLK6gQsSGDGCv6D4wtwoCLQ54wCgYIKoZIzj0EAwIw\nNDEWMBQGA1UEAwwNQ09NTTIwMjYwMDEwNDEaMBgGA1UECgwRR2F0ZXdheS16ayBk\nZXZpY2UwHhcNMjYxMDIzMDAwMDAwWhcNMzYxMDIyMDAwMDAwWjA0MRYwFAYDVQQD\nDA1DT01NMjAyNjAwMTA0MRowGAYDVQQKDBFHYXRld2F5LXprIGRldmljZTBZMBMG\nByqGSM49AgEGCCqGSM49AwEHA0IABJOWij0D150rl5Bcl29+qKu6U7jxYQFG3HnO\nauqjigmIlnwGWmm+STErLMyrWVo0Ur+ojClLV17SyjivQWnJiTQwCgYIKoZIzj0E\nAwIDSAAwRQIhAOM/v3mpt25/7iyZMcBgVteAAz2WrAa+r/V6EGLlDB0MAiBy1OLV\nXqfyoXmYlMJAuXVcpjEhUUs1R0CLsS5oHwWYmg==\n-----END CERTIFICATE-----\n",
+    "sha256OfDer": "A8:91:25:73:DC:C7:D9:B3:18:29:78:E8:F1:13:AF:60:D2:AB:E2:47:EC:89:57:2A:F4:F4:58:0A:E9:83:C9:D6",
+    "rule": "SHA-256(证书 DER)，大写十六进制、冒号分隔；客户端与平台都按这个格式存和比"
+  }
+}

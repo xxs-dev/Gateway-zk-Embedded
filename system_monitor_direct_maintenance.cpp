@@ -32,6 +32,7 @@
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
+#include "edge_gateway/system_monitor_direct_maintenance_bridge.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -2985,6 +2986,19 @@ bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
     return false;
 }
 
+bool isV1WriteRequest(const std::string& method, const std::string& path, const std::string& body) {
+    if (method != "POST") {
+        return false;
+    }
+    if (path == "/api/v1/config/apply") {
+        return !jsonBool(body, "dryRun", true);
+    }
+    return path == "/api/v1/control/batch" ||
+           path == "/api/v1/config/delete" ||
+           path == "/api/v1/config/restore" ||
+           path == "/api/v1/ota/jobs";
+}
+
 std::string handleRequest(
     const SystemMonitorDirectMaintenanceConfig& config,
     const std::string& method,
@@ -2995,6 +3009,11 @@ std::string handleRequest(
     const std::string& clientKey
 ) {
     tl_requestAuthorized = false;
+    if (config.v2.enabled && config.v2.v1ReadOnly && isV1WriteRequest(method, path, body)) {
+        // Writes need a field ticket on maintenance v2; knowing the password is not enough.
+        return response(403, "Forbidden",
+            "{\"success\":false,\"code\":\"use_maintenance_v2\",\"message\":\"v1 write endpoints are disabled while maintenance v2 is enabled\"}");
+    }
     if (isSensitiveEndpoint(method, path)) {
         const auto denied = authenticateRequest(config, jsonString(body, "passwordSha256"), clientKey);
         if (!denied.empty()) {
@@ -3641,6 +3660,159 @@ int runFromConfig(const SystemMonitorConfig::DirectMaintenanceConfig& config) {
     }
 }
 
+
+// ---------------------------------------------------------------- v2 bridge
+// Shared building blocks for the maintenance v2 channel (src/maintenance_v2).
+namespace bridge {
+
+Identity identity(const Config& config) {
+    const auto loaded = loadIdentity(config.identityConfigFile);
+    Identity out;
+    out.machineCode = loaded.machineCode;
+    out.imei = loaded.imei;
+    out.serialNumber = loaded.serialNumber;
+    out.model = loaded.model;
+    out.hardwareVersion = loaded.hardwareVersion;
+    out.firmwareVersion = loaded.firmwareVersion;
+    return out;
+}
+
+std::string machineCode(const Config& config) {
+    auto code = loadIdentity(config.identityConfigFile).machineCode;
+    if (code.empty()) {
+        try {
+            code = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.appConfigFile).mqtt.clientId;
+        } catch (...) {
+        }
+    }
+    return code;
+}
+
+AuthStateInfo authState(const Config& config) {
+    const auto state = loadAuthState(config);
+    AuthStateInfo out;
+    out.paired = state.paired;
+    out.usingDefaultPassword = state.usingDefaultPassword;
+    out.bootstrapMode = state.bootstrapMode;
+    out.sensitiveApiEnabled = state.sensitiveApiEnabled;
+    return out;
+}
+
+LoginResult authenticate(const Config& config, const std::string& passwordSha256, const std::string& clientKey) {
+    const auto now = nowMs();
+    if (clientLockedOut(config, clientKey, now)) {
+        return LoginResult::LockedOut;
+    }
+    const bool legacyAccepted = config.allowLegacyFixedPassword &&
+        constantTimeEquals(normalizedPasswordSha256(passwordSha256), kFixedMaintenancePasswordSha256);
+    if (!legacyAccepted && !credentialProvisionedFor(config)) {
+        return LoginResult::NotProvisioned;
+    }
+    if (!verifyPasswordSha256For(config, passwordSha256)) {
+        recordAuthResult(config, clientKey, false, now);
+        return LoginResult::Invalid;
+    }
+    recordAuthResult(config, clientKey, true, now);
+    return LoginResult::Ok;
+}
+
+bool clientAllowed(const Config& config, std::uint32_t ipv4HostOrder) {
+#ifndef _WIN32
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipv4HostOrder);
+    return isClientAllowed(config, addr);
+#else
+    (void)config;
+    (void)ipv4HostOrder;
+    return false;
+#endif
+}
+
+Metrics metrics() {
+    Metrics out;
+    out.cpuUsage = cpuUsagePercent();
+    out.memUsage = memUsagePercent();
+    out.diskUsage = diskUsagePercent();
+    out.load1 = load1Value();
+    out.processCount = countProcesses();
+    return out;
+}
+
+std::string serviceState(const std::string& unit) {
+    return ::serviceState(unit);
+}
+
+std::string configSnapshotJson(const Config& config, const std::string& body) {
+    return ::configSnapshotJson(config, body);
+}
+
+int diagExecute(const Config& config, const std::string& body, std::string* responseBody) {
+    // The v2 caller has already authenticated the session token.
+    struct Authorized {
+        Authorized() { tl_requestAuthorized = true; }
+        ~Authorized() { tl_requestAuthorized = false; }
+    } authorized;
+    const auto result = diagResponseJson(config, body);
+    *responseBody = result.body;
+    return result.status;
+}
+
+std::string otaStatusJson(const Config& config) {
+    return ::otaStatusJson(config);
+}
+
+std::vector<std::string> configFiles(const Config& config) {
+    return collectConfigSnapshotFiles(config);
+}
+
+bool isAllowedExistingConfigPath(const Config& config, const std::string& path) {
+    return isAllowedConfigPath(config, path);
+}
+
+void validateConfigContent(const Config& config, const std::string& path, const std::string& content) {
+    validateConfigContentForPath(config, path, content);
+}
+
+std::string runShell(const std::string& command, int* exitCode, std::size_t maxOutputBytes) {
+    return runShellCommand(command, exitCode, maxOutputBytes);
+}
+
+struct Realtime::Impl {
+    std::unique_ptr<RealtimeContext> context;
+    std::string machineCode;
+};
+
+Realtime::Realtime(const Config& config) : impl_(new Impl()) {
+    impl_->context = createRealtimeContext(config);
+    impl_->machineCode = resolveMachineCode(config, impl_->context->appConfig);
+}
+
+Realtime::~Realtime() = default;
+
+PointStoreRouter& Realtime::router() {
+    return impl_->context->router;
+}
+
+const AppConfig& Realtime::app() const {
+    return impl_->context->appConfig;
+}
+
+std::string Realtime::machineCode() const {
+    return impl_->machineCode;
+}
+
+Optional<WritebackResultRecord> waitForWriteback(
+    const PointStoreRouter& router,
+    const PointStoreRoute& route,
+    const std::string& cmdId,
+    std::int64_t acceptedAt,
+    int timeoutMs
+) {
+    return waitForWritebackResult(router, route, cmdId, acceptedAt, timeoutMs);
+}
+
+}  // namespace bridge
+
 }  // namespace system_monitor_direct_maintenance
 }  // namespace edge_gateway
-

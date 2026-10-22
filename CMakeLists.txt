@@ -292,7 +292,19 @@ add_executable(EmsClusterCoordinator ems_cluster_main.cpp)
 target_link_libraries(EmsClusterCoordinator PRIVATE edge_gateway)
 target_compile_options(EmsClusterCoordinator PRIVATE -fdiagnostics-color=never)
 
-add_executable(SystemMonitor system_monitor_main.cpp system_monitor_direct_maintenance.cpp)
+set(MAINTENANCE_V2_SOURCES
+    src/maintenance_v2/v2_json.cpp
+    src/maintenance_v2/v2_crypto.cpp
+    src/maintenance_v2/v2_files.cpp
+    src/maintenance_v2/v2_process.cpp
+    src/maintenance_v2/v2_ticket.cpp
+    src/maintenance_v2/v2_state.cpp
+    src/maintenance_v2/v2_tx.cpp
+    src/maintenance_v2/v2_handlers.cpp
+    src/maintenance_v2/v2_config.cpp
+    src/maintenance_v2/v2_server.cpp
+)
+add_executable(SystemMonitor system_monitor_main.cpp system_monitor_direct_maintenance.cpp ${MAINTENANCE_V2_SOURCES})
 target_link_libraries(SystemMonitor PRIVATE edge_gateway)
 target_compile_options(SystemMonitor PRIVATE -fdiagnostics-color=never)
 
@@ -897,6 +909,11 @@ if(BUILD_TESTING)
     add_test(NAME grid_friendly_dispatch COMMAND grid_friendly_dispatch_test)
     add_test(NAME legacy_ems_migration_parity COMMAND legacy_ems_test)
     add_test(NAME system_monitor_direct_maintenance_contract COMMAND system_monitor_direct_maintenance_contract_test)
+add_executable(maintenance_v2_test tools/maintenance_v2_test.cpp system_monitor_direct_maintenance.cpp ${MAINTENANCE_V2_SOURCES})
+target_link_libraries(maintenance_v2_test PRIVATE edge_gateway)
+target_compile_options(maintenance_v2_test PRIVATE -fdiagnostics-color=never)
+target_compile_definitions(maintenance_v2_test PRIVATE MAINTENANCE_V2_TESTDATA="${CMAKE_CURRENT_SOURCE_DIR}/tools/testdata")
+add_test(NAME maintenance_v2 COMMAND maintenance_v2_test)
     add_test(NAME system_monitor_direct_maintenance_owner COMMAND system_monitor_direct_maintenance_owner_test --owner)
     set_tests_properties(
         graph_ems_v2_loader

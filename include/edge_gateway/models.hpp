@@ -1420,6 +1420,24 @@ struct SystemMonitorConfig {
         // heartbeat only with a valid X-Maintenance-Password-Sha256 header.
         // Default false keeps the legacy unauthenticated heartbeat.
         bool realtimeHeartbeatRequiresAuth = false;
+        // Maintenance channel v2 (HTTPS with a pinned device certificate, session
+        // tokens, platform-signed field tickets, journaled config transactions).
+        // Certificate, key and trusted ticket keys are not configured here: they
+        // live in the maintenance-v2 material directory (SystemMonitor option).
+        struct V2Config {
+            bool enabled = false;
+            std::vector<std::string> listenHosts;  // empty = listenHosts above
+            int listenPort = 9444;
+            // While v2 is enabled the plain v1 port keeps reads and dry-runs only.
+            bool v1ReadOnly = true;
+            int sessionTtlSec = 900;
+            int sessionMaxSec = 28800;
+            int debugIdleSec = 1800;
+            int healthTimeoutSec = 90;
+            int healthStableSec = 10;
+            int maxConnections = 8;
+        };
+        V2Config v2;
     };
 
     struct RecordingTransferConfig {

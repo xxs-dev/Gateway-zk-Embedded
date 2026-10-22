@@ -3302,6 +3302,24 @@ SystemMonitorConfig::DirectMaintenanceConfig parseDirectMaintenanceConfig(
     if (config.listenPort <= 0 || config.listenPort > 65535) {
         throw std::invalid_argument("systemMonitor.directMaintenance.listenPort must be between 1 and 65535");
     }
+    const auto* v2 = source->find("v2");
+    if (v2 != nullptr && !v2->isNull()) {
+        const auto& v2Object = v2->asObject();
+        auto& out = config.v2;
+        out.enabled = requireBool(v2Object, "enabled", out.enabled);
+        out.listenHosts = parseStringArray(v2->find("listenHosts"));
+        out.listenPort = requireInt(v2Object, "listenPort", out.listenPort);
+        out.v1ReadOnly = requireBool(v2Object, "v1ReadOnly", out.v1ReadOnly);
+        out.sessionTtlSec = boundedInt(requireInt(v2Object, "sessionTtlSec", out.sessionTtlSec), 60, 86400);
+        out.sessionMaxSec = boundedInt(requireInt(v2Object, "sessionMaxSec", out.sessionMaxSec), out.sessionTtlSec, 7 * 86400);
+        out.debugIdleSec = boundedInt(requireInt(v2Object, "debugIdleSec", out.debugIdleSec), 60, 86400);
+        out.healthTimeoutSec = boundedInt(requireInt(v2Object, "healthTimeoutSec", out.healthTimeoutSec), 10, 1800);
+        out.healthStableSec = boundedInt(requireInt(v2Object, "healthStableSec", out.healthStableSec), 0, 300);
+        out.maxConnections = boundedInt(requireInt(v2Object, "maxConnections", out.maxConnections), 1, 64);
+        if (out.listenPort <= 0 || out.listenPort > 65535) {
+            throw std::invalid_argument("systemMonitor.directMaintenance.v2.listenPort must be between 1 and 65535");
+        }
+    }
     return config;
 }
 

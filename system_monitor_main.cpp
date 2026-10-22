@@ -9,10 +9,12 @@
 #include <vector>
 #ifndef _WIN32
 #include <sys/prctl.h>
+#include <unistd.h>
 #endif
 
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/maintenance_v2.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
@@ -90,6 +92,33 @@ public:
     std::vector<edge_gateway::MqttIncomingMessage> pollIncoming(int) override { return {}; }
 };
 
+void printUsage() {
+    std::cout <<
+        "Usage: SystemMonitor [--app-config FILE] [options]\n"
+        "  --app-config FILE                 app config (default config/runtime/apps/mqtt-service.json)\n"
+        "  --no-direct-maintenance           do not start the direct maintenance channels\n"
+        "  --once                            collect once and exit\n"
+        "  --set-maintenance-password        read a new maintenance password from stdin and store its credential\n"
+        "  --init-maintenance-tls            create the maintenance v2 device certificate if missing and print fingerprint=...\n"
+        "  --maintenance-v2-dir DIR          v2 material directory (default /opt/modbus-gateway/config/maintenance-v2)\n"
+        "  --maintenance-v2-state-dir DIR    v2 state directory (default /opt/modbus-gateway/data/maintenance-v2)\n"
+        "  --maintenance-v2-services-cmd CMD services adapter for tests (CMD list | state UNIT | restart)\n"
+        "  --maintenance-v2-launcher MODE    transaction helper launcher: auto | systemd-run | fork\n"
+        "  --maintenance-v2-tx ID --maintenance-v2-tx-mode MODE   (internal) run a config transaction helper\n";
+}
+
+std::string absolutePath(const std::string& path) {
+#ifndef _WIN32
+    if (!path.empty() && path[0] != '/') {
+        char cwd[4096];
+        if (::getcwd(cwd, sizeof(cwd)) != nullptr) {
+            return std::string(cwd) + "/" + path;
+        }
+    }
+#endif
+    return path;
+}
+
 }  // namespace
 
 int runSystemMonitor(int argc, char* argv[]) {
@@ -99,9 +128,16 @@ int runSystemMonitor(int argc, char* argv[]) {
     bool directMaintenanceDisabled = false;
     bool once = false;
     bool setMaintenancePassword = false;
+    bool initMaintenanceTls = false;
+    std::string transactionId;
+    std::string transactionMode = "apply";
+    edge_gateway::maintenance_v2::Options v2Options;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--app-config" && i + 1 < argc) {
+        if (arg == "--help" || arg == "-h") {
+            printUsage();
+            return 0;
+        } else if (arg == "--app-config" && i + 1 < argc) {
             appConfigPath = argv[++i];
         } else if (arg == "--no-direct-maintenance") {
             directMaintenanceDisabled = true;
@@ -109,10 +145,53 @@ int runSystemMonitor(int argc, char* argv[]) {
             once = true;
         } else if (arg == "--set-maintenance-password") {
             setMaintenancePassword = true;
+        } else if (arg == "--init-maintenance-tls") {
+            initMaintenanceTls = true;
+        } else if (arg == "--maintenance-v2-dir" && i + 1 < argc) {
+            v2Options.materialDirectory = absolutePath(argv[++i]);
+        } else if (arg == "--maintenance-v2-state-dir" && i + 1 < argc) {
+            v2Options.stateDirectory = absolutePath(argv[++i]);
+        } else if (arg == "--maintenance-v2-services-cmd" && i + 1 < argc) {
+            v2Options.servicesCommand = absolutePath(argv[++i]);
+        } else if (arg == "--maintenance-v2-launcher" && i + 1 < argc) {
+            v2Options.helperLauncher = argv[++i];
+        } else if (arg == "--maintenance-v2-tx" && i + 1 < argc) {
+            transactionId = argv[++i];
+        } else if (arg == "--maintenance-v2-tx-mode" && i + 1 < argc) {
+            transactionMode = argv[++i];
         }
     }
 
     auto appConfig = ConfigLoader::loadAppConfigFromFile(appConfigPath);
+    v2Options.helperCommand = {
+        "/proc/self/exe",
+        "--app-config", absolutePath(appConfigPath),
+        "--maintenance-v2-dir", v2Options.materialDirectory,
+        "--maintenance-v2-state-dir", v2Options.stateDirectory,
+        "--maintenance-v2-launcher", v2Options.helperLauncher
+    };
+#ifndef _WIN32
+    {
+        char self[4096];
+        const auto length = ::readlink("/proc/self/exe", self, sizeof(self) - 1);
+        if (length > 0) {
+            self[length] = '\0';
+            v2Options.helperCommand[0] = self;
+        }
+    }
+#endif
+    if (!v2Options.servicesCommand.empty()) {
+        v2Options.helperCommand.push_back("--maintenance-v2-services-cmd");
+        v2Options.helperCommand.push_back(v2Options.servicesCommand);
+    }
+    if (initMaintenanceTls) {
+        return edge_gateway::maintenance_v2::initTls(
+            appConfig.systemMonitor.directMaintenance, v2Options, std::cout, std::cerr);
+    }
+    if (!transactionId.empty()) {
+        return edge_gateway::maintenance_v2::runTransactionHelper(
+            appConfig.systemMonitor.directMaintenance, v2Options, transactionId, transactionMode);
+    }
     if (setMaintenancePassword) {
         // Provisioning mode: the password is read from stdin (never from argv/shell history).
         std::string password;
@@ -255,10 +334,17 @@ int runSystemMonitor(int argc, char* argv[]) {
             edge_gateway::system_monitor_direct_maintenance::runFromConfig(directMaintenanceConfig);
         });
     }
+    std::thread maintenanceV2Thread;
+    if (!directMaintenanceDisabled && directMaintenanceConfig.v2.enabled) {
+        maintenanceV2Thread = std::thread([directMaintenanceConfig, v2Options]() {
+            edge_gateway::maintenance_v2::run(directMaintenanceConfig, v2Options);
+        });
+    }
     std::cout << "system monitor started"
               << " appConfig=" << appConfigPath
               << " broker=" << (appConfig.mqtt.enabled ? appConfig.mqtt.broker : "disabled")
               << " directMaintenance=" << (directMaintenanceConfig.enabled ? "enabled" : "disabled")
+              << " maintenanceV2=" << (!directMaintenanceDisabled && directMaintenanceConfig.v2.enabled ? "enabled" : "disabled")
               << std::endl;
 
     while (g_running) {
@@ -269,6 +355,10 @@ int runSystemMonitor(int argc, char* argv[]) {
     if (directMaintenanceThread.joinable()) {
         edge_gateway::system_monitor_direct_maintenance::requestStop();
         directMaintenanceThread.join();
+    }
+    if (maintenanceV2Thread.joinable()) {
+        edge_gateway::maintenance_v2::requestStop();
+        maintenanceV2Thread.join();
     }
     std::cout << "system monitor stopped" << std::endl;
     return 0;
