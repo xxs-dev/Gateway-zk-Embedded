@@ -321,9 +321,9 @@ Response Service::identity() {
         .field("firmwareVersion", id.firmwareVersion)
         .field("certFingerprint", fingerprint_)
         .field("apiVersion", "2");
-    // No "mappingStage": the edge mapping stage (CQ15) is not in this firmware.
     // Capabilities beyond the first v2 release; clients switch on these (handoff doc 3.3 mappingStage etc.).
-    w.fieldStrings("features", std::vector<std::string>{"configDelete", "logs", "ota", "realtimeStream"});
+    // mappingStage: ComputeEngine runs logic/point-mapping.json (CQ15) and dry-runs check it against the point tables.
+    w.fieldStrings("features", std::vector<std::string>{"configDelete", "logs", "mappingStage", "ota", "realtimeStream"});
     w.endObject();
     return jsonResponse(200, w.text());
 }

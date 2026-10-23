@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -542,6 +543,7 @@ ComputeEngineService::ComputeEngineService(
 ) : config_(std::move(config)),
     router_(router),
     running_(false) {
+    loadPointMapping();  // before the graphs: an active mapping restricts their device writes
     for (const auto& rule : config_.rules) {
         if (rule.script.type == "legacyEms") {
             throw std::invalid_argument(
@@ -708,14 +710,70 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
     lastHealthPublishMs_ = wallNowMs;
 }
 
-void ComputeEngineService::runOnce(std::int64_t nowMs) {
-    if (config_.rules.empty() || config_.maxRuleEvalPerScan == 0) {
-        return;
+void ComputeEngineService::loadPointMapping() {
+    if (config_.pointMappingFile.empty()) return;
+    std::ifstream input(config_.pointMappingFile.c_str(), std::ios::binary);
+    if (!input) return;  // no mapping file: no mapping stage
+    std::ostringstream text;
+    text << input.rdbuf();
+    auto mapping = parsePointMapping(text.str());
+    PointMappingTargets targets;
+    for (const auto& entry : router_.routes()) {
+        const auto& route = entry.second;
+        if (route.derived) continue;
+        PointMappingTarget t;
+        t.meterCode = route.meterCode;
+        t.pointCode = route.pointCode;
+        t.protocol = route.protocolType;
+        t.writable = route.writable;
+        targets[entry.first] = t;
     }
+    const auto problems = checkPointMapping(mapping, targets, std::string());
+    if (!problems.empty()) {
+        std::string message = "point mapping " + config_.pointMappingFile + " does not match the point tables:";
+        for (std::size_t i = 0; i < problems.size() && i < 5; ++i) message += " [" + problems[i].rule + "] " + problems[i].message;
+        throw std::invalid_argument(message);
+    }
+    const auto ttl = config_.graphOutputTtlMs > 0 ? config_.graphOutputTtlMs : config_.defaultOutputTtlMs;
+    pointMapping_.reset(new PointMappingStage(std::move(mapping), router_, ttl, config_.inputMaxFutureSkewMs));
+    std::cerr << "compute engine point mapping loaded file=" << config_.pointMappingFile
+              << " entries=" << pointMapping_->size() << std::endl;
+}
 
+void ComputeEngineService::runPointMapping(const PointMappingRunResult& result, const char* phase) {
+    outputsWrittenTotal_ += result.latestWrites + result.deviceWrites;
+    if (!result.errors.empty()) graphErrorsThisScan_ = true;  // rejected writes count like graph node errors
+    for (const auto& error : result.errors) {
+        std::cerr << "point mapping " << phase << " failed error=" << error << std::endl;
+    }
+    if (result.deviceWritesSkipped > 0) {
+        std::cerr << "point mapping output skipped maxWritesPerScan reached skipped=" << result.deviceWritesSkipped << std::endl;
+    }
+}
+
+void ComputeEngineService::runOnce(std::int64_t nowMs) {
     graphErrorsThisScan_ = false;
-    std::size_t evaluated = 0;
     std::size_t deviceWritesThisScan = 0;
+    // 1. input mapping: device points -> EMS virtual points the graphs read this scan
+    if (pointMapping_) runPointMapping(pointMapping_->runInputs(nowMs), "input");
+    // 2. strategy graphs and expression rules
+    if (!config_.rules.empty() && config_.maxRuleEvalPerScan > 0) runRules(nowMs, deviceWritesThisScan);
+    // 3. output mapping: EMS output points -> device control points (shares maxWritesPerScan)
+    if (pointMapping_) {
+        const auto remaining = deviceWritesThisScan < config_.maxWritesPerScan ? config_.maxWritesPerScan - deviceWritesThisScan : 0;
+        const auto result = pointMapping_->runOutputs(nowMs, remaining);
+        deviceWritesThisScan += result.deviceWrites;
+        runPointMapping(result, "output");
+        if (!config_.pointMappingStatusFile.empty() &&
+            (lastMappingStatusMs_ == 0 || nowMs - lastMappingStatusMs_ >= std::max(100, config_.healthPublishIntervalMs) || nowMs < lastMappingStatusMs_)) {
+            writeComputeHealthFile(config_.pointMappingStatusFile, pointMapping_->statusJson(nowMs));
+            lastMappingStatusMs_ = nowMs;
+        }
+    }
+}
+
+void ComputeEngineService::runRules(std::int64_t nowMs, std::size_t& deviceWritesThisScan) {
+    std::size_t evaluated = 0;
     const auto ruleCount = config_.rules.size();
     const auto start = ruleCursor_ % ruleCount;
     std::size_t visited = 0;
@@ -983,6 +1041,7 @@ void ComputeEngineService::preloadGraphEmsEngine(const ComputeRuleConfig& rule) 
     options.rateLimitMaxGapMs = config_.graphRateLimitMaxGapMs > 0
         ? std::max<std::int64_t>(config_.graphRateLimitMaxGapMs, 2 * evaluationIntervalMs)
         : 0;
+    options.emsPointWritesOnly = pointMapping_ != nullptr;
     state->engine->setOptions(options);
     graphEmsStates_[key] = std::move(state);
 }

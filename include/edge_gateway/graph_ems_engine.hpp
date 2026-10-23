@@ -66,6 +66,9 @@ struct GraphEmsEngineOptions {
     std::int64_t maxInputFutureSkewMs = 1000;
     // Upper bound for the elapsed time a rateLimit node may convert into one output step.
     std::int64_t rateLimitMaxGapMs = 2000;
+    // Set while a point mapping is active: controlWrite / pcsWriteback may only write EMS points;
+    // device control points are written by the mapping's outputs.
+    bool emsPointWritesOnly = false;
 };
 
 struct GraphEmsRunResult {

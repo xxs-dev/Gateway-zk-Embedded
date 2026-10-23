@@ -22,6 +22,8 @@ add_library(edge_gateway
     src/command_executor.cpp
     src/cluster_write_authorization.cpp
     src/compute_engine_service.cpp
+    src/point_mapping.cpp
+    src/point_mapping_stage.cpp
     src/config_loader.cpp
     src/control_dedup_store.cpp
     src/dio_command_executor.cpp
@@ -305,6 +307,7 @@ set(MAINTENANCE_V2_SOURCES
     src/maintenance_v2/v2_stream.cpp
     src/maintenance_v2/v2_ota.cpp
     src/maintenance_v2/v2_ota_api.cpp
+    src/maintenance_v2/v2_mapping.cpp
     src/maintenance_v2/v2_server.cpp
 )
 add_executable(SystemMonitor system_monitor_main.cpp system_monitor_direct_maintenance.cpp ${MAINTENANCE_V2_SOURCES})
@@ -637,6 +640,11 @@ endif()
 add_executable(event_engine_service_test tools/event_engine_service_test.cpp)
 target_link_libraries(event_engine_service_test PRIVATE edge_gateway)
 target_compile_options(event_engine_service_test PRIVATE -fdiagnostics-color=never)
+
+add_executable(point_mapping_test tools/point_mapping_test.cpp)
+target_link_libraries(point_mapping_test PRIVATE edge_gateway)
+target_compile_options(point_mapping_test PRIVATE -fdiagnostics-color=never)
+add_test(NAME point_mapping COMMAND point_mapping_test)
 
 add_executable(compute_engine_service_test tools/compute_engine_service_test.cpp)
 target_link_libraries(compute_engine_service_test PRIVATE edge_gateway)

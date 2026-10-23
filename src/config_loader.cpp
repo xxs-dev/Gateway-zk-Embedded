@@ -169,6 +169,12 @@ void resolveAppConfigRelativePaths(AppConfig& config, const std::string& configP
         file = resolveRelativeToConfig(configPath, file);
     }
 
+    if (config.computeEngine.pointMappingFile.empty()) {
+        // <runtime>/apps/<app>.json -> <runtime>/logic/point-mapping.json
+        config.computeEngine.pointMappingFile = joinPath(directoryOf(directoryOf(configPath)), "logic/point-mapping.json");
+    } else {
+        config.computeEngine.pointMappingFile = resolveRelativeToConfig(configPath, config.computeEngine.pointMappingFile);
+    }
     for (auto& rule : config.computeEngine.rules) {
         if (!rule.script.legacyGlListFile.empty()) {
             rule.script.legacyGlListFile = resolveRelativeToConfig(configPath, rule.script.legacyGlListFile);
@@ -3135,6 +3141,8 @@ ComputeEngineConfig parseComputeEngineConfig(const JsonValue* value) {
         config.healthPublishIntervalMs
     );
     config.healthWindowCycles = requireSize(object, "healthWindowCycles", config.healthWindowCycles);
+    config.pointMappingFile = requireString(object, "pointMappingFile", config.pointMappingFile);
+    config.pointMappingStatusFile = requireString(object, "pointMappingStatusFile", config.pointMappingStatusFile);
     if (const auto* rules = value->find("rules")) {
         for (const auto& item : rules->asArray().values) {
             config.rules.push_back(parseComputeRuleConfig(*item, config));

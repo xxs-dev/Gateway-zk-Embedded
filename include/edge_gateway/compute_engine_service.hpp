@@ -11,6 +11,7 @@
 
 #include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/point_mapping_stage.hpp"
 #include "edge_gateway/point_store_router.hpp"
 
 namespace edge_gateway {
@@ -38,6 +39,8 @@ public:
     void start();
     void stop();
     void runOnce(std::int64_t nowMs);
+    // Number of point mapping entries loaded (0 = no mapping file, graphs unrestricted).
+    std::size_t pointMappingEntries() const { return pointMapping_ ? pointMapping_->size() : 0; }
 
 private:
     struct RuleState {
@@ -71,6 +74,9 @@ private:
         std::size_t& deviceWritesThisScan
     );
     void preloadGraphEmsEngine(const ComputeRuleConfig& rule);
+    void loadPointMapping();
+    void runRules(std::int64_t nowMs, std::size_t& deviceWritesThisScan);
+    void runPointMapping(const PointMappingRunResult& result, const char* phase);
     void validateEnabledRuleIndexOwnership() const;
     GraphEmsEngine& graphEmsEngineFor(const ComputeRuleConfig& rule);
     bool shouldSubmitOutput(
@@ -95,6 +101,8 @@ private:
     std::unordered_map<std::string, RuleState> ruleStates_;
     std::unordered_map<std::string, OutputState> outputStates_;
     std::unordered_map<std::string, std::unique_ptr<GraphEmsRuntimeState>> graphEmsStates_;
+    std::unique_ptr<PointMappingStage> pointMapping_;
+    std::int64_t lastMappingStatusMs_ = 0;
     std::size_t ruleCursor_ = 0;
     std::deque<double> cycleDurationsMs_;
     std::deque<bool> cycleFailures_;

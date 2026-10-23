@@ -7027,6 +7027,15 @@ CommandSubmitResult GraphEmsEngine::submitDeviceWrite(
         result.writeLimitReached = true;
         return rejected;
     }
+    if (options_.emsPointWritesOnly) {
+        const auto route = router_.routeByIndex(command.index);
+        if (!route || route->protocolType != "ems_virtual") {
+            CommandSubmitResult rejected;
+            rejected.message = "point mapping is active: index " + std::to_string(command.index) +
+                " is a device point; write an EMS output point and map it in logic/point-mapping.json";
+            return rejected;
+        }
+    }
     command.cmdId = graphCmdId(ruleCode_, node.id, command.index, command.ts, ++commandSequence_);
     const auto routed = router_.submitWriteCommand(command);
     if (routed.accepted) {

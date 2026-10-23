@@ -1031,6 +1031,10 @@ struct ComputeEngineConfig {
     std::string healthFile = "/opt/modbus-gateway/run/compute-engine-health.json";
     int healthPublishIntervalMs = 1000;
     std::size_t healthWindowCycles = 300;
+    // Point mapping (CQ15): runtime/logic/point-mapping.json next to the app config's apps/ directory unless set.
+    // Missing file = no mapping stage. Status for maintenance in pointMappingStatusFile.
+    std::string pointMappingFile;
+    std::string pointMappingStatusFile = "/opt/modbus-gateway/run/point-mapping-status.json";
     std::vector<ComputeRuleConfig> rules;
 };
 

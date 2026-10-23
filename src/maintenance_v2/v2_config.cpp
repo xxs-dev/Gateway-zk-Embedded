@@ -6,6 +6,7 @@
 #include "v2_crypto.hpp"
 #include "v2_files.hpp"
 #include "v2_json.hpp"
+#include "v2_mapping.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -89,10 +90,6 @@ FilePlan planFile(const DirectConfig& config, const JsonValue& item) {
     // Existing files: the v1 snapshot set, or a runtime apps/devices/logic file the app config does not reference (yet).
     if (plan.file.existed ? !(bridge::isAllowedExistingConfigPath(config, path) || creatablePath(config, path)) : !creatablePath(config, path)) {
         fail(&plan, "path.allowed", "path is not allowed");
-        return plan;
-    }
-    if (baseName(path) == "point-mapping.json" && path.find("/logic/") != std::string::npos) {
-        fail(&plan, "mapping.points", "mapping stage is not available on this device");
         return plan;
     }
     const auto encoding = str(item, "encoding", "utf8");
@@ -343,6 +340,27 @@ Response Service::configApply(const Request& r) {
         if (boolean(item, "delete", false)) plans[i] = planDelete(config_, str(item, "path"), deletedPaths, overrides);
         allOk = allOk && plans[i].ok;
         changed += plans[i].ok && plans[i].file.changed ? 1 : 0;
+    }
+    // Point mapping (CQ15): the mapping on the device after this request must match the point tables and graphs.
+    {
+        const auto mapping = checkMappingPlan(parentOf(config_.identityConfigFile), overrides, deletedPaths, device);
+        if (mapping.present) {
+            std::size_t target = 0;  // the mapping file itself when it is in the request, else the first file
+            for (std::size_t i = 0; i < plans.size(); ++i) {
+                if (plans[i].file.path == mapping.path) target = i;
+            }
+            for (const auto& e : mapping.errors) {
+                fail(&plans[target], e.first, (plans[target].file.path == mapping.path ? std::string() : "point mapping on the device: ") + e.second);
+            }
+            for (const auto& m : mapping.info) {
+                Check c;
+                c.rule = "mapping.points";
+                c.severity = "info";
+                c.message = m;
+                plans[target].checks.push_back(c);
+            }
+            allOk = allOk && mapping.errors.empty();
+        }
     }
     std::vector<std::string> affected;
     if (allOk && changed > 0) affected = expectedUnits();  // apply restarts gateway-services (all desired units)
