@@ -179,6 +179,23 @@ void Service::record(const std::string& action, const Ticket& ticket, const std:
     if (!audit_.append(e, &error)) std::cerr << "maintenance v2 audit: " << error << std::endl;
 }
 
+bool Service::isPublic(const std::string& method, const std::string& path) {
+    const std::string base = kPrefix;
+    if (path.compare(0, base.size(), base) != 0) return true;  // 404 without a body
+    const auto p = path.substr(base.size());
+    if (method == "GET")
+        return p == "/health" || p == "/identity" || p == "/auth/state" || p == "/system/status" || p == "/telemetry/full" ||
+               p == "/realtime/stream" || p == "/ota/capabilities";
+    return method == "POST" && (p == "/points/query" || p == "/auth/login");
+}
+
+bool Service::sessionValid(const Request& request) {
+    const auto header = request.header("authorization");
+    const std::string bearer = "Bearer ";
+    if (header.size() <= bearer.size() || header.compare(0, bearer.size(), bearer) != 0) return false;
+    return sessions_.valid(header.substr(bearer.size()), nowMs());
+}
+
 bool Service::authenticate(const Request& request, Response* deny, Auth* auth) {
     const auto header = request.header("authorization");
     const std::string bearer = "Bearer ";

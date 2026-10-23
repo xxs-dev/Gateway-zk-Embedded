@@ -18,8 +18,10 @@
 #include <chrono>
 #include <cstring>
 #include <iostream>
-#include <string>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <thread>
 
 #ifndef _WIN32
@@ -41,6 +43,46 @@ namespace {
 
 std::atomic<bool> g_running(false);
 std::atomic<int> g_active(0);
+
+// Request deadlines. A connection must finish its TLS handshake and send its headers within requestTimeoutMs, and its body
+// at no less than kMinBodyBytesPerSec on top of that; otherwise the listener loop shuts the socket down (slow or stalled
+// clients cannot hold one of the few connection slots). Cleared once the request is read (responses are bounded by
+// SO_SNDTIMEO) and for streamed responses.
+const std::uint64_t kMinBodyBytesPerSec = 64 * 1024;
+// Bodies accepted before a session exists (login, read-only point queries).
+const std::size_t kPublicBodyBytes = 1024 * 1024;
+std::mutex g_deadlineMutex;
+std::map<int, std::chrono::steady_clock::time_point> g_deadlines;
+
+void setDeadline(int fd, std::chrono::milliseconds fromNow) {
+    std::lock_guard<std::mutex> lock(g_deadlineMutex);
+    g_deadlines[fd] = std::chrono::steady_clock::now() + fromNow;
+}
+
+void clearDeadline(int fd) {
+    std::lock_guard<std::mutex> lock(g_deadlineMutex);
+    g_deadlines.erase(fd);
+}
+
+std::chrono::milliseconds bodyAllowance(const DirectConfig& config, std::uint64_t bytes) {
+    return std::chrono::milliseconds(static_cast<std::int64_t>(config.requestTimeoutMs) +
+                                     static_cast<std::int64_t>(bytes * 1000 / kMinBodyBytesPerSec));
+}
+
+#ifndef _WIN32
+void enforceDeadlines() {
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(g_deadlineMutex);
+    for (auto it = g_deadlines.begin(); it != g_deadlines.end();) {
+        if (it->second <= now) {
+            ::shutdown(it->first, SHUT_RDWR);  // the blocked read returns; the connection thread closes the fd
+            it = g_deadlines.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+#endif
 
 std::string certFile(const Options& o) { return o.materialDirectory + "/server.crt"; }
 std::string keyFile(const Options& o) { return o.materialDirectory + "/server.key"; }
@@ -84,9 +126,9 @@ std::string trim(const std::string& s) {
 
 #ifndef _WIN32
 
-// Reads one request. Returns 0 when complete, otherwise an HTTP status to answer with
-// (or -1 to just close the connection).
-int readRequest(TlsConnection& tls, const DirectConfig& config, Request* request) {
+// Reads the request line and headers (and whatever body bytes came with them). Returns 0 when complete, otherwise an
+// HTTP status to answer with (or -1 to just close the connection).
+int readHead(TlsConnection& tls, const DirectConfig& config, Request* request, std::string* bodyStart) {
     std::string data;
     char buffer[16384];
     std::size_t headerEnd = std::string::npos;
@@ -122,30 +164,21 @@ int readRequest(TlsConnection& tls, const DirectConfig& config, Request* request
         request->headers[name] = trim(line.substr(colon + 1));
     }
     if (!request->header("transfer-encoding").empty()) return 411;
-    if (request->method == "POST" && request->path == "/api/v2/ota/uploads") {
-        // Packages (hundreds of MB) go straight to disk in the handler: no maxRequestBytes, nothing buffered here.
-        const auto lengthHeader = request->header("content-length");
-        if (lengthHeader.empty() || lengthHeader.size() > 12 || lengthHeader.find_first_not_of("0123456789") != std::string::npos) return 411;
-        request->contentLength = std::stoull(lengthHeader);
-        request->bodyStreamed = true;
-        request->body = data.substr(headerEnd + 4);
-        if (request->body.size() > request->contentLength) request->body.resize(static_cast<std::size_t>(request->contentLength));
-        return 0;
-    }
-    std::size_t length = 0;
     const auto lengthHeader = request->header("content-length");
-    if (!lengthHeader.empty()) {
-        try {
-            const auto parsed = std::stoull(lengthHeader);
-            if (parsed > config.maxRequestBytes) return 413;
-            length = static_cast<std::size_t>(parsed);
-        } catch (...) {
-            return 400;
-        }
-    } else if (request->method == "POST") {
-        return 411;
+    if (lengthHeader.empty()) {
+        if (request->method == "POST") return 411;
+    } else {
+        if (lengthHeader.size() > 12 || lengthHeader.find_first_not_of("0123456789") != std::string::npos) return 400;
+        request->contentLength = std::stoull(lengthHeader);
     }
-    std::string body = data.substr(headerEnd + 4);
+    *bodyStart = data.substr(headerEnd + 4);
+    return 0;
+}
+
+// Reads the rest of a buffered request body (not the streamed package upload).
+int readBody(TlsConnection& tls, Request* request, std::string body) {
+    char buffer[16384];
+    const auto length = static_cast<std::size_t>(request->contentLength);
     while (body.size() < length) {
         const int n = tls.read(buffer, sizeof(buffer));
         if (n <= 0) return -1;
@@ -164,16 +197,49 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
     timeval sendTimeout {};
     sendTimeout.tv_sec = 30;
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, sizeof(sendTimeout));
+    setDeadline(fd, std::chrono::milliseconds(config.requestTimeoutMs));
     {
         TlsConnection tls(*tlsContext, fd);
         std::string error;
         if (tls.accept(&error)) {
             Request request;
             request.clientIp = clientIp;
-            const int rc = readRequest(tls, config, &request);
-            if (request.bodyStreamed) request.readBody = [&tls](char* buffer, int size) { return tls.read(buffer, size); };
+            std::string bodyStart;
+            int rc = readHead(tls, config, &request, &bodyStart);
+            Response early;
+            bool answered = false;
+            if (rc == 0) {
+                const bool upload = request.method == "POST" && request.path == "/api/v2/ota/uploads";
+                if (!Service::isPublic(request.method, request.path) && !service->sessionValid(request)) {
+                    // No live session: answer before reading (or buffering) any of the body.
+                    early = request.header("authorization").empty() ? errorResponse(401, "token_required", "log in with POST /api/v2/auth/login")
+                                                                     : errorResponse(401, "token_expired", "session expired; log in again");
+                    answered = true;
+                } else if (upload) {
+                    // Packages (hundreds of MB) go straight to disk in the handler: nothing buffered here.
+                    if (request.header("content-length").empty()) {
+                        rc = 411;
+                    } else {
+                        request.bodyStreamed = true;
+                        request.body = bodyStart;
+                        if (request.body.size() > request.contentLength) request.body.resize(static_cast<std::size_t>(request.contentLength));
+                        request.readBody = [&tls](char* buffer, int size) { return tls.read(buffer, size); };
+                        setDeadline(fd, bodyAllowance(config, request.contentLength));
+                    }
+                } else {
+                    const std::uint64_t limit = Service::isPublic(request.method, request.path) ? kPublicBodyBytes : config.maxRequestBytes;
+                    if (request.contentLength > limit) {
+                        rc = 413;
+                    } else {
+                        setDeadline(fd, bodyAllowance(config, request.contentLength));
+                        rc = readBody(tls, &request, bodyStart);
+                    }
+                }
+            }
+            if (!request.bodyStreamed) clearDeadline(fd);
             if (rc >= 0) {
-                Response response = rc == 0 ? service->handle(request) : errorResponse(rc, "bad_request", "malformed request");
+                Response response = answered ? early : rc == 0 ? service->handle(request) : errorResponse(rc, "bad_request", "malformed request");
+                clearDeadline(fd);
                 if (response.stream) {
                     // Server-sent events: no Content-Length; the handler writes until the client leaves or we stop.
                     const std::string head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n"
@@ -193,6 +259,7 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
             tls.shutdown();
         }
     }
+    clearDeadline(fd);
     ::close(fd);
     --g_active;
 }
@@ -295,6 +362,7 @@ int run(const DirectConfig& config, const Options& options) {
             fds.push_back(p);
         }
         const int rc = ::poll(fds.data(), fds.size(), 500);
+        enforceDeadlines();
         if (std::chrono::steady_clock::now() - lastHousekeeping > std::chrono::seconds(30)) {
             lastHousekeeping = std::chrono::steady_clock::now();
             try {

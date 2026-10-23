@@ -55,6 +55,10 @@ class Service {
 public:
     Service(const DirectConfig& config, const Options& options, std::string certFingerprint);
     Response handle(const Request& request);
+    // Endpoints answered without a session (identity, status, read-only points, login).
+    static bool isPublic(const std::string& method, const std::string& path);
+    // Before reading a request body: does it carry a live session token? (No side effects.)
+    bool sessionValid(const Request& request);
     void housekeeping();  // debug-mode idle exit, interrupted transactions and OTA jobs
     const DirectConfig& config() const { return config_; }
 

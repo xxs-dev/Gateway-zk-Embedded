@@ -19,6 +19,8 @@ public:
     enum class Check { Ok, Missing, Expired };
     std::string create(const std::string& client, std::int64_t now, std::int64_t* expiresAt);
     Check touch(const std::string& token, std::int64_t now, std::int64_t* expiresAt);
+    // Same check as touch() without refreshing the session (used before reading a request body).
+    bool valid(const std::string& token, std::int64_t now);
     void revoke(const std::string& token);
 
 private:

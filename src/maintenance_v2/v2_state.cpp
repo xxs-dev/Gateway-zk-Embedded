@@ -120,6 +120,17 @@ SessionStore::Check SessionStore::touch(const std::string& token, std::int64_t n
     return Check::Expired;
 }
 
+bool SessionStore::valid(const std::string& token, std::int64_t now) {
+    if (token.empty()) return false;
+    const auto hash = Crypto::instance().sha256Hex(token);
+    std::lock_guard<std::mutex> lock(mutex_);
+    load();
+    for (const auto& e : entries_) {
+        if (constantTimeEquals(e.hash, hash)) return now - e.lastUsedAt <= ttlMs_ && now - e.createdAt <= maxMs_;
+    }
+    return false;
+}
+
 void SessionStore::revoke(const std::string& token) {
     const auto hash = Crypto::instance().sha256Hex(token);
     std::lock_guard<std::mutex> lock(mutex_);
