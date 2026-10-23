@@ -309,6 +309,33 @@ void testStage() {
     r = restarted.runOutputs(t0 + 23000, 10);
     check(r.deviceWrites == 0 && f.pendingFor(1318, &sent) == 0, "restart: the last command is not replayed");
 
+    // write-only target (no current value): rewritten on every commanded scan like controlWrite, but a confirmed
+    // readback keeps the state "ok"; a repeat that is no longer confirmed times out
+    Fixture w;
+    PointMappingStage wo(parsePointMapping(kMapping), w.router, 5000, 1000);
+    const std::int64_t t2 = t0 + 200000;
+    w.put(685001, 50, t2);
+    r = wo.runOutputs(t2, 10);
+    w.store->drainPendingWriteCommands();
+    w.put(1240, -50, t2 + 500);
+    std::size_t rewrites = r.deviceWrites;
+    bool stayedOk = true;
+    for (int k = 1; k <= 3; ++k) {
+        const auto now = t2 + 1000 * k;
+        w.put(685001, 50, now);
+        w.put(1240, -50, now);
+        rewrites += wo.runOutputs(now, 10).deviceWrites;
+        w.store->drainPendingWriteCommands();
+        stayedOk = stayedOk && wo.statusJson(now).find("\"outputsOk\":1") != std::string::npos;
+    }
+    check(rewrites == 4 && stayedOk, "write-only target: rewritten every commanded scan, state stays ok while the readback confirms");
+    w.put(685001, 50, t2 + 4000);
+    wo.runOutputs(t2 + 4000, 10);
+    w.store->drainPendingWriteCommands();
+    w.put(1240, -10, t2 + 4100);
+    wo.runOutputs(t2 + 4000 + 3001, 10);
+    check(wo.statusJson(t2 + 7001).find("readback-timeout") != std::string::npos, "a repeated write that the readback no longer confirms times out");
+
     // after a verified write the readback keeps being watched: device offline / changed locally is not "ok"
     Fixture g;
     PointMappingStage watch(parsePointMapping(kMapping), g.router, 5000, 1000);

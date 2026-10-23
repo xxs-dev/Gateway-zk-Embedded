@@ -251,13 +251,17 @@ PointMappingRunResult PointMappingStage::runOutputs(std::int64_t nowMs, std::siz
             continue;
         }
         ++result.deviceWrites;
+        // A device point that cannot be read (write-only register) is rewritten on every commanded scan, as a direct
+        // controlWrite did. Repeating a value whose readback is already confirmed keeps "ok"; the new write is still
+        // verified and a failed verification changes the state.
+        const bool repeat = s.sent && s.state == "ok" && std::fabs(device - s.sentValue) <= std::max(e.deadband, 1e-9);
         s.sent = true;
         s.sentValue = device;
         s.sentAt = nowMs;
         s.commandValue = command->value;
         s.cmdId = cmd.cmdId;
         s.verifyDeadline = nowMs + e.readbackTimeoutMs;
-        setState(s, e, "verifying", std::string());
+        if (!repeat) setState(s, e, "verifying", std::string());
     }
     return result;
 }
