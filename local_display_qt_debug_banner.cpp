@@ -2,6 +2,11 @@
 
 #include <QDateTime>
 #include <QEvent>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QPixmap>
+#include <QPoint>
+#include <QScreen>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -9,6 +14,7 @@
 #include <QStringList>
 #include <QTimer>
 #include <QWidget>
+#include <QWindow>
 
 #include <cstdio>
 
@@ -26,8 +32,19 @@ const char* MaintenanceDebugBanner::defaultStateFile() {
     return "/opt/modbus-gateway/data/maintenance-v2/debug-mode.json";
 }
 
+const char* MaintenanceDebugBanner::defaultSnapshotDirectory() {
+    return "/run/ky-ems";
+}
+
+int MaintenanceDebugBanner::topOffset(const QRect& windowGlobal, const QRect& workArea) {
+    if (!windowGlobal.isValid() || !workArea.isValid()) return 0;
+    const int offset = workArea.top() - windowGlobal.top();
+    if (offset <= 0) return 0;
+    return offset < windowGlobal.height() / 4 ? offset : windowGlobal.height() / 4;
+}
+
 MaintenanceDebugBanner::MaintenanceDebugBanner(QWidget* parent, const QString& stateFile, int pollMs)
-    : QLabel(parent), file_(stateFile) {
+    : QLabel(parent), file_(stateFile), snapshotDir_(QString::fromLatin1(defaultSnapshotDirectory())) {
     setTextFormat(Qt::PlainText);
     setAlignment(Qt::AlignCenter);
     setWordWrap(false);
@@ -104,10 +121,28 @@ void MaintenanceDebugBanner::logState(bool active, const QString& text) {
     }
     std::fprintf(stderr, "%s\n", line.constData());
     std::fflush(stderr);
+    if (!first) snapshot(active);
+}
+
+void MaintenanceDebugBanner::snapshot(bool active) {
+    if (snapshotDir_.isEmpty() || !QFileInfo::exists(snapshotDir_ + QStringLiteral("/banner-snapshot.request"))) return;
+    const QString path = snapshotDir_ + (active ? QStringLiteral("/banner-shown.png") : QStringLiteral("/banner-hidden.png"));
+    QTimer::singleShot(1500, this, [path]() {
+        QScreen* screen = QGuiApplication::primaryScreen();
+        const QPixmap shot = screen != nullptr ? screen->grabWindow(0) : QPixmap();
+        QByteArray line("maintenance debug banner: snapshot ");
+        if (!shot.isNull() && shot.save(path, "PNG")) {
+            line += path.toUtf8() + ' ' + QByteArray::number(shot.width()) + 'x' + QByteArray::number(shot.height());
+        } else {
+            line += "failed: " + path.toUtf8();
+        }
+        std::fprintf(stderr, "%s\n", line.constData());
+        std::fflush(stderr);
+    });
 }
 
 bool MaintenanceDebugBanner::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == parentWidget() && (event->type() == QEvent::Resize || event->type() == QEvent::Show)) {
+    if (watched == parentWidget() && (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::Move)) {
         place();
         if (active_) raise();
     }
@@ -118,5 +153,13 @@ void MaintenanceDebugBanner::place() {
     QWidget* p = parentWidget();
     if (p == nullptr) return;
     const int h = sizeHint().height();
-    setGeometry(0, 0, p->width(), h);
+    int top = 0;
+    if (p->isWindow() && p->isVisible()) {
+        // a desktop panel (e.g. GNOME's top bar) drawn over the top of the window would hide the strip
+        const QPoint origin = p->mapToGlobal(QPoint(0, 0));
+        QScreen* screen = p->windowHandle() != nullptr ? p->windowHandle()->screen() : nullptr;  // Qt 5.0+ (device Qt is old)
+        if (screen == nullptr) screen = QGuiApplication::primaryScreen();
+        if (screen != nullptr) top = topOffset(QRect(origin, p->size()), screen->availableGeometry());
+    }
+    setGeometry(0, top, p->width(), h);
 }

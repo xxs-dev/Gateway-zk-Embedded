@@ -1,6 +1,6 @@
 // Local screen "调试中" banner (maintenance v2 debug mode): text from debug-mode.json, shown on top of the
 // screen while active, follows the window size, hidden when inactive / unreadable, stale state marked.
-// Optional argv[1]: save a screenshot of the active banner (PNG).
+// Optional argv[1]: save a screenshot of the active banner (PNG); argv[2]: keep the screen snapshots in that directory.
 #include "local_display_qt_debug_banner.hpp"
 
 #include <QApplication>
@@ -9,6 +9,9 @@
 #include <QFile>
 #include <QStringList>
 #include <QPixmap>
+#include <QRect>
+#include <QScreen>
+#include <QWindow>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -72,7 +75,10 @@ int main(int argc, char* argv[]) {
     banner.refresh();
     app.processEvents();
     check(banner.debugActive() && banner.isVisible() && banner.text() == text.left(banner.text().size()), "shown when debug mode starts");
-    check(banner.geometry().top() == 0 && banner.width() == 800 && banner.height() > 20, "strip across the top");
+    // at the top of the window, or just below a desktop panel that covers it (work area)
+    const QScreen* scr = window.windowHandle() != nullptr ? window.windowHandle()->screen() : QGuiApplication::primaryScreen();
+    const int expectTop = scr != nullptr ? MaintenanceDebugBanner::topOffset(QRect(window.mapToGlobal(QPoint(0, 0)), window.size()), scr->availableGeometry()) : 0;
+    check(banner.geometry().top() == expectTop && banner.width() == 800 && banner.height() > 20, "strip across the top (below a desktop panel)");
     check(banner.testAttribute(Qt::WA_TransparentForMouseEvents), "does not take touch input");
     window.resize(1024, 600);
     app.processEvents();
@@ -99,6 +105,57 @@ int main(int argc, char* argv[]) {
     check(log.value(2) == QStringLiteral("hidden"), "hidden line when debug mode ends");
     logFile.close();
     QFile::remove(logPath);
+
+    // keeps clear of a desktop panel over the top of the window (work area)
+    check(MaintenanceDebugBanner::topOffset(QRect(0, 0, 1920, 1080), QRect(0, 32, 1920, 1048)) == 32, "panel over the window top: strip moves below it");
+    check(MaintenanceDebugBanner::topOffset(QRect(0, 32, 1920, 1048), QRect(0, 32, 1920, 1048)) == 0, "window already below the panel: no offset");
+    check(MaintenanceDebugBanner::topOffset(QRect(0, 0, 800, 100), QRect(0, 50, 800, 430)) == 25, "offset capped at a quarter of the window");
+    check(MaintenanceDebugBanner::topOffset(QRect(), QRect(0, 32, 10, 10)) == 0, "unknown geometry: no offset");
+
+    // screenshots only while the request file exists
+    // optional argv[2]: keep the screenshots there (to look at them / feed the client's checker)
+    const QString shots = argc > 2 ? QString::fromLocal8Bit(argv[2]) : QDir::tempPath() + QStringLiteral("/gz-banner-shots-%1").arg(::getpid());
+    QDir().mkpath(shots);
+    const QString shotLog = shots + QStringLiteral("/stderr.log");
+    std::fflush(stderr);
+    if (std::freopen(shotLog.toLocal8Bit().constData(), "w", stderr) == nullptr) check(false, "capture stderr (snapshots)");
+    writeState(path, "{\"active\":false}");
+    MaintenanceDebugBanner second(&window, path, 100000);
+    second.setSnapshotDirectory(shots);
+    auto settle = [&app](int ms) {
+        const qint64 until = QDateTime::currentMSecsSinceEpoch() + ms;
+        while (QDateTime::currentMSecsSinceEpoch() < until) app.processEvents(QEventLoop::AllEvents, 50);
+    };
+    writeState(path, active);
+    second.refresh();  // no request file: no screenshot
+    settle(1800);
+    writeState(path, "{\"active\":false}");
+    second.refresh();
+    settle(1800);
+    writeState(shots + QStringLiteral("/banner-snapshot.request"), "");
+    writeState(path, active);
+    second.refresh();
+    settle(1800);
+    writeState(path, "{\"active\":false}");
+    second.refresh();
+    settle(1800);
+    std::fflush(stderr);
+    QStringList snaps;
+    QFile sl(shotLog);
+    if (sl.open(QIODevice::ReadOnly)) {
+        for (const QByteArray& l : sl.readAll().split('\n'))
+            if (l.startsWith("maintenance debug banner: snapshot ")) snaps << QString::fromUtf8(l.mid(35));
+    }
+    check(snaps.size() == 2, "one screenshot per change, only while requested");
+    check(snaps.value(0).contains(QStringLiteral("banner-shown.png")) && snaps.value(1).contains(QStringLiteral("banner-hidden.png")), "shown, then hidden screenshot");
+    std::printf("  snapshots: %s\n", snaps.join(QStringLiteral(" | ")).toUtf8().constData());
+    if (argc > 2) {
+        QFile::remove(shotLog);
+        QFile::remove(shots + QStringLiteral("/banner-snapshot.request"));
+    } else {
+        QDir(shots).removeRecursively();
+    }
+    QFile::remove(path);
     std::printf("local_display_qt_debug_banner_test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
