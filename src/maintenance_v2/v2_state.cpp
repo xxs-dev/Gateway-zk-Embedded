@@ -232,8 +232,7 @@ std::vector<AuditEntry> AuditLog::since(std::int64_t sinceSeq, std::size_t limit
 
 // ---------------------------------------------------------------- debug mode
 
-DebugMode DebugModeStore::get() {
-    std::lock_guard<std::mutex> lock(mutex_);
+DebugMode DebugModeStore::readLocked() const {
     DebugMode m;
     std::string text;
     if (!readFile(file_, &text)) return m;
@@ -251,8 +250,7 @@ DebugMode DebugModeStore::get() {
     return m;
 }
 
-void DebugModeStore::set(const DebugMode& m) {
-    std::lock_guard<std::mutex> lock(mutex_);
+void DebugModeStore::writeLocked(const DebugMode& m) const {
     Writer w;
     w.beginObject()
         .fieldBool("active", m.active)
@@ -266,18 +264,38 @@ void DebugModeStore::set(const DebugMode& m) {
     writeFileAtomic(file_, w.text(), 0644);  // readable by the local display (banner)
 }
 
+DebugMode DebugModeStore::get() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return readLocked();
+}
+
+void DebugModeStore::set(const DebugMode& m) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    writeLocked(m);
+}
+
+bool DebugModeStore::exit(DebugMode* ended) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto m = readLocked();
+    if (!m.active) return false;
+    if (ended) *ended = m;
+    writeLocked(DebugMode());
+    return true;
+}
+
 bool DebugModeStore::touch(std::int64_t now, std::int64_t idleMs, DebugMode* ended) {
-    auto m = get();
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto m = readLocked();
     if (!m.active) return false;
     const auto last = std::max(m.lastActivityAt, m.since);
     if (now - last > idleMs) {
         if (ended) *ended = m;
-        set(DebugMode());
+        writeLocked(DebugMode());
         return true;
     }
     if (now - m.lastActivityAt > 60000) {
         m.lastActivityAt = now;
-        set(m);
+        writeLocked(m);
     }
     return false;
 }

@@ -540,9 +540,8 @@ Response Service::debugPost(const Request& r) {
         return errorResponse(400, "validation_failed", ex.what());
     }
     if (!boolean(body, "enter", false)) {
-        const auto m = debug_.get();
-        if (m.active) {
-            debug_.set(DebugMode());
+        DebugMode m;
+        if (debug_.exit(&m)) {
             Ticket t;
             t.ticketId = m.ticketId;
             t.operatorName = m.operatorName;

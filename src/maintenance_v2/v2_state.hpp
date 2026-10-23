@@ -81,10 +81,17 @@ public:
     explicit DebugModeStore(std::string file) : file_(std::move(file)) {}
     DebugMode get();
     void set(const DebugMode& mode);
+    // Ends debug mode; returns true (and the mode that ended) when it was active.
+    bool exit(DebugMode* ended);
     // Records activity; returns true when an idle timeout just ended debug mode.
+    // Read-check-write happens under one lock, so a request that read the mode just before an exit
+    // can never write the old (active) mode back over it.
     bool touch(std::int64_t now, std::int64_t idleMs, DebugMode* ended);
 
 private:
+    DebugMode readLocked() const;
+    void writeLocked(const DebugMode& mode) const;
+
     std::string file_;
     std::mutex mutex_;
 };

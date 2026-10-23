@@ -5,9 +5,12 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRect>
 #include <QStringList>
 #include <QTimer>
 #include <QWidget>
+
+#include <cstdio>
 
 namespace {
 
@@ -66,14 +69,41 @@ void MaintenanceDebugBanner::refresh() {
     bool active = false;
     const QString text = describe(json, QDateTime::currentMSecsSinceEpoch(), &active);
     active_ = active;
+    logState(active, text);
     if (!active) {
-        hide();
+        if (isVisible()) {
+            const QRect area = geometry();
+            hide();
+            if (QWidget* p = parentWidget()) p->update(area);  // repaint what the strip covered right away
+        } else {
+            hide();
+        }
         return;
     }
     if (text != this->text()) setText(text);
     place();
     raise();
     show();
+}
+
+void MaintenanceDebugBanner::logState(bool active, const QString& text) {
+    const int state = active ? 1 : 0;
+    if (state == logged_) return;
+    const bool first = logged_ < 0;
+    logged_ = state;
+    QByteArray line("maintenance debug banner: ");
+    if (active) {
+        line += "shown: ";
+        line += text.toUtf8();
+    } else if (first) {
+        line += "watching ";
+        line += file_.toUtf8();
+        line += " (debug mode not active)";
+    } else {
+        line += "hidden";
+    }
+    std::fprintf(stderr, "%s\n", line.constData());
+    std::fflush(stderr);
 }
 
 bool MaintenanceDebugBanner::eventFilter(QObject* watched, QEvent* event) {

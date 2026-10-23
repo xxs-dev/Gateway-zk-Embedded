@@ -590,6 +590,41 @@ void testConfigParse() {
 
 }  // namespace
 
+void testDebugMode() {
+    const auto dir = tempDir("debug");
+    const auto file = dir + "/debug-mode.json";
+    DebugModeStore store(file);
+    DebugMode m;
+    m.active = true;
+    m.since = 1000;
+    m.lastActivityAt = 1000;
+    m.operatorName = "张工";
+    store.set(m);
+    struct stat st {};
+    check(::stat(file.c_str(), &st) == 0 && (st.st_mode & 0777) == 0644, "debug-mode.json is 0644 (local display reads it)");
+    DebugMode ended;
+    check(store.exit(&ended) && ended.operatorName == "张工" && !store.get().active, "exit ends debug mode");
+    check(!store.exit(&ended), "exit when not active");
+    check(!store.touch(1000000000, 1800000, &ended) && !store.get().active, "touch after exit keeps it ended");
+    // A request touching the mode (rewrite path: last activity > 60 s ago) races with an exit:
+    // the exit must win every time, never the old active state written back.
+    bool resurrected = false;
+    for (int round = 0; round < 20 && !resurrected; ++round) {
+        store.set(m);
+        std::thread toucher([&] {
+            for (int i = 1; i <= 40; ++i) store.touch(1000 + static_cast<std::int64_t>(i) * 61000, std::int64_t(1) << 50, nullptr);
+        });
+        std::thread exiter([&] {
+            std::this_thread::sleep_for(std::chrono::microseconds(200 * (round % 5)));
+            store.exit(nullptr);
+        });
+        toucher.join();
+        exiter.join();
+        resurrected = store.get().active;
+    }
+    check(!resurrected, "touch racing with exit never writes the active mode back");
+}
+
 int main() {
     if (!Crypto::instance().available()) {
         std::cerr << "libcrypto unavailable: " << Crypto::instance().error() << std::endl;
@@ -601,6 +636,7 @@ int main() {
         testFingerprint();
         testAudit();
         testSessions();
+        testDebugMode();
         testTransactions();
         testDeleteTransactions();
         testOta();

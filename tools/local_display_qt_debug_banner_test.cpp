@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QStringList>
 #include <QPixmap>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -23,7 +24,7 @@ void check(bool ok, const char* what) {
     ++g_checks;
     if (!ok) {
         ++g_failures;
-        std::fprintf(stderr, "FAIL: %s\n", what);
+        std::printf("FAIL: %s\n", what);
     }
 }
 
@@ -59,6 +60,10 @@ int main(int argc, char* argv[]) {
     layout->addWidget(content);
     window.resize(800, 480);
     writeState(path, "{\"active\":false}");
+    // the banner writes its state changes to stderr (the journal on the device): capture them
+    const QString logPath = path + QStringLiteral(".log");
+    std::fflush(stderr);
+    if (std::freopen(logPath.toLocal8Bit().constData(), "w", stderr) == nullptr) check(false, "capture stderr");
     MaintenanceDebugBanner banner(&window, path, 200);
     window.show();
     app.processEvents();
@@ -81,6 +86,19 @@ int main(int argc, char* argv[]) {
     QFile::remove(path);
     banner.refresh();
     check(!banner.isVisible(), "missing state file: hidden");
+    std::fflush(stderr);
+    QFile logFile(logPath);
+    QStringList log;
+    if (logFile.open(QIODevice::ReadOnly)) {
+        for (const QByteArray& l : logFile.readAll().split('\n'))
+            if (l.startsWith("maintenance debug banner: ")) log << QString::fromUtf8(l.mid(26));
+    }
+    check(log.size() == 3, "three state lines: watching, shown, hidden (no repeats while unchanged)");
+    check(log.value(0).startsWith(QStringLiteral("watching ")) && log.value(0).endsWith(QStringLiteral("(debug mode not active)")), "first line: watching the state file");
+    check(log.value(1).startsWith(QStringLiteral("shown: 调试中 · 操作人 张工")), "shown line carries the banner text");
+    check(log.value(2) == QStringLiteral("hidden"), "hidden line when debug mode ends");
+    logFile.close();
+    QFile::remove(logPath);
     std::printf("local_display_qt_debug_banner_test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
