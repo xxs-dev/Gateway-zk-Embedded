@@ -31,6 +31,8 @@ struct Options {
     std::vector<std::string> helperCommand;
     // "auto": systemd-run when systemd is running, otherwise a detached child.
     std::string helperLauncher = "auto";
+    // GET /logs: journalctl (found on PATH when empty). Tests point it at a fake.
+    std::string journalCommand;
 };
 
 using DirectConfig = SystemMonitorConfig::DirectMaintenanceConfig;

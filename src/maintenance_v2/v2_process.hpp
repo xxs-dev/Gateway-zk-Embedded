@@ -25,6 +25,15 @@ CommandResult runCommand(
     const std::function<bool()>& cancel = std::function<bool()>()
 );
 
+// Like runCommand without a deadline: onOutput gets every chunk (stdout + stderr) as it arrives,
+// keepGoing is asked about every pollMs; either returning false kills the child.
+CommandResult runCommandStreaming(
+    const std::vector<std::string>& argv,
+    const std::function<bool(const std::string& chunk)>& onOutput,
+    const std::function<bool()>& keepGoing,
+    int pollMs = 500
+);
+
 // Double fork + setsid; stdin/stdout/stderr -> /dev/null. Returns once the
 // grandchild has been exec'd (or failed to).
 bool spawnDetached(const std::vector<std::string>& argv, std::string* error);

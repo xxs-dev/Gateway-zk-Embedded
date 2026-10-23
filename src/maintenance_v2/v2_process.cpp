@@ -105,6 +105,66 @@ CommandResult runCommand(const std::vector<std::string>& argv, int timeoutMs, st
     return result;
 }
 
+CommandResult runCommandStreaming(const std::vector<std::string>& argv, const std::function<bool(const std::string&)>& onOutput,
+                                  const std::function<bool()>& keepGoing, int pollMs) {
+    CommandResult result;
+    if (argv.empty()) return result;
+    int pipeFds[2];
+    if (::pipe(pipeFds) != 0) return result;
+    ::fcntl(pipeFds[0], F_SETFD, FD_CLOEXEC);
+    auto args = makeArgv(argv);
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(pipeFds[0]);
+        ::close(pipeFds[1]);
+        return result;
+    }
+    if (pid == 0) {
+        ::setpgid(0, 0);
+        const int devNull = ::open("/dev/null", O_RDONLY);
+        if (devNull >= 0) ::dup2(devNull, 0);
+        ::dup2(pipeFds[1], 1);
+        ::dup2(pipeFds[1], 2);
+        closeInheritedDescriptors(-1);
+        ::execv(args[0], args.data());
+        ::_exit(127);
+    }
+    ::close(pipeFds[1]);
+    result.started = true;
+    bool open = true;
+    char buffer[4096];
+    while (open) {
+        if (!keepGoing()) {
+            result.cancelled = true;
+            break;
+        }
+        pollfd p {};
+        p.fd = pipeFds[0];
+        p.events = POLLIN;
+        const int rc = ::poll(&p, 1, std::max(50, pollMs));
+        if (rc < 0 && errno != EINTR) break;
+        if (rc > 0) {
+            const auto n = ::read(pipeFds[0], buffer, sizeof(buffer));
+            if (n <= 0) {
+                open = false;
+            } else if (!onOutput(std::string(buffer, static_cast<std::size_t>(n)))) {
+                result.cancelled = true;
+                break;
+            }
+        }
+    }
+    ::close(pipeFds[0]);
+    if (result.cancelled) {
+        ::kill(-pid, SIGKILL);
+        ::kill(pid, SIGKILL);
+    }
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    if (!result.cancelled && WIFEXITED(status)) result.exitCode = WEXITSTATUS(status);
+    return result;
+}
+
 bool spawnDetached(const std::vector<std::string>& argv, std::string* error) {
     if (argv.empty()) {
         *error = "empty command";
@@ -197,6 +257,9 @@ std::string selfExecutable() {
 
 #else
 CommandResult runCommand(const std::vector<std::string>&, int, std::size_t, const std::function<bool()>&) { return CommandResult(); }
+CommandResult runCommandStreaming(const std::vector<std::string>&, const std::function<bool(const std::string&)>&, const std::function<bool()>&, int) {
+    return CommandResult();
+}
 bool spawnDetached(const std::vector<std::string>&, std::string* error) {
     *error = "unsupported";
     return false;

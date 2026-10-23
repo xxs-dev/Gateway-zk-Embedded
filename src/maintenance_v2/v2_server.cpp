@@ -162,7 +162,21 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
             const int rc = readRequest(tls, config, &request);
             if (rc >= 0) {
                 Response response = rc == 0 ? service->handle(request) : errorResponse(rc, "bad_request", "malformed request");
-                tls.writeAll(serialize(response));
+                if (response.stream) {
+                    // Server-sent events: no Content-Length; the handler writes until the client leaves or we stop.
+                    const std::string head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n"
+                                             "Cache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+                    bool alive = tls.writeAll(head);
+                    if (alive) {
+                        response.stream([&](const std::string& chunk) {
+                            if (!alive || !g_running) return false;
+                            if (!chunk.empty()) alive = tls.writeAll(chunk);
+                            return alive;
+                        });
+                    }
+                } else {
+                    tls.writeAll(serialize(response));
+                }
             }
             tls.shutdown();
         }

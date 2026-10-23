@@ -11,6 +11,7 @@
 #include <cctype>
 #include <chrono>
 #include <iostream>
+#include <map>
 #include <thread>
 
 namespace edge_gateway {
@@ -153,7 +154,8 @@ void writePlans(Writer& w, const std::vector<FilePlan>& plans) {
             .field("path", p.file.path)
             .fieldBool("success", p.ok)
             .fieldBool("changed", p.ok && p.file.changed)
-            .fieldBool("created", p.ok && !p.file.existed)
+            .fieldBool("created", p.ok && !p.file.existed && !p.file.remove)
+            .fieldBool("deleted", p.ok && p.file.remove && p.file.changed)
             .field("message", p.message);
         w.key("checks").beginArray();
         for (const auto& c : p.checks) w.beginObject().field("rule", c.rule).field("severity", c.severity).field("message", c.message).endObject();
@@ -166,6 +168,111 @@ std::string currentSha(const std::string& path) {
     std::string content;
     if (!isRegularFile(path) || !readFile(path, &content)) return std::string();
     return Crypto::instance().sha256Hex(content);
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------- config/delete
+
+namespace {
+
+std::string runtimeDirectory(const DirectConfig& config) { return parentOf(config.identityConfigFile); }
+
+// Deletable: runtime apps/devices/logic JSON files, never device_identity.json or SystemMonitor's own app config.
+bool deletablePath(const DirectConfig& config, const std::string& path) {
+    if (path == config.appConfigFile || path == config.identityConfigFile) return false;
+    return creatablePath(config, path) && path != runtimeDirectory(config) + "/device_identity.json";
+}
+
+void collectStrings(const JsonValue& v, std::vector<std::string>* out) {
+    if (v.isString()) {
+        out->push_back(v.asString());
+    } else if (v.isArray()) {
+        for (const auto& item : v.asArray().values) collectStrings(*item, out);
+    } else if (v.isObject()) {
+        for (const auto& m : v.asObject().values) collectStrings(*m.value, out);
+    }
+}
+
+// Runtime JSON files that stay after the delete and still name one of the deleted files.
+std::vector<std::string> remainingReferences(const DirectConfig& config, const std::string& path, const std::vector<std::string>& deleted,
+                                             const std::map<std::string, std::string>& overrides) {
+    const auto runtime = runtimeDirectory(config);
+    const auto rel = path.compare(0, runtime.size() + 1, runtime + "/") == 0 ? path.substr(runtime.size() + 1) : path;
+    std::vector<std::string> files{runtime + "/device_identity.json"};
+    for (const auto* dir : {"/apps", "/devices", "/logic"}) {
+        for (const auto& name : listDirectory(runtime + dir)) {
+            if (name.size() > 5 && name.compare(name.size() - 5, 5, ".json") == 0) files.push_back(runtime + dir + "/" + name);
+        }
+    }
+    for (const auto& o : overrides) {
+        if (std::find(files.begin(), files.end(), o.first) == files.end()) files.push_back(o.first);  // created by the same request
+    }
+    std::vector<std::string> out;
+    for (const auto& file : files) {
+        if (std::find(deleted.begin(), deleted.end(), file) != deleted.end()) continue;
+        std::string text;
+        const auto o = overrides.find(file);
+        if (o != overrides.end()) {
+            text = o->second;  // written by the same request
+        } else if (!isRegularFile(file) || !readFile(file, &text)) {
+            continue;
+        }
+        std::vector<std::string> strings;
+        try {
+            collectStrings(parseJson(text), &strings);
+        } catch (...) {
+            continue;  // unreadable JSON is the loader's business, not a reference
+        }
+        for (const auto& value : strings) {
+            if (value == path || value == rel || value == "./" + rel) {
+                out.push_back(file);
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+FilePlan planDelete(const DirectConfig& config, const std::string& path, const std::vector<std::string>& deleted,
+                    const std::map<std::string, std::string>& overrides) {
+    FilePlan plan;
+    plan.file.path = path;
+    plan.file.remove = true;
+    if (!pathShapeOk(path)) {
+        fail(&plan, "path.allowed", "path must be absolute without .. or //");
+        return plan;
+    }
+    if (isSymlink(path)) {
+        fail(&plan, "path.allowed", "symbolic links are not deleted");
+        return plan;
+    }
+    if (!deletablePath(config, path)) {
+        fail(&plan, "path.allowed", "only runtime apps/devices/logic JSON files can be deleted (not device_identity.json or the SystemMonitor app config)");
+        return plan;
+    }
+    plan.file.existed = isRegularFile(path);
+    if (!plan.file.existed) {
+        plan.message = "already missing";
+        return plan;
+    }
+    std::string current;
+    if (!readFile(path, &current)) {
+        fail(&plan, "read", "cannot read the current file");
+        return plan;
+    }
+    const auto refs = remainingReferences(config, path, deleted, overrides);
+    for (const auto& ref : refs) fail(&plan, "config.reference", baseName(ref) + " still references this file; remove the reference first (config/apply)");
+    if (!plan.ok) return plan;
+    Check c;
+    c.rule = "config.reference";
+    c.severity = "info";
+    c.message = "no remaining runtime config references this file";
+    plan.checks.push_back(c);
+    plan.file.changed = true;
+    plan.file.beforeSha256 = Crypto::instance().sha256Hex(current);
+    plan.message = "will be deleted";
+    return plan;
 }
 
 }  // namespace
@@ -215,13 +322,27 @@ Response Service::configApply(const Request& r) {
         if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
     }
 
-    std::vector<FilePlan> plans;
+    // Items with "delete": true remove a file in the same transaction (e.g. drop a device file together with the
+    // app config that stops referencing it); the reference check sees the new content of the other files.
+    std::vector<FilePlan> plans(list->asArray().values.size());
+    std::vector<std::string> deletedPaths;
+    std::map<std::string, std::string> overrides;
+    for (std::size_t i = 0; i < plans.size(); ++i) {
+        const auto& item = *list->asArray().values[i];
+        if (boolean(item, "delete", false)) {
+            deletedPaths.push_back(str(item, "path"));
+            continue;
+        }
+        plans[i] = planFile(config_, item);
+        if (plans[i].ok) overrides[plans[i].file.path] = plans[i].file.content;
+    }
     bool allOk = true;
     int changed = 0;
-    for (const auto& item : list->asArray().values) {
-        plans.push_back(planFile(config_, *item));
-        allOk = allOk && plans.back().ok;
-        changed += plans.back().ok && plans.back().file.changed ? 1 : 0;
+    for (std::size_t i = 0; i < plans.size(); ++i) {
+        const auto& item = *list->asArray().values[i];
+        if (boolean(item, "delete", false)) plans[i] = planDelete(config_, str(item, "path"), deletedPaths, overrides);
+        allOk = allOk && plans[i].ok;
+        changed += plans[i].ok && plans[i].file.changed ? 1 : 0;
     }
     std::vector<std::string> affected;
     if (allOk && changed > 0) affected = expectedUnits();  // apply restarts gateway-services (all desired units)
@@ -264,6 +385,112 @@ Response Service::configApply(const Request& r) {
         tx.message = "nothing was written: " + error;
         txs_.save(tx);
         record("config.apply", verdict.ticket, target, "rolled-back", tx.id);
+        return errorResponse(500, "internal_error", tx.message);
+    }
+    txs_.prune(50);
+    Writer w;
+    w.beginObject().fieldBool("success", true).field("transactionId", tx.id).field("state", tx.state).field("requestId", requestId).endObject();
+    return jsonResponse(202, w.text());
+}
+
+Response Service::configDelete(const Request& r) {
+    JsonValue body;
+    try {
+        body = parseJson(r.body, 20000);
+    } catch (const std::exception& ex) {
+        return errorResponse(400, "validation_failed", ex.what());
+    }
+    const auto device = deviceMachineCode();
+    const auto machine = str(body, "machineCode");
+    if (machine.empty() || machine != device) return errorResponse(400, "machine_mismatch", "machineCode must be " + device);
+    const bool dryRun = boolean(body, "dryRun", true);
+    const auto requestId = str(body, "requestId");
+    const auto reason = str(body, "reason");
+    if (!dryRun && requestId.empty()) return errorResponse(400, "validation_failed", "requestId is required");
+    std::vector<std::string> paths = strings(body, "paths");
+    if (paths.empty() && !str(body, "path").empty()) paths.push_back(str(body, "path"));
+    if (paths.empty() || paths.size() > kMaxFiles) return errorResponse(400, "validation_failed", "paths must contain 1..64 items");
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        if (std::find(paths.begin(), paths.begin() + static_cast<std::ptrdiff_t>(i), paths[i]) != paths.begin() + static_cast<std::ptrdiff_t>(i)) {
+            return errorResponse(400, "validation_failed", "duplicate path " + paths[i]);
+        }
+    }
+    if (!dryRun) {
+        if (system_monitor_config_safety::requiresProductionConfigTransaction(config_.identityConfigFile)) {
+            return errorResponse(409, "production_runtime_locked",
+                                 "journal-owned production runtime: config changes go through the provision journal, not direct maintenance");
+        }
+        Transaction existing;
+        if (txs_.findByRequestId(requestId, &existing)) {
+            const auto verdict = checkTicket(r, "config.delete", 3, paths, {}, existing.ticketId, false);
+            if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
+            Writer w;
+            w.beginObject().fieldBool("success", true).field("transactionId", existing.id).field("state", existing.state).field("requestId", requestId)
+                .fieldBool("replayed", true).endObject();
+            return jsonResponse(202, w.text());
+        }
+        const auto verdict = checkTicket(r, "config.delete", 3, paths, {}, std::string(), false);
+        if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
+    }
+    std::vector<FilePlan> plans;
+    bool allOk = true;
+    int changed = 0;
+    for (const auto& path : paths) {
+        plans.push_back(planDelete(config_, path, paths, std::map<std::string, std::string>()));
+        allOk = allOk && plans.back().ok;
+        changed += plans.back().ok && plans.back().file.changed ? 1 : 0;
+    }
+    std::vector<std::string> affected;
+    if (allOk && changed > 0) affected = expectedUnits();
+    if (dryRun || !allOk) {
+        Writer w;
+        w.beginObject()
+            .fieldBool("success", allOk)
+            .fieldBool("dryRun", dryRun)
+            .field("code", allOk ? "" : "validation_failed")
+            .field("machineCode", device)
+            .field("requestId", requestId)
+            .fieldInt("deletedFiles", changed)
+            .field("message", allOk ? (dryRun ? "config delete dry-run passed" : "") : "config delete dry-run failed");
+        w.key("files").beginArray();
+        for (const auto& p : plans) {
+            w.beginObject()
+                .field("path", p.file.path)
+                .fieldBool("success", p.ok)
+                .fieldBool("changed", p.ok && p.file.changed)
+                .fieldBool("deleted", p.ok && p.file.changed)
+                .field("message", p.message);
+            w.key("checks").beginArray();
+            for (const auto& c : p.checks) w.beginObject().field("rule", c.rule).field("severity", c.severity).field("message", c.message).endObject();
+            w.endArray().endObject();
+        }
+        w.endArray();
+        w.fieldStrings("affectedServices", affected).fieldInt("ts", nowMs()).endObject();
+        return jsonResponse(dryRun ? 200 : 400, w.text());
+    }
+    std::lock_guard<std::mutex> lock(configMutex_);
+    Transaction active;
+    if (txs_.findActive(&active)) return errorResponse(409, "apply_in_progress", "transaction " + active.id + " is still " + active.state);
+    const auto verdict = checkTicket(r, "config.delete", 3, paths, {}, std::string(), true);
+    if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
+    std::vector<PlannedFile> files;
+    for (auto& p : plans) files.push_back(p.file);
+    Transaction tx;
+    try {
+        tx = txs_.create(requestId, verdict.ticket.operatorLabel(), verdict.ticket.operatorId, verdict.ticket.ticketId, reason, files, "delete");
+    } catch (const std::exception& ex) {
+        return errorResponse(500, "internal_error", std::string("cannot create the transaction journal: ") + ex.what());
+    }
+    std::string target;
+    for (const auto& f : files) target += (target.empty() ? "" : ",") + f.path;
+    record("config.delete", verdict.ticket, target, "accepted", tx.id);
+    std::string error;
+    if (!txs_.launchHelper(tx.id, "apply", &error)) {
+        tx.state = "rolled-back";
+        tx.rollbackReason = "helper did not start: " + error;
+        tx.message = "nothing was deleted: " + error;
+        txs_.save(tx);
+        record("config.delete", verdict.ticket, target, "rolled-back", tx.id);
         return errorResponse(500, "internal_error", tx.message);
     }
     txs_.prune(50);

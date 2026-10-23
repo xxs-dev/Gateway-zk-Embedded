@@ -79,6 +79,7 @@ std::string internalJson(const Transaction& tx) {
     Writer w;
     w.beginObject()
         .field("transactionId", tx.id)
+        .field("operation", tx.operation)
         .field("requestId", tx.requestId)
         .field("state", tx.state)
         .field("message", tx.message)
@@ -93,6 +94,7 @@ std::string internalJson(const Transaction& tx) {
     for (const auto& f : tx.files) {
         w.beginObject()
             .field("path", f.path)
+            .fieldBool("remove", f.remove)
             .fieldBool("existed", f.existed)
             .fieldBool("changed", f.changed)
             .fieldBool("written", f.written)
@@ -126,6 +128,7 @@ bool parseInternal(const std::string& text, Transaction* tx) {
     try {
         const auto v = parseJson(text);
         tx->id = str(v, "transactionId");
+        tx->operation = str(v, "operation", "apply");
         tx->requestId = str(v, "requestId");
         tx->state = str(v, "state");
         tx->message = str(v, "message");
@@ -141,6 +144,7 @@ bool parseInternal(const std::string& text, Transaction* tx) {
             for (const auto& item : files->asArray().values) {
                 TxFile f;
                 f.path = str(*item, "path");
+                f.remove = boolean(*item, "remove", false);
                 f.existed = boolean(*item, "existed", false);
                 f.changed = boolean(*item, "changed", false);
                 f.written = boolean(*item, "written", false);
@@ -191,11 +195,14 @@ std::string sha256OfFile(const std::string& path) {
 
 }  // namespace
 
+std::string transactionAction(const Transaction& tx) { return tx.operation == "delete" ? "config.delete" : "config.apply"; }
+
 std::string transactionJson(const Transaction& tx) {
     Writer w;
     w.beginObject()
         .fieldBool("success", tx.state != "failed")
         .field("transactionId", tx.id)
+        .field("operation", tx.operation)
         .field("requestId", tx.requestId)
         .field("state", tx.state)
         .field("message", tx.message)
@@ -204,7 +211,9 @@ std::string transactionJson(const Transaction& tx) {
         .field("operator", tx.operatorName)
         .field("ticketId", tx.ticketId);
     w.key("files").beginArray();
-    for (const auto& f : tx.files) w.beginObject().field("path", f.path).fieldBool("changed", f.changed).fieldBool("created", !f.existed).endObject();
+    for (const auto& f : tx.files) {
+        w.beginObject().field("path", f.path).fieldBool("changed", f.changed).fieldBool("created", !f.existed && !f.remove).fieldBool("deleted", f.remove).endObject();
+    }
     w.endArray().key("services").beginArray();
     for (const auto& s : tx.services) w.beginObject().field("name", s.name).fieldBool("restarted", s.restarted).fieldBool("active", s.active).endObject();
     w.endArray();
@@ -356,9 +365,11 @@ bool TxStore::findActive(Transaction* tx) const {
 }
 
 Transaction TxStore::create(const std::string& requestId, const std::string& operatorName, const std::string& operatorId,
-                            const std::string& ticketId, const std::string& reason, const std::vector<PlannedFile>& files) {
+                            const std::string& ticketId, const std::string& reason, const std::vector<PlannedFile>& files,
+                            const std::string& operation) {
     Transaction tx;
     tx.id = newTransactionId();
+    tx.operation = operation;
     tx.requestId = requestId;
     tx.state = "accepted";
     tx.message = "accepted";
@@ -375,10 +386,11 @@ Transaction TxStore::create(const std::string& requestId, const std::string& ope
         writeFileAtomic(dir + "/staged/" + std::to_string(i), files[i].content);
         TxFile f;
         f.path = files[i].path;
+        f.remove = files[i].remove;
         f.existed = files[i].existed;
         f.changed = files[i].changed;
         f.beforeSha256 = files[i].beforeSha256;
-        f.afterSha256 = Crypto::instance().sha256Hex(files[i].content);
+        f.afterSha256 = f.remove ? std::string() : Crypto::instance().sha256Hex(files[i].content);  // removed: absent afterwards
         tx.files.push_back(f);
     }
     std::string error;
@@ -572,7 +584,7 @@ void TxRunner::rollback(Transaction* tx, const std::string& reason) {
         tx->rollbackReason = reason;
         tx->message = "rollback failed: " + error;
         save(tx);
-        audit(*tx, "config.apply", "failed");
+        audit(*tx, transactionAction(*tx), "failed");
         return;
     }
     tx->state = "rolled-back";
@@ -581,7 +593,7 @@ void TxRunner::rollback(Transaction* tx, const std::string& reason) {
     tx->message = reason + "; restored the backup taken before applying";
     tx->rollbackServices = tx->restartedServices ? "restarting" : "";
     save(tx);
-    audit(*tx, reason.compare(0, 18, "restored by client") == 0 ? "config.restore" : "config.apply", "rolled-back");
+    audit(*tx, reason.compare(0, 18, "restored by client") == 0 ? std::string("config.restore") : transactionAction(*tx), "rolled-back");
     if (!tx->restartedServices) return;
     std::string restartError;
     const bool restarted = services_.restart(&restartError);
@@ -632,6 +644,8 @@ int TxRunner::apply(const std::string& id) {
             problem = f.path + " is a symbolic link";
         } else if (f.existed ? sha256OfFile(f.path) != f.beforeSha256 : exists(f.path)) {
             problem = f.path + " changed on the device after the dry-run";
+        } else if (f.remove) {
+            // nothing to validate: the dry-run checked that no remaining config references it
         } else {
             try {
                 bridge::validateConfigContent(config_, f.path, staged[i]);
@@ -649,7 +663,7 @@ int TxRunner::apply(const std::string& id) {
         tx.rollbackReason = "validation failed: " + problem;
         tx.message = "nothing was written: " + problem;
         save(&tx);
-        audit(tx, "config.apply", "rolled-back");
+        audit(tx, transactionAction(tx), "rolled-back");
         return 1;
     }
 
@@ -669,7 +683,11 @@ int TxRunner::apply(const std::string& id) {
             }
             f.written = true;  // journal before the write: a crash in between restores the backup
             save(&tx);
-            system_monitor_config_safety::writeFileAtomically(f.path, staged[i], true);
+            if (f.remove) {
+                if (!removeFile(f.path)) throw std::runtime_error("cannot remove " + f.path);
+            } else {
+                system_monitor_config_safety::writeFileAtomically(f.path, staged[i], true);
+            }
         } catch (const std::exception& ex) {
             rollback(&tx, std::string("write failed: ") + ex.what());
             return 1;
@@ -687,7 +705,7 @@ int TxRunner::apply(const std::string& id) {
         tx.healthKnown = true;
         tx.healthOk = true;
         save(&tx);
-        audit(tx, "config.apply", "committed");
+        audit(tx, transactionAction(tx), "committed");
         return 0;
     }
 
@@ -721,7 +739,7 @@ int TxRunner::apply(const std::string& id) {
     tx.state = "committed";
     tx.message = "applied; services healthy";
     save(&tx);
-    audit(tx, "config.apply", "committed");
+    audit(tx, transactionAction(tx), "committed");
     return 0;
 }
 
@@ -756,7 +774,7 @@ int TxRunner::recover(const std::string& id) {
         tx.rollbackReason = "interrupted before writing";
         tx.message = "the transaction was interrupted before any file was written";
         save(&tx);
-        audit(tx, "config.apply", "rolled-back");
+        audit(tx, transactionAction(tx), "rolled-back");
         return 0;
     }
     rollback(&tx, "interrupted (helper stopped during " + tx.state + ")");

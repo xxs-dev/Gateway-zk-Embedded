@@ -213,11 +213,18 @@ TicketVerdict Service::checkTicket(const Request& request, const std::string& ac
     req.points = points;
     req.nowMs = nowMs();
     auto verdict = verifyTicket(request.header("x-gz-field-ticket"), keys, req);
-    if (!verdict.ok || !verdict.ticket.oneTime || verdict.ticket.ticketId == replayOf) return verdict;
-    if (consume ? !replay_.markUsed(verdict.ticket, req.nowMs) : replay_.used(verdict.ticket.ticketId)) {
+    if (verdict.ok && verdict.ticket.oneTime && verdict.ticket.ticketId != replayOf &&
+        (consume ? !replay_.markUsed(verdict.ticket, req.nowMs) : replay_.used(verdict.ticket.ticketId))) {
         verdict.ok = false;
         verdict.code = "replayed";
         verdict.message = "one-time ticket already used";
+    }
+    if (!verdict.ok) {
+        // Refused write attempts are part of the device record too (who tried what, and why it was refused).
+        std::string target;
+        for (const auto& p : paths) target += (target.empty() ? "" : ",") + p;
+        for (std::size_t i = 0; i < points.size() && i < 32; ++i) target += (target.empty() ? "" : ",") + std::to_string(points[i]);
+        record(action, verdict.ticket, target, "rejected:" + verdict.code);
     }
     return verdict;
 }
@@ -256,6 +263,7 @@ Response Service::handle(const Request& r) {
         if (get && p == "/system/status") return systemStatus();
         if (get && p == "/telemetry/full") return telemetryFull();
         if (post && p == "/points/query") return pointsQuery(r);
+        if (get && p == "/realtime/stream") return realtimeStream(r);  // read-only like points/query; never touches heartbeat leases
         if (get && p == "/ota/capabilities") return jsonResponse(200, system_monitor_direct_maintenance::otaCapabilitiesJson());
         if (post && p == "/auth/login") return login(r);
 
@@ -272,9 +280,11 @@ Response Service::handle(const Request& r) {
         if (post && p == "/control/batch") return control(r);
         if (post && p == "/config/apply") return configApply(r);
         if (post && p == "/config/restore") return configRestore(r);
+        if (post && p == "/config/delete") return configDelete(r);
+        if (get && p == "/logs") return logs(r);
         const std::string txPrefix = "/config/transactions/";
         if (get && p.compare(0, txPrefix.size(), txPrefix) == 0) return transaction(p.substr(txPrefix.size()));
-        if (p == "/config/delete" || p.compare(0, 8, "/ota/job") == 0 || p == "/ota/uploads" || p == "/logs" || p == "/realtime/stream") {
+        if (p.compare(0, 8, "/ota/job") == 0 || p == "/ota/uploads") {
             return errorResponse(501, "not_implemented", "not available in this firmware (maintenance v2 phase 2)");
         }
         return errorResponse(404, "not_found", "endpoint not found");
@@ -305,7 +315,8 @@ Response Service::identity() {
         .field("certFingerprint", fingerprint_)
         .field("apiVersion", "2");
     // No "mappingStage": the edge mapping stage (CQ15) is not in this firmware.
-    w.fieldStrings("features", std::vector<std::string>());
+    // Capabilities beyond the first v2 release; clients switch on these (handoff doc 3.3 mappingStage etc.).
+    w.fieldStrings("features", std::vector<std::string>{"configDelete", "logs", "realtimeStream"});
     w.endObject();
     return jsonResponse(200, w.text());
 }

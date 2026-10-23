@@ -2,7 +2,9 @@
 
 // Maintenance v2 request handling (transport-independent; v2_server.cpp owns TLS).
 
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -27,11 +29,18 @@ struct Request {
     std::string queryValue(const std::string& name) const;
 };
 
+// Long-lived responses (text/event-stream). The writer returns false once the client is gone or the
+// server is stopping; an empty chunk writes nothing and only reports that.
+using StreamWriter = std::function<bool(const std::string& chunk)>;
+
 struct Response {
     int status = 200;
     std::string body;
     std::string contentType = "application/json; charset=utf-8";
+    std::function<void(const StreamWriter&)> stream;  // set: SSE; status/body ignored
 };
+
+std::string sseEvent(const std::string& event, const std::string& data);
 
 Response jsonResponse(int status, const std::string& body);
 Response errorResponse(int status, const std::string& code, const std::string& message = std::string());
@@ -64,9 +73,14 @@ private:
     Response debugPost(const Request& request);
     Response auditGet(const Request& request);
     Response control(const Request& request);
+    // streams and logs (v2_stream.cpp)
+    Response realtimeStream(const Request& request);
+    Response logs(const Request& request);
+    std::vector<std::string> logUnits();
     // config (v2_config.cpp)
     Response configApply(const Request& request);
     Response configRestore(const Request& request);
+    Response configDelete(const Request& request);
     Response transaction(const std::string& id);
 
     bool authenticate(const Request& request, Response* deny, Auth* auth);
@@ -88,6 +102,7 @@ private:
     TxStore txs_;
     std::mutex configMutex_;  // apply / restore admission
     std::mutex unitsMutex_;
+    std::atomic<int> streams_{0};
     std::vector<std::string> unitsCache_;
     std::int64_t unitsCachedAt_ = 0;
 };

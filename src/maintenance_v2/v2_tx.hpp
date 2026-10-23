@@ -23,6 +23,7 @@ namespace maintenance_v2 {
 
 struct TxFile {
     std::string path;
+    bool remove = false;  // config/delete: the file is removed (restored from the backup on rollback)
     bool existed = false;
     bool changed = false;
     bool written = false;
@@ -38,6 +39,7 @@ struct TxService {
 
 struct Transaction {
     std::string id;
+    std::string operation = "apply";  // apply / delete (audit action config.apply / config.delete)
     std::string requestId;
     std::string state;
     std::string message;
@@ -67,9 +69,11 @@ struct Transaction {
 };
 
 std::string transactionJson(const Transaction& tx);  // client view (handoff 3.5)
+std::string transactionAction(const Transaction& tx);  // config.apply / config.delete
 
 struct PlannedFile {
     std::string path;
+    bool remove = false;
     std::string content;
     bool existed = false;
     bool changed = false;
@@ -98,7 +102,8 @@ public:
     std::vector<std::string> ids() const;
     // Writes staged contents and the journal (state accepted). Throws on failure.
     Transaction create(const std::string& requestId, const std::string& operatorName, const std::string& operatorId,
-                       const std::string& ticketId, const std::string& reason, const std::vector<PlannedFile>& files);
+                       const std::string& ticketId, const std::string& reason, const std::vector<PlannedFile>& files,
+                       const std::string& operation = "apply");
     bool helperRunning(const std::string& id) const;
     bool launchHelper(const std::string& id, const std::string& mode, std::string* error) const;
     // Client restore of an in-progress transaction: the helper rolls back at its next step.

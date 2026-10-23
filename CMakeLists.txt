@@ -302,6 +302,7 @@ set(MAINTENANCE_V2_SOURCES
     src/maintenance_v2/v2_tx.cpp
     src/maintenance_v2/v2_handlers.cpp
     src/maintenance_v2/v2_config.cpp
+    src/maintenance_v2/v2_stream.cpp
     src/maintenance_v2/v2_server.cpp
 )
 add_executable(SystemMonitor system_monitor_main.cpp system_monitor_direct_maintenance.cpp ${MAINTENANCE_V2_SOURCES})

@@ -341,6 +341,69 @@ void testTransactions() {
     }
 }
 
+PlannedFile planRemove(const std::string& path) {
+    PlannedFile p;
+    p.path = path;
+    p.remove = true;
+    p.existed = isRegularFile(path);
+    std::string current;
+    if (p.existed) readFile(path, &current);
+    p.changed = p.existed;
+    p.beforeSha256 = p.existed ? Crypto::instance().sha256Hex(current) : std::string();
+    return p;
+}
+
+void testDeleteTransactions() {
+    // 1. delete + edit in one transaction: committed, file gone, audited as config.delete; client restore brings it back
+    {
+        auto f = makeTxFixture("tx-del");
+        const auto graph = f.runtime + "/logic/graph.json";
+        const auto extra = f.runtime + "/devices/device_extra.json";
+        writeText(extra, "{\"x\":1}\n");
+        TxStore store(f.config, f.options);
+        auto tx = store.create("REQ-D1", "op", "u-1", "FT-D1", "test", {plan(graph, "{\"version\":7}\n"), planRemove(extra)}, "delete");
+        TxRunner runner(f.config, f.options);
+        check(runner.apply(tx.id) == 0, "delete apply returns 0");
+        Transaction found;
+        check(store.load(tx.id, &found) && found.state == "committed" && found.operation == "delete", "delete committed: " + found.state);
+        check(!exists(extra) && readFileOr(graph) == "{\"version\":7}\n", "file removed, other file written");
+        check(found.files.size() == 2 && found.files[1].remove && found.files[1].afterSha256.empty(), "removed file journaled without an after hash");
+        const auto view = transactionJson(found);
+        check(view.find("\"deleted\":true") != std::string::npos && view.find("\"operation\":\"delete\"") != std::string::npos, "client view marks the deletion");
+        const auto audit = AuditLog(f.options.stateDirectory + "/audit.jsonl").since(0, 10);
+        check(!audit.empty() && audit.back().action == "config.delete" && audit.back().result == "committed", "audited as config.delete");
+        std::string error;
+        check(runner.restoreFiles(&found, &error), "restore after delete: " + error);
+        check(readFileOr(extra) == "{\"x\":1}\n" && readFileOr(graph) == "{\"version\":1}\n", "restore recreates the deleted file");
+    }
+    // 2. unhealthy after delete: automatic rollback recreates the file
+    {
+        auto f = makeTxFixture("tx-del-bad");
+        writeText(f.stateFile, "failed\n");
+        const auto extra = f.runtime + "/devices/device_extra.json";
+        writeText(extra, "{\"x\":2}\n");
+        TxStore store(f.config, f.options);
+        auto tx = store.create("REQ-D2", "op", "u-1", "FT-D2", "test", {planRemove(extra)}, "delete");
+        TxRunner runner(f.config, f.options);
+        runner.apply(tx.id);
+        Transaction found;
+        check(store.load(tx.id, &found) && found.state == "rolled-back" && readFileOr(extra) == "{\"x\":2}\n", "unhealthy delete rolled back");
+    }
+    // 3. the file changed after the dry-run: nothing deleted
+    {
+        auto f = makeTxFixture("tx-del-race");
+        const auto extra = f.runtime + "/devices/device_extra.json";
+        writeText(extra, "{\"x\":3}\n");
+        TxStore store(f.config, f.options);
+        auto tx = store.create("REQ-D3", "op", "u-1", "FT-D3", "test", {planRemove(extra)}, "delete");
+        writeText(extra, "{\"x\":4}\n");
+        TxRunner runner(f.config, f.options);
+        runner.apply(tx.id);
+        Transaction found;
+        check(store.load(tx.id, &found) && found.state == "rolled-back" && readFileOr(extra) == "{\"x\":4}\n", "changed file not deleted");
+    }
+}
+
 void testV1ReadOnlyWhileV2() {
     DirectConfig config;
     config.v2.enabled = true;
@@ -392,6 +455,7 @@ int main() {
         testAudit();
         testSessions();
         testTransactions();
+        testDeleteTransactions();
         testV1ReadOnlyWhileV2();
         testConfigParse();
     } catch (const std::exception& ex) {
