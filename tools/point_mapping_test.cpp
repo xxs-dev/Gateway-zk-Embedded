@@ -273,6 +273,27 @@ void testStage() {
     f.store->recordWritebackResult(wb);
     stage.runOutputs(t0 + 12100, 10);
     check(!pendingId.empty() && stage.statusJson(t0).find("writeback-failed") != std::string::npos, "driver write failure is reported");
+
+    // after a verified write the readback keeps being watched: device offline / changed locally is not "ok"
+    Fixture g;
+    PointMappingStage watch(parsePointMapping(kMapping), g.router, 5000, 1000);
+    const std::int64_t t1 = t0 + 100000;
+    g.put(685001, 50, t1);
+    watch.runOutputs(t1, 10);
+    g.store->drainPendingWriteCommands();
+    g.put(1240, -50, t1 + 500);
+    watch.runOutputs(t1 + 500, 10);
+    check(watch.statusJson(t1 + 500).find("\"outputsOk\":1") != std::string::npos, "verified");
+    g.put(1240, -50, t1 - 20000, 1);  // the readback expires: device offline
+    watch.runOutputs(t1 + 1000, 10);
+    check(watch.statusJson(t1 + 1000).find("readback-lost") != std::string::npos && watch.statusJson(t1 + 1000).find("\"outputsOk\":0") != std::string::npos,
+          "readback gone after a verified write: readback-lost, not ok");
+    g.put(1240, -50, t1 + 1500);
+    watch.runOutputs(t1 + 1500, 10);
+    check(watch.statusJson(t1 + 1500).find("\"outputsOk\":1") != std::string::npos, "readback back at the sent value: ok again");
+    g.put(1240, -80, t1 + 2000);
+    watch.runOutputs(t1 + 2000, 10);
+    check(watch.statusJson(t1 + 2000).find("readback-mismatch") != std::string::npos, "readback moved away from the sent value: readback-mismatch");
 }
 
 const char* kGraph = R"json({

@@ -225,10 +225,15 @@ Response Service::otaJob(const Request& r) {
     if (otas_.loadJob(job.jobId, &existing)) fail(409, "job_exists", "ota.jobId", "jobId " + job.jobId + " was already used");
     for (const auto& id : otas_.jobIds()) {
         OtaJobRecord other;
-        if (id != job.jobId && otas_.loadJob(id, &other) && other.finalStage.empty()) {
-            fail(409, "ota_busy", "ota.busy", "OTA job " + id + " has not finished");
-            break;
+        if (id == job.jobId || !otas_.loadJob(id, &other) || !other.finalStage.empty()) continue;
+        // a job whose result is already final but whose helper has not closed it yet (it polls every 2 s) is not busy
+        const auto view = otas_.view(ota, other);
+        if (view.terminal()) {
+            otas_.finish(&other, view);
+            continue;
         }
+        fail(409, "ota_busy", "ota.busy", "OTA job " + id + " has not finished");
+        break;
     }
     OtaRequest request;
     request.jobId = job.jobId;
@@ -329,6 +334,7 @@ Response Service::otaJobStatus(const std::string& id) {
     std::string error;
     if (!loadOtaConfig(config_, &ota, &error)) return errorResponse(503, "ota_unavailable", error);
     const auto v = otas_.view(ota, job);
+    if (v.terminal() && job.finalStage.empty()) otas_.finish(&job, v);  // close it now: the caller may start the next job right away
     Writer w;
     w.beginObject()
         .fieldBool("success", true)

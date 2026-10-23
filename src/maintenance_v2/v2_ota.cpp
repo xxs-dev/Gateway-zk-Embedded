@@ -309,6 +309,14 @@ OtaJobView OtaStore::view(const OtaConfig& ota, const OtaJobRecord& job) const {
 
 void OtaStore::finish(OtaJobRecord* job, const OtaJobView& view) const {
     if (!view.terminal() || !job->finalStage.empty()) return;
+    // The helper, the status endpoint, admission and housekeeping may all see the terminal result:
+    // only the first one audits it.
+    FileLock lock(jobDirectory(job->jobId) + "/finish.lock", true);
+    OtaJobRecord current;
+    if (loadJob(job->jobId, &current) && !current.finalStage.empty()) {
+        *job = current;
+        return;
+    }
     AuditEntry e;
     e.operatorName = job->operatorName;
     e.ticketId = job->ticketId;

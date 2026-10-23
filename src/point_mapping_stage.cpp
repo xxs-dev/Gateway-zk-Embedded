@@ -80,7 +80,8 @@ bool PointMappingStage::sourceValid(const Optional<StoredPointValue>& v, std::in
 }
 
 void PointMappingStage::setState(EntryState& s, const PointMappingEntry& e, const std::string& state, const std::string& message) {
-    if (s.state != state && (state == "readback-timeout" || state == "writeback-failed" || state == "enum-miss" || state == "rejected")) {
+    if (s.state != state && (state == "readback-timeout" || state == "writeback-failed" || state == "enum-miss" || state == "rejected" ||
+                              state == "readback-lost" || state == "readback-mismatch")) {
         std::cerr << "point mapping " << e.virtualName << " (" << e.virtualIndex << "): " << state << (message.empty() ? "" : ": ") << message << std::endl;
     }
     s.state = state;
@@ -177,6 +178,21 @@ PointMappingRunResult PointMappingStage::runOutputs(std::int64_t nowMs, std::siz
                          "readback " + e.readback.pointCode + (rb ? " = " + num(rb->value) : std::string(" has no valid value")) + ", expected " + num(s.sentValue) +
                              " +/- " + num(e.readbackTolerance));
                 s.cmdId.clear();
+            }
+        }
+        // After a verified write keep watching the readback: a device that went offline (readback invalid) or was
+        // changed locally (readback no longer the sent value) must not stay "ok".
+        if (s.cmdId.empty() && s.sent && e.readback.index != 0 &&
+            (s.state == "ok" || s.state == "readback-lost" || s.state == "readback-mismatch")) {
+            std::string reason;
+            const auto rb = router_.getLatestByIndex(e.readback.index, nowMs);
+            if (!sourceValid(rb, nowMs, 0, &reason)) {
+                if (s.state != "readback-lost") setState(s, e, "readback-lost", "readback " + e.readback.pointCode + ": " + reason);
+            } else if (std::fabs(rb->value - s.sentValue) <= e.readbackTolerance) {
+                if (s.state != "ok") setState(s, e, "ok", std::string());
+            } else if (s.state != "readback-mismatch") {
+                setState(s, e, "readback-mismatch",
+                         "readback " + e.readback.pointCode + " = " + num(rb->value) + ", last sent " + num(s.sentValue) + " +/- " + num(e.readbackTolerance));
             }
         }
         const auto command = router_.getLatestByIndex(e.virtualIndex, nowMs);
