@@ -8,6 +8,7 @@
 #include "v2_json.hpp"
 #include "v2_process.hpp"
 #include "v2_service.hpp"
+#include "v2_ota.hpp"
 #include "v2_tx.hpp"
 
 #include <algorithm>
@@ -121,6 +122,16 @@ int readRequest(TlsConnection& tls, const DirectConfig& config, Request* request
         request->headers[name] = trim(line.substr(colon + 1));
     }
     if (!request->header("transfer-encoding").empty()) return 411;
+    if (request->method == "POST" && request->path == "/api/v2/ota/uploads") {
+        // Packages (hundreds of MB) go straight to disk in the handler: no maxRequestBytes, nothing buffered here.
+        const auto lengthHeader = request->header("content-length");
+        if (lengthHeader.empty() || lengthHeader.size() > 12 || lengthHeader.find_first_not_of("0123456789") != std::string::npos) return 411;
+        request->contentLength = std::stoull(lengthHeader);
+        request->bodyStreamed = true;
+        request->body = data.substr(headerEnd + 4);
+        if (request->body.size() > request->contentLength) request->body.resize(static_cast<std::size_t>(request->contentLength));
+        return 0;
+    }
     std::size_t length = 0;
     const auto lengthHeader = request->header("content-length");
     if (!lengthHeader.empty()) {
@@ -160,6 +171,7 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
             Request request;
             request.clientIp = clientIp;
             const int rc = readRequest(tls, config, &request);
+            if (request.bodyStreamed) request.readBody = [&tls](char* buffer, int size) { return tls.read(buffer, size); };
             if (rc >= 0) {
                 Response response = rc == 0 ? service->handle(request) : errorResponse(rc, "bad_request", "malformed request");
                 if (response.stream) {
@@ -398,6 +410,8 @@ int runTransactionHelper(const DirectConfig& config, const Options& options, con
     TxRunner runner(config, options);
     if (mode == "apply") return runner.apply(transactionId);
     if (mode == "restart") return runner.restartAfterRestore(transactionId);
+    if (mode == "ota") return runOtaHelper(config, options, transactionId, false);
+    if (mode == "ota-watch") return runOtaHelper(config, options, transactionId, true);
     if (mode == "recover") {
         TxStore store(config, options);
         FileLock lock(store.directory(transactionId) + "/lock", true);

@@ -148,7 +148,8 @@ Service::Service(const DirectConfig& config, const Options& options, std::string
       replay_(options.stateDirectory + "/used-tickets.json"),
       audit_(options.stateDirectory + "/audit.jsonl"),
       debug_(options.stateDirectory + "/debug-mode.json"),
-      txs_(config, options) {}
+      txs_(config, options),
+      otas_(options) {}
 
 std::string Service::deviceMachineCode() {
     return bridge::machineCode(config_);
@@ -248,6 +249,11 @@ void Service::housekeeping() {
             std::cerr << "maintenance v2: cannot recover " << id << ": " << error << std::endl;
         }
     }
+    try {
+        otaHousekeeping();
+    } catch (const std::exception& ex) {
+        std::cerr << "maintenance v2: OTA housekeeping: " << ex.what() << std::endl;
+    }
 }
 
 Response Service::handle(const Request& r) {
@@ -284,9 +290,10 @@ Response Service::handle(const Request& r) {
         if (get && p == "/logs") return logs(r);
         const std::string txPrefix = "/config/transactions/";
         if (get && p.compare(0, txPrefix.size(), txPrefix) == 0) return transaction(p.substr(txPrefix.size()));
-        if (p.compare(0, 8, "/ota/job") == 0 || p == "/ota/uploads") {
-            return errorResponse(501, "not_implemented", "not available in this firmware (maintenance v2 phase 2)");
-        }
+        if (post && p == "/ota/uploads") return otaUpload(r);
+        if (post && p == "/ota/jobs") return otaJob(r);
+        const std::string otaPrefix = "/ota/jobs/";
+        if (get && p.compare(0, otaPrefix.size(), otaPrefix) == 0) return otaJobStatus(p.substr(otaPrefix.size()));
         return errorResponse(404, "not_found", "endpoint not found");
     } catch (const std::exception& ex) {
         return errorResponse(500, "internal_error", ex.what());
@@ -316,7 +323,7 @@ Response Service::identity() {
         .field("apiVersion", "2");
     // No "mappingStage": the edge mapping stage (CQ15) is not in this firmware.
     // Capabilities beyond the first v2 release; clients switch on these (handoff doc 3.3 mappingStage etc.).
-    w.fieldStrings("features", std::vector<std::string>{"configDelete", "logs", "realtimeStream"});
+    w.fieldStrings("features", std::vector<std::string>{"configDelete", "logs", "ota", "realtimeStream"});
     w.endObject();
     return jsonResponse(200, w.text());
 }

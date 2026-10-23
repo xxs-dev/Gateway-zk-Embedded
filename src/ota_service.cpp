@@ -3359,6 +3359,16 @@ std::string OtaService::signatureDescriptor(const OtaRequest& request, const std
         "size=" + std::to_string(request.size) + "\n";
 }
 
+void OtaService::verifySignatureStrict(const OtaRequest& request, const std::string& machineCode) const {
+    OtaConfig strict = config_;
+    strict.requireSignature = true;
+    OtaService(strict).verifySignature(request, machineCode);
+}
+
+std::string OtaService::installedVersion() const {
+    return readInstalledVersion();
+}
+
 void OtaService::verifySignature(const OtaRequest& request, const std::string& machineCode) const {
     if (!config_.requireSignature) {
         return;

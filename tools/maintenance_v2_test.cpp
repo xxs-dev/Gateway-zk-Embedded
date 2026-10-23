@@ -20,6 +20,7 @@
 #include "../src/maintenance_v2/v2_crypto.hpp"
 #include "../src/maintenance_v2/v2_files.hpp"
 #include "../src/maintenance_v2/v2_json.hpp"
+#include "../src/maintenance_v2/v2_ota.hpp"
 #include "../src/maintenance_v2/v2_state.hpp"
 #include "../src/maintenance_v2/v2_ticket.hpp"
 #include "../src/maintenance_v2/v2_tx.hpp"
@@ -404,6 +405,152 @@ void testDeleteTransactions() {
     }
 }
 
+// The "ota": {...} object of an app config replaced (brace matching, strings skipped).
+std::string replaceOtaSection(const std::string& text, const std::string& replacement) {
+    const auto key = text.find("\"ota\"");
+    const auto open = key == std::string::npos ? std::string::npos : text.find('{', key);
+    if (open == std::string::npos) return text;
+    int depth = 0;
+    bool inString = false;
+    for (std::size_t i = open; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inString) {
+            if (c == '\\') ++i;
+            else if (c == '"') inString = false;
+        } else if (c == '"') {
+            inString = true;
+        } else if (c == '{') {
+            ++depth;
+        } else if (c == '}' && --depth == 0) {
+            return text.substr(0, open) + replacement + text.substr(i + 1);
+        }
+    }
+    return text;
+}
+
+std::string lastAuditResult(const Options& options, std::string* action) {
+    const auto entries = AuditLog(options.stateDirectory + "/audit.jsonl").since(0, 1000);
+    if (entries.empty()) return std::string();
+    if (action) *action = entries.back().action;
+    return entries.back().result;
+}
+
+void testOta() {
+    {
+        std::string data(200000, 'x');
+        data[12345] = 'y';
+        Sha256Stream s;
+        s.update(data.data(), 70000);
+        s.update(data.data() + 70000, data.size() - 70000);
+        check(s.ok() && s.finishHex() == Crypto::instance().sha256Hex(data), "incremental sha256 matches one-shot sha256");
+    }
+    auto f = makeTxFixture("ota");
+    std::string factory;
+    check(readFile(std::string(MAINTENANCE_V2_TESTDATA) + "/../../config/factory/runtime/apps/mqtt-service.json", &factory), "factory mqtt config");
+    // The helper runs the device's OTA service (signature is checked at admission, so the device config may leave it off here).
+    const auto otaJson = "{\"enabled\": true, \"currentVersion\": \"1.0.0\", \"downloadDir\": \"" + f.root + "/ota/downloads\", \"stagingDir\": \"" + f.root +
+                         "/ota/staging\", \"backupDir\": \"" + f.root + "/ota/backup\", \"applyScript\": \"" + f.root +
+                         "/apply.sh\", \"rollbackScript\": \"\", \"checksumRequired\": true, \"requireSignature\": false, \"upgradeTimeoutSec\": 30,"
+                         " \"downloadRetryCount\": 1, \"minFreeBytes\": 0}";
+    writeText(f.root + "/ota-app.json", replaceOtaSection(factory, otaJson));
+    // Like the official ota-apply.sh: a failure after the "prepared" barrier and before the runtime changes proves "unchanged".
+    writeText(f.root + "/apply.sh",
+              "#!/bin/sh\necho \"$@\" >> '" + f.root + "/apply-args'\n"
+              "if [ -f '" + f.root + "/apply-fail' ]; then\n"
+              "  printf '{\"format\":\"official-ota-apply-barrier-v1\",\"jobId\":\"%s\",\"version\":\"%s\",\"token\":\"%s\",\"state\":\"prepared\"}\\n' \"$3\" \"$2\" \"$6\" > \"$5/ota_barrier_$3.json\"\n"
+              "  exit 1\n"
+              "fi\nexit 0\n",
+              0755);
+    f.config.otaAppConfigFile = f.root + "/ota-app.json";
+    makeDirectories(f.root + "/ota", 0755);  // on a device /opt/modbus-gateway/ota exists; the OTA service creates only its leaf directories
+    OtaConfig ota;
+    std::string error;
+    check(loadOtaConfig(f.config, &ota, &error) && ota.enabled && ota.applyScript == f.root + "/apply.sh", "ota config loads: " + error);
+    OtaStore store(f.options);
+    auto stage = [&](const std::string& uploadId, const std::string& jobId, const std::string& version, const std::string& bytes) {
+        writeText(store.uploadPath(uploadId), bytes, 0600);
+        writeText(store.uploadsDir() + "/" + uploadId + ".json",
+                  "{\"uploadId\":\"" + uploadId + "\",\"sha256\":\"" + Crypto::instance().sha256Hex(bytes) + "\",\"size\":" + std::to_string(bytes.size()) + "}\n");
+        OtaJobRecord job;
+        job.jobId = jobId;
+        job.uploadId = uploadId;
+        job.machineCode = "TEST0001";
+        job.packageType = "full";
+        job.version = version;
+        job.sha256 = Crypto::instance().sha256Hex(bytes);
+        job.size = bytes.size();
+        job.operatorName = "tester";
+        job.ticketId = "FT-OTA";
+        job.acceptedAt = nowMs();
+        std::string e;
+        check(store.saveJob(job, &e), "save job " + jobId + ": " + e);
+        return job;
+    };
+
+    // 1. success: the OTA service copies the upload, verifies the checksum, runs the apply script and finalizes
+    auto job = stage("UP-1", "JOB-1", "1.2.0", std::string("pkg-1\n") + std::string(5000, 'a'));
+    OtaUploadInfo info;
+    check(store.loadUpload("UP-1", &info) && info.size == 5006, "upload metadata");
+    check(runOtaHelper(f.config, f.options, "JOB-1", false) == 0, "ota helper completes");
+    OtaJobRecord loaded;
+    check(store.loadJob("JOB-1", &loaded) && loaded.finalStage == "completed", "job finalized as completed: " + loaded.finalStage);
+    auto view = store.view(ota, loaded);
+    check(view.stage == "completed" && view.healthOk && view.progress == 100, "view completed: " + view.stage);
+    check(readFileOr(f.root + "/apply-args").find("1.2.0 JOB-1") != std::string::npos, "apply script called with version and job");
+    check(!exists(store.uploadPath("UP-1")), "upload removed after the job");
+    std::string action;
+    check(lastAuditResult(f.options, &action) == "completed" && action == "ota.job", "audited ota.job/completed");
+    check(runOtaHelper(f.config, f.options, "JOB-1", true) == 0, "watching a finished job returns at once");
+    check(AuditLog(f.options.stateDirectory + "/audit.jsonl").since(0, 1000).size() == 1, "terminal result audited once");
+
+    // 2. apply script fails before touching the runtime: failed, device unchanged
+    writeText(f.root + "/apply-fail", "1");
+    stage("UP-2", "JOB-2", "1.3.0", "pkg-2\n");
+    check(runOtaHelper(f.config, f.options, "JOB-2", false) == 1, "failing job returns 1");
+    check(store.loadJob("JOB-2", &loaded) && loaded.finalStage == "failed", "job finalized as failed: " + loaded.finalStage);
+    view = store.view(ota, loaded);
+    check(view.stage == "failed" && !view.rollbackPerformed && view.message.find("device unchanged") != std::string::npos, "failed view: " + view.message);
+    check(readFileOr(ota.stagingDir + "/current_version.txt").find("1.2.0") != std::string::npos, "installed version unchanged");
+    removeFile(f.root + "/apply-fail");
+
+    // 3. evidence mapping (what the apply script / health helper write on a real device)
+    OtaJobRecord synthetic;
+    synthetic.jobId = "JOB-3";
+    writeText(ota.stagingDir + "/ota_final_JOB-3.txt", "jobId=JOB-3\ntoken=t\nstatus=failed\n");
+    writeText(ota.stagingDir + "/health_JOB-3.txt", "{\"format\":\"ota-health-v1\",\"status\":\"failed\",\"rollback\":\"succeeded\"}\n");
+    view = store.view(ota, synthetic);
+    check(view.stage == "rolled-back" && view.rollbackPerformed && view.healthKnown && !view.healthOk, "rolled back after unhealthy restart");
+    writeText(ota.stagingDir + "/health_JOB-3.txt", "{\"format\":\"ota-health-v1\",\"status\":\"failed\",\"rollback\":\"failed\"}\n");
+    view = store.view(ota, synthetic);
+    check(view.stage == "failed" && view.rollbackFailed, "rollback failure is reported");
+    synthetic.jobId = "JOB-4";
+    writeText(ota.stagingDir + "/JOB-4/health_pending.txt", "pending\n");
+    view = store.view(ota, synthetic);
+    check(view.stage == "health-check" && !view.terminal(), "restart and health check pending");
+    synthetic.jobId = "JOB-5";
+    OtaStatus s;
+    s.stage = "downloading";
+    s.downloadedBytes = 50;
+    s.totalBytes = 100;
+    makeDirectories(store.jobDirectory("JOB-5"));
+    store.appendStatus("JOB-5", s);
+    view = store.view(ota, synthetic);
+    check(view.stage == "verifying" && view.progress == 30, "copying the upload reports verifying");
+    s.stage = "applying";
+    s.message = "waiting for restart and health result";
+    store.appendStatus("JOB-5", s);
+    check(store.view(ota, synthetic).stage == "health-check", "waiting for restart is the health check");
+
+    // 4. uploads no unfinished job uses are pruned
+    stage("UP-6", "JOB-6", "1.4.0", "pkg-6\n");
+    writeText(store.uploadPath("UP-7"), "stale", 0600);
+    writeText(store.uploadsDir() + "/UP-7.json", "{}\n");
+    writeText(store.uploadsDir() + "/UP-8.pkg.part", "partial", 0600);
+    store.pruneUploads();
+    check(exists(store.uploadPath("UP-6")) && !exists(store.uploadPath("UP-7")) && !exists(store.uploadsDir() + "/UP-8.pkg.part"), "prune keeps only uploads in use");
+    check(!safeOtaId("../x") && !safeOtaId("") && safeOtaId("JOB-1.2_a"), "ids are path-safe");
+}
+
 void testV1ReadOnlyWhileV2() {
     DirectConfig config;
     config.v2.enabled = true;
@@ -456,6 +603,7 @@ int main() {
         testSessions();
         testTransactions();
         testDeleteTransactions();
+        testOta();
         testV1ReadOnlyWhileV2();
         testConfigParse();
     } catch (const std::exception& ex) {

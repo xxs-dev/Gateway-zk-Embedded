@@ -117,6 +117,11 @@ public:
     // Canonical "edge-ota-v1" descriptor covered by OtaRequest::signature
     // (see doc/评审/OTA签名说明.md). machineCode is the target gateway.
     static std::string signatureDescriptor(const OtaRequest& request, const std::string& machineCode);
+    // Maintenance channel v2 admission (before a job is accepted): the signature is
+    // always required here, whatever ota.requireSignature says. Throws on failure.
+    void verifySignatureStrict(const OtaRequest& request, const std::string& machineCode) const;
+    // current_version.txt in the staging directory, else ota.currentVersion.
+    std::string installedVersion() const;
 
 private:
     OtaOriginalJobEvidence readOriginalJobBounded(const std::string& jobId,

@@ -12,6 +12,7 @@
 
 #include "edge_gateway/maintenance_v2.hpp"
 #include "v2_state.hpp"
+#include "v2_ota.hpp"
 #include "v2_ticket.hpp"
 #include "v2_tx.hpp"
 
@@ -25,6 +26,11 @@ struct Request {
     std::string body;
     std::string clientIp;
     std::map<std::string, std::string> headers;  // lower-case names
+    // POST /ota/uploads only: the server does not buffer the body. `body` holds the bytes that arrived with
+    // the headers; readBody reads the rest (>0 bytes, 0 closed, <0 error / timeout) up to contentLength.
+    bool bodyStreamed = false;
+    std::uint64_t contentLength = 0;
+    std::function<int(char*, int)> readBody;
     std::string header(const std::string& name) const;
     std::string queryValue(const std::string& name) const;
 };
@@ -49,7 +55,7 @@ class Service {
 public:
     Service(const DirectConfig& config, const Options& options, std::string certFingerprint);
     Response handle(const Request& request);
-    void housekeeping();  // debug-mode idle exit, interrupted transactions
+    void housekeeping();  // debug-mode idle exit, interrupted transactions and OTA jobs
     const DirectConfig& config() const { return config_; }
 
 private:
@@ -82,6 +88,11 @@ private:
     Response configRestore(const Request& request);
     Response configDelete(const Request& request);
     Response transaction(const std::string& id);
+    // offline upgrade (v2_ota_api.cpp)
+    Response otaUpload(const Request& request);
+    Response otaJob(const Request& request);
+    Response otaJobStatus(const std::string& id);
+    void otaHousekeeping();
 
     bool authenticate(const Request& request, Response* deny, Auth* auth);
     // Steps 1-8; `replayOf` = ticketId already bound to the same request (idempotent resend).
@@ -100,6 +111,7 @@ private:
     AuditLog audit_;
     DebugModeStore debug_;
     TxStore txs_;
+    OtaStore otas_;
     std::mutex configMutex_;  // apply / restore admission
     std::mutex unitsMutex_;
     std::atomic<int> streams_{0};

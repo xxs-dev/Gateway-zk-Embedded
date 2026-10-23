@@ -9,7 +9,7 @@
 //   server.crt / server.key        device certificate (ECDSA P-256, CN = machine code)
 //   trusted-ticket-keys.json       platform Ed25519 keys trusted for field tickets
 // State directory:
-//   sessions.json, used-tickets.json, audit.jsonl, debug-mode.json, transactions/<id>/
+//   sessions.json, used-tickets.json, audit.jsonl, debug-mode.json, transactions/<id>/, ota/
 
 #include <ostream>
 #include <string>
@@ -45,7 +45,7 @@ void requestStop();
 // missing (idempotent) and prints "fingerprint=AA:BB:..." (or "unsupported=1").
 int initTls(const DirectConfig& config, const Options& options, std::ostream& out, std::ostream& err);
 
-// Transaction helper process (mode: apply | restart | recover).
+// Helper process (mode: apply | restart | recover for config transactions; ota | ota-watch for OTA jobs).
 int runTransactionHelper(const DirectConfig& config, const Options& options, const std::string& transactionId, const std::string& mode);
 
 }  // namespace maintenance_v2

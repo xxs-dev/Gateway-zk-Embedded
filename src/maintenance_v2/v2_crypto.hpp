@@ -36,8 +36,24 @@ private:
 
     friend class TlsServerContext;
     friend class TlsConnection;
+    friend class Sha256Stream;
     struct Fns;
     Fns* fns_ = nullptr;
+};
+
+// Incremental SHA-256 (OTA uploads are streamed to disk, never held in memory).
+class Sha256Stream {
+public:
+    Sha256Stream();
+    ~Sha256Stream();
+    Sha256Stream(const Sha256Stream&) = delete;
+    Sha256Stream& operator=(const Sha256Stream&) = delete;
+    bool ok() const { return ctx_ != nullptr; }
+    void update(const char* data, std::size_t size);
+    std::string finishHex();  // lower-case hex; "" when unavailable
+
+private:
+    void* ctx_ = nullptr;
 };
 
 // Server-side TLS context (certificate + private key PEM files, TLS 1.2+).

@@ -58,6 +58,10 @@ struct Crypto::Fns {
     void (*mdCtxFree)(void*) = nullptr;
     int (*digestVerifyInit)(void*, void**, const void*, void*, void*) = nullptr;
     int (*digestVerify)(void*, const unsigned char*, std::size_t, const unsigned char*, std::size_t) = nullptr;
+    const void* (*mdSha256)() = nullptr;
+    int (*digestInitEx)(void*, const void*, void*) = nullptr;
+    int (*digestUpdate)(void*, const void*, std::size_t) = nullptr;
+    int (*digestFinalEx)(void*, unsigned char*, unsigned int*) = nullptr;
     void (*errClear)() = nullptr;
     unsigned long (*errGet)() = nullptr;
     void (*errString)(unsigned long, char*, std::size_t) = nullptr;
@@ -114,6 +118,10 @@ void Crypto::load() {
     bind(cryptoLib_, "EVP_MD_CTX_free", &f.mdCtxFree);
     bind(cryptoLib_, "EVP_DigestVerifyInit", &f.digestVerifyInit);
     bind(cryptoLib_, "EVP_DigestVerify", &f.digestVerify);
+    bind(cryptoLib_, "EVP_sha256", &f.mdSha256);
+    bind(cryptoLib_, "EVP_DigestInit_ex", &f.digestInitEx);
+    bind(cryptoLib_, "EVP_DigestUpdate", &f.digestUpdate);
+    bind(cryptoLib_, "EVP_DigestFinal_ex", &f.digestFinalEx);
     bind(cryptoLib_, "ERR_clear_error", &f.errClear);
     bind(cryptoLib_, "ERR_get_error", &f.errGet);
     bind(cryptoLib_, "ERR_error_string_n", &f.errString);
@@ -189,6 +197,35 @@ bool Crypto::verifyEd25519(const std::string& publicKeyRaw, const std::string& m
     fns_->pkeyFree(key);
     if (fns_->errClear) fns_->errClear();
     return ok;
+}
+
+Sha256Stream::Sha256Stream() {
+    auto& c = Crypto::instance();
+    const auto& f = *c.fns_;
+    if (!c.available() || !f.mdSha256 || !f.digestInitEx || !f.digestUpdate || !f.digestFinalEx) return;
+    ctx_ = f.mdCtxNew();
+    if (ctx_ != nullptr && f.digestInitEx(ctx_, f.mdSha256(), nullptr) != 1) {
+        f.mdCtxFree(ctx_);
+        ctx_ = nullptr;
+    }
+}
+
+Sha256Stream::~Sha256Stream() {
+    if (ctx_ != nullptr) Crypto::instance().fns_->mdCtxFree(ctx_);
+}
+
+void Sha256Stream::update(const char* data, std::size_t size) {
+    if (ctx_ != nullptr && size > 0) Crypto::instance().fns_->digestUpdate(ctx_, data, size);
+}
+
+std::string Sha256Stream::finishHex() {
+    if (ctx_ == nullptr) return std::string();
+    unsigned char digest[32];
+    unsigned int length = 0;
+    const bool ok = Crypto::instance().fns_->digestFinalEx(ctx_, digest, &length) == 1 && length == sizeof(digest);
+    Crypto::instance().fns_->mdCtxFree(ctx_);
+    ctx_ = nullptr;
+    return ok ? toHex(std::string(reinterpret_cast<const char*>(digest), sizeof(digest))) : std::string();
 }
 
 TlsServerContext::~TlsServerContext() {
