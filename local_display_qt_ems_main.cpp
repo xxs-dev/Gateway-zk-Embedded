@@ -43,6 +43,7 @@
 #include <QWidget>
 
 #include "edge_gateway/config_loader.hpp"
+#include "local_display_qt_debug_banner.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
@@ -818,6 +819,7 @@ void printUsage(const char* argv0) {
               << " [--windowed]"
               << " [--refresh-ms 1000]"
               << " [--max-points 500]"
+              << " [--maintenance-debug-file " << MaintenanceDebugBanner::defaultStateFile() << "]"
               << std::endl;
 }
 
@@ -828,6 +830,7 @@ int main(int argc, char* argv[]) {
     bool fullscreen = true;
     int refreshMs = 1000;
     std::size_t maxPoints = 500;
+    std::string debugStateFile = MaintenanceDebugBanner::defaultStateFile();
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -845,6 +848,8 @@ int main(int argc, char* argv[]) {
             refreshMs = std::stoi(requireValue(arg));
         } else if (arg == "--max-points") {
             maxPoints = static_cast<std::size_t>(std::stoul(requireValue(arg)));
+        } else if (arg == "--maintenance-debug-file") {
+            debugStateFile = requireValue(arg);
         } else if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
             return 0;
@@ -910,6 +915,7 @@ int main(int argc, char* argv[]) {
                     );
                 }
             );
+            MaintenanceDebugBanner debugBanner(&window, QString::fromStdString(debugStateFile));
             showRuntimeWindow(window, fullscreen);
             return app.exec();
         }
@@ -922,6 +928,7 @@ int main(int argc, char* argv[]) {
             refreshMs,
             maxPoints
         );
+        MaintenanceDebugBanner debugBanner(&window, QString::fromStdString(debugStateFile));
         showRuntimeWindow(window, fullscreen);
         return app.exec();
     } catch (const std::exception& ex) {

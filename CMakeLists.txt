@@ -327,6 +327,7 @@ if(Qt6Widgets_FOUND)
         local_display_qt_access_control.cpp
         local_display_qt_pcs_power_control.cpp
         local_display_qt_value_map.cpp
+        local_display_qt_debug_banner.cpp
     )
     target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt6::Widgets)
     target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
@@ -350,6 +351,7 @@ else()
             local_display_qt_access_control.cpp
             local_display_qt_pcs_power_control.cpp
             local_display_qt_value_map.cpp
+            local_display_qt_debug_banner.cpp
         )
         target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt5::Widgets)
         target_compile_options(LocalDisplayQtEms PRIVATE -fdiagnostics-color=never)
@@ -385,6 +387,15 @@ if(BUILD_TESTING AND TARGET LocalDisplayQtEms)
     endif()
     add_test(NAME local_display_qt_lanhu COMMAND local_display_qt_lanhu_test)
     set_tests_properties(local_display_qt_lanhu PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_executable(local_display_qt_debug_banner_test tools/local_display_qt_debug_banner_test.cpp local_display_qt_debug_banner.cpp)
+    target_include_directories(local_display_qt_debug_banner_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(Qt6Widgets_FOUND)
+        target_link_libraries(local_display_qt_debug_banner_test PRIVATE Qt6::Widgets)
+    else()
+        target_link_libraries(local_display_qt_debug_banner_test PRIVATE Qt5::Widgets)
+    endif()
+    add_test(NAME local_display_qt_debug_banner COMMAND local_display_qt_debug_banner_test)
+    set_tests_properties(local_display_qt_debug_banner PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 add_executable(CameraService camera_service_main.cpp)

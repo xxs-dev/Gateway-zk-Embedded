@@ -77,6 +77,7 @@ sources=(
   "$ROOT_DIR/local_display_qt_access_control.cpp"
   "$ROOT_DIR/local_display_qt_pcs_power_control.cpp"
   "$ROOT_DIR/local_display_qt_value_map.cpp"
+  "$ROOT_DIR/local_display_qt_debug_banner.cpp"
 )
 objects=()
 for source in "${sources[@]}"; do
@@ -103,7 +104,7 @@ ls -lh "$BUILD_DIR/KY-SCADA"
 
 if [ "$WITH_TESTS" -eq 1 ]; then
   # Use the same Qt 5 headers, compiler and renderer objects as the device binary.
-  for test_name in local_display_qt_access_test local_display_qt_lanhu_test; do
+  for test_name in local_display_qt_access_test local_display_qt_lanhu_test local_display_qt_debug_banner_test; do
     test_object="$BUILD_DIR/obj/$test_name.o"
     "$CXX" "${common_flags[@]}" -c "$ROOT_DIR/tools/$test_name.cpp" -o "$test_object"
     "$CXX" --sysroot="$SYSROOT" -no-pie -Wl,--gc-sections \
