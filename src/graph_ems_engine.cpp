@@ -6240,6 +6240,20 @@ bool GraphEmsEngine::runControlWrite(
     }
 
     const auto targetIndex = paramIndex(node, "targetIndex");
+    if (options_.mappedOutputIndexes.count(targetIndex) != 0) {
+        // Point mapping output: publish the command for this run; the mapping compares it with the
+        // device point (deadband) and writes the device.
+        const auto inputPoint = latestPoint(paramIndex(node, "inputIndex"), nowMs);
+        if (inputPoint && inputPoint->clusterAuthorization) {
+            throw std::runtime_error("controlWrite rejected: a cluster-authorized command cannot go through the point mapping");
+        }
+        const auto routed = set(targetIndex, commandValue, nowMs);
+        if (!routed.accepted) {
+            throw std::runtime_error("controlWrite rejected: " + routed.message);
+        }
+        ++result.latestWrites;
+        return true;
+    }
     const auto deadband = paramDouble(node, "deadband").value_or(0.0);
     const auto current = latestValue(targetIndex, nowMs);
     if (current && std::abs(*current - commandValue) <= deadband) {
@@ -6978,6 +6992,16 @@ bool GraphEmsEngine::submitPcsWritebackCommands(
             continue;
         }
         const double targetDouble = *target;
+        if (options_.mappedOutputIndexes.count(command.outputIndex) != 0) {
+            // Point mapping output (see runControlWrite): publish, the mapping writes the device.
+            const auto routed = set(command.outputIndex, targetDouble, nowMs);
+            if (!routed.accepted) {
+                throw std::runtime_error("pcsWriteback rejected: " + routed.message);
+            }
+            ++result.latestWrites;
+            submitted = true;
+            continue;
+        }
         const auto currentValue = latestValue(command.outputIndex, nowMs);
         const double current = currentValue.value_or(0.0);
         if (targetDouble == 0.0) {

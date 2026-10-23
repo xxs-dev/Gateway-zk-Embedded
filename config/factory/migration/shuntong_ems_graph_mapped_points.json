@@ -1,0 +1,2818 @@
+[
+    {
+        "address": 680001,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1030（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680001,
+        "isStore": false,
+        "name": "映射输入：A相电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].voltage_a",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680002,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1031（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680002,
+        "isStore": false,
+        "name": "映射输入：B相电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].voltage_b",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680003,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1032（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680003,
+        "isStore": false,
+        "name": "映射输入：C相电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].voltage_c",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680004,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1036（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680004,
+        "isStore": false,
+        "name": "映射输入：A相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].p_a",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680005,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1037（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680005,
+        "isStore": false,
+        "name": "映射输入：B相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].p_b",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680006,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1038（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680006,
+        "isStore": false,
+        "name": "映射输入：C相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].p_c",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680007,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1039（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680007,
+        "isStore": false,
+        "name": "映射输入：总有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].p_total",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680008,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1040（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680008,
+        "isStore": false,
+        "name": "映射输入：A相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].q_a",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680009,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1041（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680009,
+        "isStore": false,
+        "name": "映射输入：B相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].q_b",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680010,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1042（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680010,
+        "isStore": false,
+        "name": "映射输入：C相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].q_c",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680011,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1043（MTR20250600664）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680011,
+        "isStore": false,
+        "name": "映射输入：总无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[1].q_total",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680012,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1130（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680012,
+        "isStore": false,
+        "name": "映射输入：A相电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].voltage_a",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680013,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1131（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680013,
+        "isStore": false,
+        "name": "映射输入：B相电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].voltage_b",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680014,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1132（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680014,
+        "isStore": false,
+        "name": "映射输入：C相电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].voltage_c",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680015,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1136（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680015,
+        "isStore": false,
+        "name": "映射输入：A相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].p_a",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680016,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1137（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680016,
+        "isStore": false,
+        "name": "映射输入：B相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].p_b",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680017,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1138（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680017,
+        "isStore": false,
+        "name": "映射输入：C相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].p_c",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680018,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1139（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680018,
+        "isStore": false,
+        "name": "映射输入：总有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].p_total",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680019,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1140（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680019,
+        "isStore": false,
+        "name": "映射输入：A相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].q_a",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680020,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1141（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680020,
+        "isStore": false,
+        "name": "映射输入：B相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].q_b",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680021,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1142（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680021,
+        "isStore": false,
+        "name": "映射输入：C相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].q_c",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680022,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1143（MTR20250600663）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680022,
+        "isStore": false,
+        "name": "映射输入：总无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.meter[2].q_total",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680023,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1200（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680023,
+        "isStore": false,
+        "name": "映射输入：故障复位",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].cmd_reset_fb",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680024,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1209（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680024,
+        "isStore": false,
+        "name": "映射输入：停机状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].stopped",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680025,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1210（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680025,
+        "isStore": false,
+        "name": "映射输入：待机状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].standby_state",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680026,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1211（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680026,
+        "isStore": false,
+        "name": "映射输入：运行状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].run_state",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680027,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1212（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680027,
+        "isStore": false,
+        "name": "映射输入：总故障状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].fault_total",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680028,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1214（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680028,
+        "isStore": false,
+        "name": "映射输入：远程/就地状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].remote_local",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680029,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1215（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680029,
+        "isStore": false,
+        "name": "映射输入：急停输入状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].estop",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680030,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1216（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680030,
+        "isStore": false,
+        "name": "映射输入：并网状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].grid_connected",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680031,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1279（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680031,
+        "isStore": false,
+        "name": "映射输入：BMS/CMS 工作指令",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].p1279",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680032,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1341（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680032,
+        "isStore": false,
+        "name": "映射输入：有功功率控制方式",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].p1341_fb",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680033,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1399（MTR20250600657）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680033,
+        "isStore": false,
+        "name": "映射输入：通讯状态",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.pcs[1].comm_status",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680034,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1462（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680034,
+        "isStore": false,
+        "name": "映射输入：故障",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].fault",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680035,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1556（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680035,
+        "isStore": false,
+        "name": "映射输入：最大充电电流",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].max_charge_current",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "A"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680036,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1557（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680036,
+        "isStore": false,
+        "name": "映射输入：最大放电电流",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].max_discharge_current",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "A"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680037,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1566（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680037,
+        "isStore": false,
+        "name": "映射输入：电池总电压",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].voltage_total",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "V"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680038,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1570（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680038,
+        "isStore": false,
+        "name": "映射输入：SOH",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].soc",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "%"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680039,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1586（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680039,
+        "isStore": false,
+        "name": "映射输入：累计充电电量高位",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].p1586",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kWh"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680040,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 1587（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680040,
+        "isStore": false,
+        "name": "映射输入：累计放电电量高位",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].p1587",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kWh"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680041,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4000（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680041,
+        "isStore": false,
+        "name": "映射输入：设备点 4000",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4000_fb",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680042,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4048（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680042,
+        "isStore": false,
+        "name": "映射输入：设备点 4048",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4048",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680043,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4199（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680043,
+        "isStore": false,
+        "name": "映射输入：设备点 4199",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4199",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680044,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4536（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680044,
+        "isStore": false,
+        "name": "映射输入：设备点 4536",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4536",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680045,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4537（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680045,
+        "isStore": false,
+        "name": "映射输入：设备点 4537",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4537",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680046,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4538（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680046,
+        "isStore": false,
+        "name": "映射输入：设备点 4538",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4538",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680047,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4539（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680047,
+        "isStore": false,
+        "name": "映射输入：设备点 4539",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4539",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680048,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4540（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680048,
+        "isStore": false,
+        "name": "映射输入：设备点 4540",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4540",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680049,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4541（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680049,
+        "isStore": false,
+        "name": "映射输入：设备点 4541",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4541",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680050,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4542（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680050,
+        "isStore": false,
+        "name": "映射输入：设备点 4542",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4542",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680051,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 4543（画面工程未登记）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680051,
+        "isStore": false,
+        "name": "映射输入：设备点 4543",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.dev[1].p4543",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 680052,
+        "alarms": [
+        ],
+        "category": "telemetry",
+        "desc": "测点映射输入点：来自设备点 8199（MTR20250600659）",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 680052,
+        "isStore": false,
+        "name": "映射输入：三级报警",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.in.bms[1].alarm_level_3",
+        "pointRole": "point_mapping_in",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "in"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685001,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1200（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685001,
+        "isStore": false,
+        "name": "映射输出：故障复位",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].cmd_reset",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685002,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1201（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685002,
+        "isStore": false,
+        "name": "映射输出：设备启动",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].cmd_start",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685003,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1202（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685003,
+        "isStore": false,
+        "name": "映射输出：设备停机",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].cmd_stop",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685004,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1318（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685004,
+        "isStore": false,
+        "name": "映射输出：分相控制 A 相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].set_p_a",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685005,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1319（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685005,
+        "isStore": false,
+        "name": "映射输出：分相控制 B 相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].set_p_b",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685006,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1320（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685006,
+        "isStore": false,
+        "name": "映射输出：分相控制 C 相有功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].set_p_c",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kW"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685007,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1321（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685007,
+        "isStore": false,
+        "name": "映射输出：分相控制 A 相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].set_q_a",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685008,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1322（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685008,
+        "isStore": false,
+        "name": "映射输出：分相控制 B 相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].set_q_b",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685009,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1323（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685009,
+        "isStore": false,
+        "name": "映射输出：分相控制 C 相无功功率",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].set_q_c",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": "kVar"
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685010,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 1341（MTR20250600657）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685010,
+        "isStore": false,
+        "name": "映射输出：有功功率控制方式",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.pcs[1].p1341",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685011,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 4000（画面工程未登记）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685011,
+        "isStore": false,
+        "name": "映射输出：设备点 4000",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.dev[1].p4000",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    },
+    {
+        "address": 685012,
+        "alarms": [
+        ],
+        "category": "calculation",
+        "desc": "测点映射输出点：策略图每拍发布命令，映射比对后写设备点 4065（画面工程未登记）；只读",
+        "deviceCode": "EMS_CORE",
+        "deviceType": "ems",
+        "enabled": true,
+        "fullUpload": false,
+        "index": 685012,
+        "isStore": false,
+        "name": "映射输出：设备点 4065",
+        "persistIntervalSec": 0,
+        "pointCode": "ems.out.dev[1].p4065",
+        "pointRole": "point_mapping_out",
+        "read": {
+            "byteOrder": "AB",
+            "cachePolicy": {
+                "historySize": 1,
+                "storeHistory": false,
+                "storeLatest": true,
+                "ttlMs": 600000
+            },
+            "dataType": "float64",
+            "enable": false,
+            "function": 0,
+            "intervalMs": 1000,
+            "length": 1,
+            "offset": 0,
+            "scale": 1,
+            "signed": true,
+            "unit": ""
+        },
+        "reportOnChange": false,
+        "tags": [
+            "ems_virtual",
+            "point_mapping",
+            "out"
+        ],
+        "write": {
+            "enable": false
+        }
+    }
+]

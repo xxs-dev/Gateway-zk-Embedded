@@ -69,6 +69,11 @@ struct GraphEmsEngineOptions {
     // Set while a point mapping is active: controlWrite / pcsWriteback may only write EMS points;
     // device control points are written by the mapping's outputs.
     bool emsPointWritesOnly = false;
+    // EMS output points of the point mapping. controlWrite / pcsWriteback publish their command there on
+    // every run that would have written the device (graph output TTL, not persisted, no comparison with
+    // the EMS point); the mapping compares it with the device point and writes the device, like a direct
+    // controlWrite. A graph that stops commanding (permit off, profile off, input missing) writes nothing.
+    std::unordered_set<std::uint32_t> mappedOutputIndexes;
 };
 
 struct GraphEmsRunResult {

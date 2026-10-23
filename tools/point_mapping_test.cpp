@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -14,6 +15,7 @@
 #include "edge_gateway/compute_engine_service.hpp"
 #include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/json_value.hpp"
 #include "edge_gateway/point_mapping.hpp"
 #include "edge_gateway/point_mapping_stage.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -67,7 +69,7 @@ PointMappingTargets targets() {
     };
     add(680001, "EMS_CORE", "ems.in.pcs[1].p_total", "ems_virtual", false);
     add(680002, "EMS_CORE", "ems.in.pcs[1].state", "ems_virtual", false);
-    add(685001, "EMS_CORE", "ems.out.pcs[1].p_set_a", "ems_virtual", true);
+    add(685001, "EMS_CORE", "ems.out.pcs[1].p_set_a", "ems_virtual", false);
     add(1201, "PCS1", "p_a", "modbus_rtu", false);
     add(1202, "PCS1", "p_b", "modbus_rtu", false);
     add(1209, "PCS1", "run_state", "modbus_rtu", false);
@@ -104,6 +106,11 @@ void testParseAndCheck() {
     t[1318].writable = false;
     auto problems = checkPointMapping(m, t, "GW_MAP");
     check(problems.size() == 1 && problems[0].rule == "mapping.write", "a non-writable output target is refused");
+    t = targets();
+    t[685001].writable = true;
+    problems = checkPointMapping(m, t, "GW_MAP");
+    check(problems.size() == 1 && problems[0].rule == "mapping.write" && problems[0].message.find("only the strategy graph") != std::string::npos,
+          "a writable EMS output point (persisted parameter) is refused");
     t = targets();
     t[680001].pointCode = "something.else";
     t[1202].meterCode = "PCS2";
@@ -180,6 +187,10 @@ struct Fixture {
         input.protocolType = "ems_virtual";
         input.sharedMemoryName = shm;
         router.addRoute(input);
+        input.index = 101;  // graph permit
+        input.sourceIndex = 101;
+        input.pointCode = "graph_permit";
+        router.addRoute(input);
     }
     ~Fixture() {
         store.reset();
@@ -231,37 +242,56 @@ void testStage() {
     check(v && v->quality == 0, "a device value without an enum entry is invalid");
     check(stage.statusJson(t0).find("\"inputsInvalid\":2") != std::string::npos, "status counts invalid inputs");
 
-    // outputs
+    // outputs: only a command published in the current scan counts; the device point is compared like controlWrite
     double sent = 0;
     r = stage.runOutputs(t0, 10);
     check(r.deviceWrites == 0 && f.pendingFor(1318, &sent) == 0, "no EMS command: nothing written");
+    check(stage.statusJson(t0).find("\"state\":\"no-command\"") != std::string::npos, "no-command before the graph commands");
     f.put(685001, 50, t0);
     r = stage.runOutputs(t0, 0);
     check(r.deviceWrites == 0 && r.deviceWritesSkipped == 1, "write budget respected");
     r = stage.runOutputs(t0, 10);
     check(r.deviceWrites == 1 && f.pendingFor(1318, &sent) == 1 && sent == -50, "EMS 50 -> device -50 (invert)");
     check(stage.statusJson(t0).find("\"state\":\"verifying\"") != std::string::npos, "verifying after the write");
+    r = stage.runOutputs(t0, 10);
+    check(r.deviceWrites == 0, "the same value already queued is not queued twice");
     f.store->drainPendingWriteCommands();
     f.put(1240, -49.5, t0 + 500);
-    stage.runOutputs(t0 + 500, 10);
-    check(stage.statusJson(t0 + 500).find("\"outputsOk\":1") != std::string::npos, "readback within tolerance");
-    f.put(685001, 50.5, t0 + 600);
+    r = stage.runOutputs(t0 + 500, 10);
+    check(r.deviceWrites == 0 && stage.statusJson(t0 + 500).find("\"outputsOk\":1") != std::string::npos, "readback within tolerance");
     r = stage.runOutputs(t0 + 600, 10);
-    check(r.deviceWrites == 0, "change within the deadband is not sent");
-    f.put(685001, 60, t0 + 700);
+    check(r.deviceWrites == 0, "a command from an earlier scan is not acted on (graph quiet: device left alone)");
+    f.put(685001, 50, t0 + 700);
+    f.put(1318, -50, t0 + 700);
     r = stage.runOutputs(t0 + 700, 10);
-    check(r.deviceWrites == 1 && f.pendingFor(1318, &sent) == 1 && sent == -60, "change beyond the deadband is sent");
+    check(r.deviceWrites == 0, "device point already at the command: nothing written");
+    f.put(685001, 50, t0 + 800);
+    f.put(1318, -50.5, t0 + 800);
+    r = stage.runOutputs(t0 + 800, 10);
+    check(r.deviceWrites == 0, "device point within the deadband: nothing written");
+    f.put(685001, 50, t0 + 900);
+    f.put(1318, -45, t0 + 900);
+    r = stage.runOutputs(t0 + 900, 10);
+    check(r.deviceWrites == 1 && f.pendingFor(1318, &sent) == 1 && sent == -50, "device point changed beyond the deadband: written again (like controlWrite)");
     f.store->drainPendingWriteCommands();
-    stage.runOutputs(t0 + 700 + 3001, 10);
-    check(stage.statusJson(t0 + 3800).find("readback-timeout") != std::string::npos, "readback still -49.5: timeout");
-    f.put(685001, 60, t0 + 11000);
-    r = stage.runOutputs(t0 + 11000, 10);
-    check(r.deviceWrites == 1, "refreshMs resends the same value");
+    f.put(1318, -50, t0 + 950);
+    f.put(685001, 60, t0 + 1200);
+    r = stage.runOutputs(t0 + 1200, 10);
+    check(r.deviceWrites == 1 && f.pendingFor(1318, &sent) == 1 && sent == -60, "new command beyond the deadband is sent");
+    f.store->drainPendingWriteCommands();
+    stage.runOutputs(t0 + 1200 + 3001, 10);
+    check(stage.statusJson(t0 + 4300).find("readback-timeout") != std::string::npos, "readback still -49.5: timeout");
+    f.put(1318, -60, t0 + 20000);
+    r = stage.runOutputs(t0 + 20000, 10);
+    check(r.deviceWrites == 0, "refreshMs: no rewrite while the graph is quiet");
+    f.put(685001, 60, t0 + 20000);
+    r = stage.runOutputs(t0 + 20000, 10);
+    check(r.deviceWrites == 1, "refreshMs rewrites the same value while the graph commands");
     f.store->drainPendingWriteCommands();
     // the driver reports a failed write
     const auto pendingId = [&]() {
-        f.put(685001, 100, t0 + 12000);
-        stage.runOutputs(t0 + 12000, 10);
+        f.put(685001, 100, t0 + 22000);
+        stage.runOutputs(t0 + 22000, 10);
         const auto pending = f.router.peekPendingWrites();
         return pending.empty() ? std::string() : pending.back().cmdId;
     }();
@@ -271,8 +301,13 @@ void testStage() {
     wb.success = false;
     wb.message = "modbus timeout";
     f.store->recordWritebackResult(wb);
-    stage.runOutputs(t0 + 12100, 10);
+    stage.runOutputs(t0 + 22100, 10);
     check(!pendingId.empty() && stage.statusJson(t0).find("writeback-failed") != std::string::npos, "driver write failure is reported");
+    // a restarted stage does not replay the last command
+    f.store->drainPendingWriteCommands();
+    PointMappingStage restarted(parsePointMapping(kMapping), f.router, 5000, 1000);
+    r = restarted.runOutputs(t0 + 23000, 10);
+    check(r.deviceWrites == 0 && f.pendingFor(1318, &sent) == 0, "restart: the last command is not replayed");
 
     // after a verified write the readback keeps being watched: device offline / changed locally is not "ok"
     Fixture g;
@@ -336,6 +371,71 @@ void testGraphRestriction() {
     }
 }
 
+const char* kGraphMapped = R"json({
+  "schemaVersion":"2.0.0","graphCode":"mapping-output",
+  "compile":{"maxNodes":8,"maxEdges":8,"virtualIndexStart":700000,"virtualIndexEnd":700010},
+  "nodes":[
+    {"id":"write_ems","type":"controlWrite","order":10,
+     "parameters":{"inputIndex":100,"targetIndex":685001,"permitIndex":101,"permitValue":1,"minValue":-1000,"maxValue":1000,"deadband":5,"submitWrites":true},
+     "ports":[
+       {"id":"input","direction":"input","valueType":"number","runtimePath":"/inputIndex","binding":{"kind":"point","index":100}},
+       {"id":"permit","direction":"input","valueType":"number","runtimePath":"/permitIndex","binding":{"kind":"point","index":101}},
+       {"id":"target","direction":"target","valueType":"number","runtimePath":"/targetIndex","binding":{"kind":"point","index":685001}}]}
+  ],
+  "links":[]
+})json";
+
+// controlWrite to a mapped EMS output point: published on every permitted run (not compared with the EMS
+// point, not persisted), nothing while the permit is off; the stage then writes the device.
+void testGraphMappedOutput() {
+    const std::string file = "/tmp/point-mapping-test-graph2-" + std::to_string(::getpid()) + ".json";
+    {
+        std::ofstream out(file.c_str());
+        out << kGraphMapped;
+    }
+    const auto config = GraphEmsConfig::loadFromFile(file);
+    std::remove(file.c_str());
+    Fixture f;
+    const std::int64_t now = 1792000000000LL;
+    GraphEmsEngine engine(config, f.router, 3000);
+    GraphEmsEngineOptions options;
+    options.emsPointWritesOnly = true;
+    options.mappedOutputIndexes.insert(685001);
+    engine.setOptions(options);
+    PointMappingStage stage(parsePointMapping(kMapping), f.router, 5000, 1000);
+    f.put(100, 42, now);
+    f.put(101, 1, now);
+    auto result = engine.runOnce(now);
+    auto cmd = f.get(685001, now);
+    double sent = 0;
+    check(result.errors.empty() && result.deviceWrites == 0 && cmd && cmd->value == 42 && cmd->ts == now && cmd->expireAt == now + 3000,
+          "controlWrite publishes the command on the EMS output point (graph TTL)");
+    check(f.pendingFor(685001, &sent) == 0 && f.pendingFor(1318, &sent) == 0, "no write command from the graph itself");
+    stage.runOutputs(now, 10);
+    check(f.pendingFor(1318, &sent) == 1 && sent == -42, "the mapping writes the device in the same scan");
+    f.store->drainPendingWriteCommands();
+    f.put(1318, -42, now + 500);
+    f.put(100, 42, now + 1000);
+    f.put(101, 1, now + 1000);
+    result = engine.runOnce(now + 1000);
+    cmd = f.get(685001, now + 1000);
+    check(result.errors.empty() && cmd && cmd->ts == now + 1000, "the same command is published again on the next run");
+    stage.runOutputs(now + 1000, 10);
+    check(f.pendingFor(1318, &sent) == 0, "device already at the command: not written again");
+    f.put(1318, -10, now + 1500);
+    f.put(101, 0, now + 2000);
+    f.put(100, 42, now + 2000);
+    engine.runOnce(now + 2000);
+    cmd = f.get(685001, now + 2000);
+    stage.runOutputs(now + 2000, 10);
+    check(cmd && cmd->ts == now + 1000 && f.pendingFor(1318, &sent) == 0, "permit off: no command, device left alone although it differs");
+    f.put(101, 1, now + 3000);
+    f.put(100, 42, now + 3000);
+    engine.runOnce(now + 3000);
+    stage.runOutputs(now + 3000, 10);
+    check(f.pendingFor(1318, &sent) == 1 && sent == -42, "permit back, device differs: written like a direct controlWrite");
+}
+
 void testComputeEngineLoads() {
     const std::string file = "/tmp/point-mapping-test-" + std::to_string(::getpid()) + ".json";
     const std::string status = file + ".status";
@@ -382,6 +482,79 @@ void testComputeEngineLoads() {
     check(none.pointMappingEntries() == 0, "no mapping file: no mapping stage");
 }
 
+std::string readText(const std::string& path) {
+    std::ifstream in(path.c_str(), std::ios::binary);
+    std::stringstream s;
+    s << in.rdbuf();
+    return s.str();
+}
+
+// Factory files for the migrated graph (gz-ems migrate): the graph only references EMS_CORE points (original
+// file + the mapping point fragment) and graph-virtual points, writes only read-only EMS output points, and loads.
+void testFactoryMappedGraph() {
+    const std::string dir = std::string(POINT_MAPPING_SOURCE_DIR) + "/config/factory/runtime/";
+    const std::string migration = std::string(POINT_MAPPING_SOURCE_DIR) + "/config/factory/migration/";
+    const std::string graphPath = migration + "shuntong_ems_graph_mapped.json";
+    const auto graphText = readText(graphPath);
+    const auto fragmentText = readText(migration + "shuntong_ems_graph_mapped_points.json");
+    check(!graphText.empty() && !fragmentText.empty(), "factory mapped graph and point fragment exist");
+    std::set<std::uint32_t> ems;
+    const auto emsRoot = json::JsonParser(readText(dir + "devices/device_ems_virtual.json"), 64, 20000000).parse();
+    const auto* meters = emsRoot.find("meters");
+    check(meters && meters->isArray(), "EMS_CORE point table readable");
+    if (!meters || !meters->isArray()) return;
+    for (const auto& meter : meters->asArray().values) {
+        const auto* points = meter->find("points");
+        if (!points || !points->isArray()) continue;
+        for (const auto& p : points->asArray().values) ems.insert(static_cast<std::uint32_t>(p->find("index")->asNumber()));
+    }
+    std::set<std::uint32_t> inputs, outputs;
+    bool fragmentOk = true;
+    const auto fragment = json::JsonParser(fragmentText, 16, 2000000).parse();
+    for (const auto& p : fragment.asArray().values) {
+        const auto index = static_cast<std::uint32_t>(p->find("index")->asNumber());
+        const auto code = p->find("pointCode")->asString();
+        const bool out = code.rfind("ems.out.", 0) == 0;
+        const auto* write = p->find("write");
+        const auto* enable = write && write->isObject() ? write->find("enable") : nullptr;
+        fragmentOk = fragmentOk && index >= kPointMappingVirtualIndexMin && index <= kPointMappingVirtualIndexMax && ems.count(index) == 0 &&
+                     enable && enable->isBool() && !enable->asBool() && p->find("initialValue") == nullptr &&
+                     (out || code.rfind("ems.in.", 0) == 0);
+        (out ? outputs : inputs).insert(index);
+    }
+    check(fragmentOk && inputs.size() == 52 && outputs.size() == 12, "fragment: 52 input + 12 read-only output EMS points in 680000-689999, no initial values");
+    const auto graph = json::JsonParser(graphText, 64, 20000000).parse();
+    std::size_t refs = 0;
+    std::string stray;
+    for (const auto& n : graph.find("nodes")->asArray().values) {
+        const auto* ports = n->find("ports");
+        if (!ports || !ports->isArray()) continue;
+        for (const auto& port : ports->asArray().values) {
+            const auto* b = port->isObject() ? port->find("binding") : nullptr;
+            const auto* idx = b && b->isObject() ? b->find("index") : nullptr;
+            if (!idx || !idx->isNumber()) continue;
+            const auto i = static_cast<std::uint32_t>(idx->asNumber());
+            ++refs;
+            if (!(ems.count(i) || inputs.count(i) || outputs.count(i) || (i >= 700000 && i <= 799999))) stray += " " + std::to_string(i);
+        }
+    }
+    check(refs > 0 && stray.empty(), "mapped graph references only EMS_CORE and graph-virtual points" + stray);
+    bool targetsOk = true;
+    const auto writes = graphWriteTargets(graphText);
+    for (const auto& w : writes) targetsOk = targetsOk && outputs.count(w.index) == 1;
+    check(writes.size() == 14 && targetsOk, "the 14 submitting controlWrites target EMS output points");
+    std::size_t deviceWrites = 0;
+    for (const auto& w : graphWriteTargets(readText(dir + "logic/shuntong_ems_graph.json"))) deviceWrites += w.index < kPointMappingVirtualIndexMin ? 1 : 0;
+    check(deviceWrites == 14, "the original factory graph is unchanged (still writes 14 device points directly)");
+    bool loads = false;
+    try {
+        loads = GraphEmsConfig::loadFromFile(graphPath).nodes.size() > 400;
+    } catch (const std::exception& ex) {
+        std::cerr << "  " << ex.what() << std::endl;
+    }
+    check(loads, "the mapped graph loads");
+}
+
 }  // namespace
 
 int main() {
@@ -391,7 +564,9 @@ int main() {
         testGraphTargets();
         testStage();
         testGraphRestriction();
+        testGraphMappedOutput();
         testComputeEngineLoads();
+        testFactoryMappedGraph();
     } catch (const std::exception& ex) {
         std::cerr << "exception: " << ex.what() << std::endl;
         return 1;

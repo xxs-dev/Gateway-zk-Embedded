@@ -1042,6 +1042,9 @@ void ComputeEngineService::preloadGraphEmsEngine(const ComputeRuleConfig& rule) 
         ? std::max<std::int64_t>(config_.graphRateLimitMaxGapMs, 2 * evaluationIntervalMs)
         : 0;
     options.emsPointWritesOnly = pointMapping_ != nullptr;
+    if (pointMapping_) {
+        for (const auto index : pointMapping_->outputVirtualIndexes()) options.mappedOutputIndexes.insert(index);
+    }
     state->engine->setOptions(options);
     graphEmsStates_[key] = std::move(state);
 }

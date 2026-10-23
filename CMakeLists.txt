@@ -644,6 +644,7 @@ target_compile_options(event_engine_service_test PRIVATE -fdiagnostics-color=nev
 add_executable(point_mapping_test tools/point_mapping_test.cpp)
 target_link_libraries(point_mapping_test PRIVATE edge_gateway)
 target_compile_options(point_mapping_test PRIVATE -fdiagnostics-color=never)
+target_compile_definitions(point_mapping_test PRIVATE POINT_MAPPING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME point_mapping COMMAND point_mapping_test)
 
 add_executable(compute_engine_service_test tools/compute_engine_service_test.cpp)

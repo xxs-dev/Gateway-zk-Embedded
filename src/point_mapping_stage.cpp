@@ -195,19 +195,36 @@ PointMappingRunResult PointMappingStage::runOutputs(std::int64_t nowMs, std::siz
                          "readback " + e.readback.pointCode + " = " + num(rb->value) + ", last sent " + num(s.sentValue) + " +/- " + num(e.readbackTolerance));
             }
         }
+        // The command is what the strategy graph wrote to the EMS output point in this scan (ts == nowMs).
+        // A graph that stops commanding (permit off, profile off, inputs missing) leaves the device alone,
+        // exactly like a direct controlWrite; an older value (previous scan, restart) is never replayed.
         const auto command = router_.getLatestByIndex(e.virtualIndex, nowMs);
         std::string why;
-        if (!sourceValid(command, nowMs, 0, &why)) {
-            if (s.cmdId.empty() && s.state != "readback-timeout" && s.state != "writeback-failed") setState(s, e, "no-command", why);
-            continue;  // hold the device at its last value
+        if (!sourceValid(command, nowMs, 0, &why) || command->ts != nowMs) {
+            if (s.state == "idle") setState(s, e, "no-command", std::string());
+            continue;  // hold the device at its current value
         }
         double device = 0.0;
         if (!pointMappingToDevice(e, command->value, &device)) {
             setState(s, e, "enum-miss", "no device value for EMS code " + num(command->value));
             continue;
         }
-        const bool due = !s.sent || std::fabs(device - s.sentValue) > e.deadband || (e.refreshMs > 0 && nowMs - s.sentAt >= e.refreshMs);
-        if (!due) continue;
+        s.commandValue = command->value;
+        s.commandAt = nowMs;
+        // Like controlWrite: no write while the device point already holds the value (within the deadband).
+        std::string reason;
+        const auto current = router_.getLatestByIndex(target.index, nowMs);
+        const bool inSync = sourceValid(current, nowMs, 0, &reason) && std::fabs(current->value - device) <= e.deadband;
+        const bool refreshDue = e.refreshMs > 0 && (!s.sent || nowMs - s.sentAt >= e.refreshMs);
+        if (inSync && !refreshDue) {
+            if (s.cmdId.empty() && (!s.sent || std::fabs(s.sentValue - device) > e.deadband)) {
+                // The device already holds the command: nothing to write, keep watching the readback against it.
+                s.sent = true;
+                s.sentValue = device;
+                if (s.state == "idle" || s.state == "no-command") setState(s, e, "ok", std::string());
+            }
+            continue;
+        }
         if (!pendingLoaded) {
             pending = router_.peekPendingWrites();
             pendingLoaded = true;
@@ -245,6 +262,14 @@ PointMappingRunResult PointMappingStage::runOutputs(std::int64_t nowMs, std::siz
     return result;
 }
 
+std::vector<std::uint32_t> PointMappingStage::outputVirtualIndexes() const {
+    std::vector<std::uint32_t> out;
+    for (const auto& e : mapping_.entries) {
+        if (e.output) out.push_back(e.virtualIndex);
+    }
+    return out;
+}
+
 std::string PointMappingStage::statusJson(std::int64_t nowMs) const {
     std::size_t valid = 0, invalid = 0, ok = 0, verifying = 0, failed = 0;
     std::ostringstream items;
@@ -265,7 +290,8 @@ std::string PointMappingStage::statusJson(std::int64_t nowMs) const {
               << (e.output ? "out" : "in") << "\",\"state\":\"" << s.state << "\",\"message\":\"" << jsonEscape(s.message) << "\"";
         if (e.output) {
             items << ",\"deviceIndex\":" << e.sources.front().index << ",\"deviceValue\":" << (s.sent ? num(s.sentValue) : "null")
-                  << ",\"lastWriteAt\":" << s.sentAt << ",\"verifyFailures\":" << s.verifyFailures;
+                  << ",\"lastWriteAt\":" << s.sentAt << ",\"command\":" << (s.commandAt > 0 ? num(s.commandValue) : "null")
+                  << ",\"lastCommandAt\":" << s.commandAt << ",\"verifyFailures\":" << s.verifyFailures;
         } else {
             items << ",\"value\":" << (s.published && s.lastValid ? num(s.lastValue) : "null");
         }

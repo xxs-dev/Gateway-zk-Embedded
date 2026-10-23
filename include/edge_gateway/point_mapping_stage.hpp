@@ -2,6 +2,9 @@
 
 // Runs a point mapping (see point_mapping.hpp) inside ComputeEngine: inputs before the strategy graphs,
 // outputs after them, and a status file for maintenance (run/point-mapping-status.json).
+// Outputs follow the graph: only a command the graph published in this scan counts; the device point is
+// written when it differs from the command by more than the deadband (or refreshMs elapsed), like a direct
+// controlWrite. After a write the readback is checked, and kept watched while the graph is quiet.
 
 #include <cstdint>
 #include <string>
@@ -29,6 +32,8 @@ public:
     PointMappingRunResult runOutputs(std::int64_t nowMs, std::size_t maxDeviceWrites);
     std::string statusJson(std::int64_t nowMs) const;
     std::size_t size() const { return mapping_.entries.size(); }
+    // EMS output points (GraphEmsEngineOptions::mappedOutputIndexes).
+    std::vector<std::uint32_t> outputVirtualIndexes() const;
 
 private:
     struct EntryState {
@@ -43,7 +48,8 @@ private:
         std::int64_t sentAt = 0;
         std::string cmdId;
         std::int64_t verifyDeadline = 0;
-        double commandValue = 0.0;  // EMS value behind the last command
+        double commandValue = 0.0;  // last command the graph published (EMS value)
+        std::int64_t commandAt = 0;
         std::uint64_t verifyFailures = 0;
         // both
         std::string state = "idle";  // in: valid / invalid; out: no-command / verifying / ok / readback-timeout / writeback-failed / rejected / enum-miss

@@ -220,6 +220,11 @@ std::vector<PointMappingProblem> checkPointMapping(const PointMapping& mapping, 
             problem("mapping.points", name + ": virtualIndex " + std::to_string(e.virtualIndex) + " is not an EMS_CORE point (declare it in device_ems_virtual.json)");
         } else if (v->second.pointCode != e.virtualName) {
             problem("mapping.points", name + ": EMS point " + std::to_string(e.virtualIndex) + " has pointCode " + v->second.pointCode + ", not " + e.virtualName);
+        } else if (e.output && v->second.writable) {
+            // Output commands come from the strategy graph scan by scan; a writable EMS point would be a
+            // persisted parameter that anyone could set and that would survive restarts.
+            problem("mapping.write", name + ": EMS output point " + std::to_string(e.virtualIndex) +
+                                         " is writable; only the strategy graph writes output points (set write.enable to false)");
         }
         if (!virtuals.insert(e.virtualIndex).second) problem("mapping.points", name + ": virtual point " + std::to_string(e.virtualIndex) + " is mapped twice");
         for (const auto& s : e.sources) {
