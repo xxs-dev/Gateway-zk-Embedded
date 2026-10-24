@@ -618,7 +618,7 @@ void ComputeEngineService::loop() {
         const auto cycleStarted = SteadyClock::now();
         bool failed = false;
         try {
-            runOnce(now);
+            runOnceWithClock(now, currentTimeMs);
         } catch (const std::exception& ex) {
             failed = true;
             std::cerr << "compute engine scan failed error=" << ex.what() << std::endl;
@@ -628,7 +628,7 @@ void ComputeEngineService::loop() {
             failed = true;
         }
         const auto durationMs = std::chrono::duration<double, std::milli>(SteadyClock::now() - cycleStarted).count();
-        recordAndPublishHealth(durationMs, failed, now);
+        recordAndPublishHealth(durationMs, failed, currentTimeMs());
 
         nextScan += scanPeriod;
         auto steadyNow = SteadyClock::now();
@@ -760,6 +760,11 @@ void ComputeEngineService::recordAndPublishHealth(double durationMs, bool failed
 }
 
 void ComputeEngineService::runOnce(std::int64_t nowMs) {
+    runOnceWithClock(nowMs, {});
+}
+
+void ComputeEngineService::runOnceWithClock(std::int64_t nowMs,
+                                           const std::function<std::int64_t()>& snapshotClock) {
     if (config_.rules.empty() || config_.maxRuleEvalPerScan == 0) {
         return;
     }
@@ -788,7 +793,7 @@ void ComputeEngineService::runOnce(std::int64_t nowMs) {
             continue;
         }
 
-        evaluateRule(rule, currentInputs, nowMs, deviceWritesThisScan);
+        evaluateRule(rule, currentInputs, nowMs, deviceWritesThisScan, snapshotClock);
         ruleStates_[safeRuleCode(rule)].lastEvalMs = nowMs;
         ruleStates_[safeRuleCode(rule)].lastInputs = std::move(currentInputs);
         ++evaluated;
@@ -848,14 +853,15 @@ void ComputeEngineService::evaluateRule(
     const ComputeRuleConfig& rule,
     const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
     std::int64_t nowMs,
-    std::size_t& deviceWritesThisScan
+    std::size_t& deviceWritesThisScan,
+    const std::function<std::int64_t()>& snapshotClock
 ) {
     if (rule.script.type == "graphEms") {
         try {
             const auto remainingWrites = deviceWritesThisScan < config_.maxWritesPerScan
                 ? config_.maxWritesPerScan - deviceWritesThisScan
                 : 0;
-            const auto result = graphEmsEngineFor(rule).runOnce(nowMs, remainingWrites);
+            const auto result = graphEmsEngineFor(rule).runOnce(nowMs, remainingWrites, snapshotClock);
             deviceWritesThisScan += result.deviceWrites;
             outputsWrittenTotal_ += result.latestWrites + result.deviceWrites;
             if (result.writeLimitReached) {

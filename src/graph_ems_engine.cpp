@@ -2959,6 +2959,11 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs) {
 }
 
 GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites) {
+    return runOnce(nowMs, maxDeviceWrites, {});
+}
+
+GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDeviceWrites,
+                                        const std::function<std::int64_t()>& snapshotClock) {
     GraphEmsRunResult result;
     maxDeviceWritesThisRun_ = maxDeviceWrites;
     if (!stateRestored_) {
@@ -2974,11 +2979,14 @@ GraphEmsRunResult GraphEmsEngine::runOnce(std::int64_t nowMs, std::size_t maxDev
     snapshotValues_.clear();
     snapshotResolvedIndexes_.clear();
     const auto snapshot = router_.getLatestByIndexes(snapshotIndexes_, nowMs);
+    // Producers can publish during capture; validate the entire snapshot at completion.
+    if (snapshotClock) nowMs = snapshotClock();
     snapshotResolvedIndexes_.insert(snapshotIndexes_.begin(), snapshotIndexes_.end());
     for (const auto& value : snapshot) {
-        snapshotPoints_[value.index] = PointSnapshot{value.value, value.quality, value.ts, value.stale};
+        const bool stale = value.stale || (value.expireAt > 0 && nowMs > value.expireAt);
+        snapshotPoints_[value.index] = PointSnapshot{value.value, value.quality, value.ts, stale};
         snapshotPoints_[value.index].expireAt = value.expireAt;
-        if (value.quality == 1 && !value.stale && std::isfinite(value.value)) {
+        if (value.quality == 1 && !stale && std::isfinite(value.value)) {
             snapshotValues_[value.index] = value.value;
         }
     }

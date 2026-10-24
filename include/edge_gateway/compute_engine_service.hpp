@@ -60,6 +60,7 @@ private:
     };
 
     void loop();
+    void runOnceWithClock(std::int64_t nowMs, const std::function<std::int64_t()>& snapshotClock);
     void recordAndPublishHealth(double durationMs, bool failed, std::int64_t wallNowMs);
     bool shouldEvaluate(
         const ComputeRuleConfig& rule,
@@ -70,7 +71,8 @@ private:
         const ComputeRuleConfig& rule,
         const std::unordered_map<std::uint32_t, StoredPointValue>& currentInputs,
         std::int64_t nowMs,
-        std::size_t& deviceWritesThisScan
+        std::size_t& deviceWritesThisScan,
+        const std::function<std::int64_t()>& snapshotClock
     );
     void preloadGraphEmsEngine(const ComputeRuleConfig& rule);
     void validateEnabledRuleIndexOwnership() const;
