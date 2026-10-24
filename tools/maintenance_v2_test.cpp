@@ -30,6 +30,12 @@ using namespace edge_gateway::maintenance_v2;
 
 namespace {
 
+// Test data lives in the source tree; on a target board (tests copied to /tmp) GZ_EDGE_TEST_SOURCE_DIR points at the copied tree.
+std::string testdataDir() {
+    const char* root = std::getenv("GZ_EDGE_TEST_SOURCE_DIR");
+    return root != nullptr && *root != '\0' ? std::string(root) + "/tools/testdata" : std::string(MAINTENANCE_V2_TESTDATA);
+}
+
 int g_failures = 0;
 int g_checks = 0;
 
@@ -41,9 +47,11 @@ void check(bool ok, const std::string& what) {
     }
 }
 
+// Scratch directories go under $TMPDIR (default /tmp); on a target board the caller points TMPDIR at its own directory and removes it.
 std::string tempDir(const std::string& name) {
-    char pattern[256];
-    std::snprintf(pattern, sizeof(pattern), "/tmp/gz-maint-v2-%s-XXXXXX", name.c_str());
+    const char* base = std::getenv("TMPDIR");
+    char pattern[512];
+    std::snprintf(pattern, sizeof(pattern), "%s/gz-maint-v2-%s-XXXXXX", base != nullptr && *base != '\0' ? base : "/tmp", name.c_str());
     const char* dir = ::mkdtemp(pattern);
     if (dir == nullptr) throw std::runtime_error("mkdtemp failed");
     return dir;
@@ -86,7 +94,7 @@ void testCanonicalJson() {
 
 void testTicketVectors() {
     std::string text;
-    check(readFile(std::string(MAINTENANCE_V2_TESTDATA) + "/maintenance-v2-ticket-vectors.json", &text), "vectors file");
+    check(readFile(testdataDir() + "/maintenance-v2-ticket-vectors.json", &text), "vectors file");
     const auto root = parseJson(text, 1000000);
     std::vector<TrustedKey> keys;
     for (const auto& k : root.find("platformKeys")->asArray().values) {
@@ -134,7 +142,7 @@ void testTicketVectors() {
 
 void testFingerprint() {
     std::string text;
-    readFile(std::string(MAINTENANCE_V2_TESTDATA) + "/maintenance-v2-ticket-vectors.json", &text);
+    readFile(testdataDir() + "/maintenance-v2-ticket-vectors.json", &text);
     const auto root = parseJson(text, 1000000);
     const auto* tls = root.find("tlsFingerprint");
     check(certificateFingerprint(str(*tls, "certPem")) == str(*tls, "sha256OfDer"), "certificate fingerprint format");
@@ -446,7 +454,7 @@ void testOta() {
     }
     auto f = makeTxFixture("ota");
     std::string factory;
-    check(readFile(std::string(MAINTENANCE_V2_TESTDATA) + "/../../config/factory/runtime/apps/mqtt-service.json", &factory), "factory mqtt config");
+    check(readFile(testdataDir() + "/../../config/factory/runtime/apps/mqtt-service.json", &factory), "factory mqtt config");
     // The helper runs the device's OTA service (signature is checked at admission, so the device config may leave it off here).
     const auto otaJson = "{\"enabled\": true, \"currentVersion\": \"1.0.0\", \"downloadDir\": \"" + f.root + "/ota/downloads\", \"stagingDir\": \"" + f.root +
                          "/ota/staging\", \"backupDir\": \"" + f.root + "/ota/backup\", \"applyScript\": \"" + f.root +
@@ -571,7 +579,7 @@ void testV1ReadOnlyWhileV2() {
 
 void testConfigParse() {
     std::string text;
-    check(readFile(std::string(MAINTENANCE_V2_TESTDATA) + "/../../config/factory/runtime/apps/monitor-service.json", &text), "factory monitor config");
+    check(readFile(testdataDir() + "/../../config/factory/runtime/apps/monitor-service.json", &text), "factory monitor config");
     const std::string marker = "\"maxRealtimePoints\": 2000";
     const auto pos = text.find(marker);
     check(pos != std::string::npos, "factory config has maxRealtimePoints");

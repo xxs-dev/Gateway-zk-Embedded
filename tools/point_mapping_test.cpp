@@ -3,6 +3,7 @@
 // mapping is active, and ComputeEngine loading a mapping file.
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -509,6 +510,12 @@ void testComputeEngineLoads() {
     check(none.pointMappingEntries() == 0, "no mapping file: no mapping stage");
 }
 
+// Source tree with the factory files; on a target board (tests copied to /tmp) GZ_EDGE_TEST_SOURCE_DIR points at the copied tree.
+std::string sourceDir() {
+    const char* root = std::getenv("GZ_EDGE_TEST_SOURCE_DIR");
+    return root != nullptr && *root != '\0' ? std::string(root) : std::string(POINT_MAPPING_SOURCE_DIR);
+}
+
 std::string readText(const std::string& path) {
     std::ifstream in(path.c_str(), std::ios::binary);
     std::stringstream s;
@@ -519,8 +526,8 @@ std::string readText(const std::string& path) {
 // Factory files for the migrated graph (gz-ems migrate): the graph only references EMS_CORE points (original
 // file + the mapping point fragment) and graph-virtual points, writes only read-only EMS output points, and loads.
 void testFactoryMappedGraph() {
-    const std::string dir = std::string(POINT_MAPPING_SOURCE_DIR) + "/config/factory/runtime/";
-    const std::string migration = std::string(POINT_MAPPING_SOURCE_DIR) + "/config/factory/migration/";
+    const std::string dir = sourceDir() + "/config/factory/runtime/";
+    const std::string migration = sourceDir() + "/config/factory/migration/";
     const std::string graphPath = migration + "shuntong_ems_graph_mapped.json";
     const auto graphText = readText(graphPath);
     const auto fragmentText = readText(migration + "shuntong_ems_graph_mapped_points.json");
