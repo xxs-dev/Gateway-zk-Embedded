@@ -3,13 +3,13 @@
 #include "edge_gateway/compute_engine_service.hpp"
 #include "edge_gateway/compute_graph_observation.hpp"
 #include <chrono>
-#include <filesystem>
+#include "edge_gateway/filesystem_compat.hpp"
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 using namespace edge_gateway;
-namespace fs = std::filesystem;
+namespace fs = edge_gateway::filesystem;
 namespace {
 void require(bool ok, const std::string& m) { if (!ok) throw std::runtime_error(m); }
 struct Fixture {
