@@ -17,6 +17,7 @@
 #include "edge_gateway/graph_ems_engine.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/json_value.hpp"
+#include "edge_gateway/cluster_write_authorization.hpp"
 #include "edge_gateway/point_mapping.hpp"
 #include "edge_gateway/point_mapping_stage.hpp"
 #include "edge_gateway/point_store_router.hpp"
@@ -591,6 +592,105 @@ void testFactoryMappedGraph() {
 
 }  // namespace
 
+
+std::string stateOf(const std::string& json) {  // state of the output entry ems.out.pcs[1].p_set_a
+    const auto item = json.find("\"virtual\":\"ems.out.pcs[1].p_set_a\"");
+    if (item == std::string::npos) return "?";
+    const auto p = json.find("\"state\":\"", item);
+    if (p == std::string::npos) return "?";
+    const auto e = json.find('"', p + 9);
+    return json.substr(p + 9, e - p - 9);
+}
+
+// Review 2026-10-25: the verification cycle (readback newer than the write, fixed deadline, driver result after
+// a confirmed readback), cluster control targets and time limits.
+void testVerificationCycle() {
+    const std::int64_t t0 = 1792100000000LL;
+    // refreshMs shorter than the readback timeout, graph commanding every second, readback contradicting:
+    // resending the same value must not postpone the timeout forever.
+    const auto refresh = replace(kMapping, "\"refreshMs\": 10000", "\"refreshMs\": 1000");
+    {
+        Fixture f;
+        PointMappingStage stage(parsePointMapping(refresh), f.router, 5000, 1000);
+        f.put(1240, -50, t0 - 100);
+        for (int k = 0; k <= 10; ++k) {
+            const auto now = t0 + 1000 * k;
+            f.put(685001, 50, now);
+            f.put(1240, -10, now);  // the device keeps reporting -10 while -50 is sent
+            stage.runOutputs(now, 10);
+            f.store->drainPendingWriteCommands();
+        }
+        check(stateOf(stage.statusJson(t0 + 10000)) == "readback-timeout", "same value resent every second: the readback timeout still fires");
+    }
+    // A readback sampled before the write is old news: it does not confirm, even within tolerance.
+    {
+        Fixture f;
+        PointMappingStage stage(parsePointMapping(kMapping), f.router, 5000, 1000);
+        f.put(1240, -50, t0 - 10);  // already -50 before the write, never polled again
+        f.put(685001, 50, t0);
+        stage.runOutputs(t0, 10);
+        f.store->drainPendingWriteCommands();
+        stage.runOutputs(t0 + 1000, 10);
+        check(stateOf(stage.statusJson(t0 + 1000)) == "verifying", "a readback older than the write does not confirm it");
+        stage.runOutputs(t0 + 3001, 10);
+        check(stateOf(stage.statusJson(t0 + 3001)) == "readback-timeout", "no fresh readback within timeoutMs: readback-timeout");
+        f.put(1240, -50, t0 + 3500);
+        stage.runOutputs(t0 + 3500, 10);
+        check(stateOf(stage.statusJson(t0 + 3500)) == "ok", "a fresh readback at the sent value clears the timeout");
+    }
+    // Readback confirms first, then the driver reports the write failed: the failure is not lost.
+    {
+        Fixture f;
+        PointMappingStage stage(parsePointMapping(kMapping), f.router, 5000, 1000);
+        f.put(685001, 50, t0);
+        stage.runOutputs(t0, 10);
+        const auto pending = f.router.peekPendingWrites();
+        const auto id = pending.empty() ? std::string() : pending.back().cmdId;
+        f.store->drainPendingWriteCommands();
+        f.put(1240, -50, t0 + 200);
+        stage.runOutputs(t0 + 200, 10);
+        check(stateOf(stage.statusJson(t0 + 200)) == "ok", "fresh readback within tolerance: ok");
+        WritebackResultRecord wb;
+        wb.cmdId = id;
+        wb.index = 1318;
+        wb.success = false;
+        wb.message = "modbus exception 4";
+        f.store->recordWritebackResult(wb);
+        stage.runOutputs(t0 + 400, 10);
+        check(!id.empty() && stateOf(stage.statusJson(t0 + 400)) == "writeback-failed", "driver failure after the readback confirmed is still reported");
+    }
+}
+
+void testClusterAndLimits() {
+    const auto mapping = parsePointMapping(kMapping);
+    EmsClusterConfig cluster;
+    check(checkPointMappingCluster(mapping, cluster).empty(), "cluster off: no cluster problem");
+    cluster.enabled = true;
+    cluster.controlEnabled = true;
+    cluster.controlTargetIndexes = {1318};
+    const auto problems = checkPointMappingCluster(mapping, cluster);
+    check(problems.size() == 1 && problems[0].rule == "mapping.cluster", "output to a cluster control target is refused");
+    cluster.controlTargetIndexes = {9999};
+    check(checkPointMappingCluster(mapping, cluster).empty(), "outputs outside the cluster control targets are fine");
+    PendingWriteCommand cmd;
+    cmd.index = 1318;
+    cmd.value = 20;
+    cmd.source = "point-mapping";
+    cluster.controlTargetIndexes = {1318};
+    check(clusterAuthorizationRequired(cluster, cmd), "drivers require cluster authority for point-mapping writes to control targets");
+    auto rejects = [](const std::string& text) {
+        try {
+            parsePointMapping(text);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    check(rejects(replace(kMapping, "\"timeoutMs\": 3000", "\"timeoutMs\": 1e30")), "readback timeoutMs beyond a day is refused");
+    check(rejects(replace(kMapping, "\"refreshMs\": 10000", "\"refreshMs\": 86400001")), "refreshMs beyond a day is refused");
+    check(rejects(replace(kMapping, "\"timeoutMs\": 5000", "\"timeoutMs\": 1e300")), "validity timeoutMs beyond a day is refused");
+}
+
 int main() {
     try {
         testParseAndCheck();
@@ -601,6 +701,8 @@ int main() {
         testGraphMappedOutput();
         testComputeEngineLoads();
         testFactoryMappedGraph();
+        testVerificationCycle();
+        testClusterAndLimits();
     } catch (const std::exception& ex) {
         std::cerr << "exception: " << ex.what() << std::endl;
         return 1;

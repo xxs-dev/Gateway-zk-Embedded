@@ -79,6 +79,7 @@ MappingPlanCheck checkMappingPlan(const std::string& runtimeDir, const std::map<
     }
     const auto targets = pointMappingTargets(devices);
     for (const auto& p : checkPointMapping(mapping, targets, machineCode)) c.errors.emplace_back(p.rule, p.message);
+    for (const auto& p : checkPointMappingCluster(mapping, app.emsCluster)) c.errors.emplace_back(p.rule, p.message);
 
     // With a mapping, graphs may only write EMS points (ComputeEngine refuses their device writes at run time).
     if (app.computeEngine.enabled) {

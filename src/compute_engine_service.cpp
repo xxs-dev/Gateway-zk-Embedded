@@ -728,7 +728,8 @@ void ComputeEngineService::loadPointMapping() {
         t.writable = route.writable;
         targets[entry.first] = t;
     }
-    const auto problems = checkPointMapping(mapping, targets, std::string());
+    auto problems = checkPointMapping(mapping, targets, std::string());
+    for (auto& p : checkPointMappingCluster(mapping, router_.emsClusterConfig())) problems.push_back(std::move(p));
     if (!problems.empty()) {
         std::string message = "point mapping " + config_.pointMappingFile + " does not match the point tables:";
         for (std::size_t i = 0; i < problems.size() && i < 5; ++i) message += " [" + problems[i].rule + "] " + problems[i].message;

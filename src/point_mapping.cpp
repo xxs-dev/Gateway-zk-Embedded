@@ -13,6 +13,10 @@ namespace edge_gateway {
 
 namespace {
 
+// Time settings are milliseconds up to one day: larger values would overflow now + timeout (undefined behaviour).
+const double kMaxMappingMs = 86400000.0;
+
+
 using json::JsonValue;
 
 std::string where(std::size_t i, const std::string& name) {
@@ -104,7 +108,7 @@ PointMappingEntry parseEntry(const JsonValue& e) {
         if (!validity->isObject()) throw std::invalid_argument("validity must be an object");
         double t = 0;
         if (number(*validity, "timeoutMs", &t)) {
-            if (t < 0) throw std::invalid_argument("validity.timeoutMs must be >= 0");
+            if (!(t >= 0 && t <= kMaxMappingMs)) throw std::invalid_argument("validity.timeoutMs must be 0..86400000");
             m.validityTimeoutMs = static_cast<std::int64_t>(t);
         }
     }
@@ -118,7 +122,7 @@ PointMappingEntry parseEntry(const JsonValue& e) {
         if (m.deadband < 0) throw std::invalid_argument("write.deadband must be >= 0");
         double refresh = 0;
         if (number(*write, "refreshMs", &refresh)) {
-            if (refresh < 0) throw std::invalid_argument("write.refreshMs must be >= 0");
+            if (!(refresh >= 0 && refresh <= kMaxMappingMs)) throw std::invalid_argument("write.refreshMs must be 0..86400000");
             m.refreshMs = static_cast<std::int64_t>(refresh);
         }
         const auto* rb = write->find("readback");
@@ -128,7 +132,7 @@ PointMappingEntry parseEntry(const JsonValue& e) {
         if (m.readbackTolerance < 0) throw std::invalid_argument("write.readback.tolerance must be >= 0");
         double timeout = 0;
         if (number(*rb, "timeoutMs", &timeout)) {
-            if (timeout <= 0) throw std::invalid_argument("write.readback.timeoutMs must be > 0");
+            if (!(timeout > 0 && timeout <= kMaxMappingMs)) throw std::invalid_argument("write.readback.timeoutMs must be 1..86400000");
             m.readbackTimeoutMs = static_cast<std::int64_t>(timeout);
         }
     } else if (write) {
@@ -182,6 +186,26 @@ PointMappingTargets pointMappingTargets(const std::vector<DeviceConfig>& devices
         for (const auto& p : d.points) add(d, d.meterCode, p);
     }
     return out;
+}
+
+std::vector<PointMappingProblem> checkPointMappingCluster(const PointMapping& mapping, const EmsClusterConfig& cluster) {
+    std::vector<PointMappingProblem> problems;
+    if (!cluster.enabled || !cluster.controlEnabled) return problems;
+    for (std::size_t i = 0; i < mapping.entries.size(); ++i) {
+        const auto& e = mapping.entries[i];
+        if (!e.output) continue;
+        for (const auto& s : e.sources) {
+            const bool controlled = cluster.controlTargetIndexes.empty() ||
+                std::find(cluster.controlTargetIndexes.begin(), cluster.controlTargetIndexes.end(), s.index) != cluster.controlTargetIndexes.end();
+            if (!controlled) continue;
+            problems.push_back(PointMappingProblem{
+                "mapping.cluster",
+                where(i, e.virtualName) + ": device point " + std::to_string(s.index) +
+                    " is an emsCluster control target; the mapping carries no cluster authority, so cluster-controlled targets "
+                    "cannot be written through it (turn cluster control off or leave this point out of the mapping)"});
+        }
+    }
+    return problems;
 }
 
 std::vector<PointMappingProblem> checkPointMapping(const PointMapping& mapping, const PointMappingTargets& targets,

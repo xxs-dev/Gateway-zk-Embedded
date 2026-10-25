@@ -61,7 +61,9 @@ bool clusterAuthorizationRequired(const EmsClusterConfig& config, const PendingW
         return false;
     }
     return static_cast<bool>(command.clusterAuthorization) ||
-        (config.enabled && config.controlEnabled && command.source == "graph-ems" &&
+        // The point mapping writes device points on behalf of the graph: same rule (it never carries a token, so
+        // ComputeEngine also refuses mappings to control targets at load time; this keeps the drivers fail-closed).
+        (config.enabled && config.controlEnabled && (command.source == "graph-ems" || command.source == "point-mapping") &&
          (config.controlTargetIndexes.empty() || contains(config.controlTargetIndexes, command.index)));
 }
 

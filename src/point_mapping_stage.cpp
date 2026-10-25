@@ -159,38 +159,51 @@ PointMappingRunResult PointMappingStage::runOutputs(std::int64_t nowMs, std::siz
         if (!e.output) continue;
         auto& s = states_[i];
         const auto& target = e.sources.front();
-        // Verify the last command: driver write result, then the readback point within tolerance.
+        // Verify the current cycle: a failed driver write fails it at once; otherwise a readback sampled after the
+        // cycle's first write and within tolerance confirms it (an older sample proves nothing). The deadline is fixed
+        // when the cycle starts, so a graph that keeps commanding the same value cannot postpone a timeout.
         if (!s.cmdId.empty()) {
             const auto route = router_.routeByIndex(target.index);
             const auto wb = route ? router_.getWritebackResult(*route, s.cmdId) : Optional<WritebackResultRecord>();
             std::string reason;
             const auto rb = router_.getLatestByIndex(e.readback.index, nowMs);
+            const bool confirmed = sourceValid(rb, nowMs, 0, &reason) && rb->ts > s.verifyStartedAt &&
+                std::fabs(rb->value - s.sentValue) <= e.readbackTolerance;
             if (wb && !wb->success) {
                 ++s.verifyFailures;
                 setState(s, e, "writeback-failed", wb->message);
                 s.cmdId.clear();
-            } else if (sourceValid(rb, nowMs, 0, &reason) && std::fabs(rb->value - s.sentValue) <= e.readbackTolerance) {
-                setState(s, e, "ok", std::string());
-                s.cmdId.clear();
+                s.verifyConfirmed = false;
+            } else if (confirmed || s.verifyConfirmed) {
+                if (!s.verifyConfirmed) {
+                    s.verifyConfirmed = true;
+                    if (s.state != "ok") setState(s, e, "ok", std::string());
+                }
+                // Done once the driver reported success; a driver that records no result is released at the deadline.
+                if (wb || nowMs > s.verifyDeadline) {
+                    s.cmdId.clear();
+                    s.verifyConfirmed = false;
+                }
             } else if (nowMs > s.verifyDeadline) {
                 ++s.verifyFailures;
                 setState(s, e, "readback-timeout",
                          "readback " + e.readback.pointCode + (rb ? " = " + num(rb->value) : std::string(" has no valid value")) + ", expected " + num(s.sentValue) +
-                             " +/- " + num(e.readbackTolerance));
+                             " +/- " + num(e.readbackTolerance) + " after the write");
                 s.cmdId.clear();
             }
         }
-        // After a verified write keep watching the readback: a device that went offline (readback invalid) or was
-        // changed locally (readback no longer the sent value) must not stay "ok".
-        if (s.cmdId.empty() && s.sent && e.readback.index != 0 &&
-            (s.state == "ok" || s.state == "readback-lost" || s.state == "readback-mismatch")) {
+        // Between cycles keep watching the readback: a device that went offline (readback invalid) or was changed
+        // locally (readback no longer the sent value) must not stay "ok"; a timed-out one that is back in sync is ok.
+        if ((s.cmdId.empty() || s.verifyConfirmed) && s.sent && e.readback.index != 0 &&
+            (s.state == "ok" || s.state == "readback-lost" || s.state == "readback-mismatch" || s.state == "readback-timeout")) {
             std::string reason;
             const auto rb = router_.getLatestByIndex(e.readback.index, nowMs);
             if (!sourceValid(rb, nowMs, 0, &reason)) {
-                if (s.state != "readback-lost") setState(s, e, "readback-lost", "readback " + e.readback.pointCode + ": " + reason);
+                if (s.state != "readback-lost" && s.state != "readback-timeout")
+                    setState(s, e, "readback-lost", "readback " + e.readback.pointCode + ": " + reason);
             } else if (std::fabs(rb->value - s.sentValue) <= e.readbackTolerance) {
-                if (s.state != "ok") setState(s, e, "ok", std::string());
-            } else if (s.state != "readback-mismatch") {
+                if (s.state != "ok" && rb->ts > s.sentAt) setState(s, e, "ok", std::string());
+            } else if (s.state != "readback-mismatch" && s.state != "readback-timeout") {
                 setState(s, e, "readback-mismatch",
                          "readback " + e.readback.pointCode + " = " + num(rb->value) + ", last sent " + num(s.sentValue) + " +/- " + num(e.readbackTolerance));
             }
@@ -252,16 +265,24 @@ PointMappingRunResult PointMappingStage::runOutputs(std::int64_t nowMs, std::siz
         }
         ++result.deviceWrites;
         // A device point that cannot be read (write-only register) is rewritten on every commanded scan, as a direct
-        // controlWrite did. Repeating a value whose readback is already confirmed keeps "ok"; the new write is still
-        // verified and a failed verification changes the state.
-        const bool repeat = s.sent && s.state == "ok" && std::fabs(device - s.sentValue) <= std::max(e.deadband, 1e-9);
+        // controlWrite did. The same value written again joins the running verification cycle (same start and
+        // deadline); a new value, or the first write after a finished cycle, starts a new one. Repeating a value
+        // whose readback is confirmed keeps showing "ok" while the new cycle runs; its failure still changes the state.
+        const bool sameValue = s.sent && std::fabs(device - s.sentValue) <= std::max(e.deadband, 1e-9);
+        const bool joinCycle = sameValue && !s.cmdId.empty();
         s.sent = true;
         s.sentValue = device;
         s.sentAt = nowMs;
         s.commandValue = command->value;
         s.cmdId = cmd.cmdId;
-        s.verifyDeadline = nowMs + e.readbackTimeoutMs;
-        if (!repeat) setState(s, e, "verifying", std::string());
+        if (!joinCycle) {
+            s.verifyStartedAt = nowMs;
+            s.verifyDeadline = nowMs + e.readbackTimeoutMs;
+            s.verifyConfirmed = false;
+        }
+        // Resending the same value keeps what the last verification found (ok, or the failure) visible until this
+        // cycle decides; only a new value shows "verifying".
+        if (!sameValue || s.state == "idle" || s.state == "no-command") setState(s, e, "verifying", std::string());
     }
     return result;
 }

@@ -46,8 +46,10 @@ private:
         bool sent = false;
         double sentValue = 0.0;
         std::int64_t sentAt = 0;
-        std::string cmdId;
-        std::int64_t verifyDeadline = 0;
+        std::string cmdId;              // latest write of the verification cycle still waiting for its result
+        std::int64_t verifyStartedAt = 0;  // first write of the cycle: the readback must be newer than this
+        std::int64_t verifyDeadline = 0;   // set when the cycle starts; repeats of the same value never move it
+        bool verifyConfirmed = false;      // readback confirmed, still watching the driver's write result
         double commandValue = 0.0;  // last command the graph published (EMS value)
         std::int64_t commandAt = 0;
         std::uint64_t verifyFailures = 0;

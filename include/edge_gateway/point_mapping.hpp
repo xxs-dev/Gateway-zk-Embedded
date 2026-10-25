@@ -79,7 +79,7 @@ struct PointMappingTarget {
 using PointMappingTargets = std::unordered_map<std::uint32_t, PointMappingTarget>;
 
 struct PointMappingProblem {
-    std::string rule;  // mapping.format / mapping.points / mapping.write / mapping.enum / mapping.graphWrites
+    std::string rule;  // mapping.format / mapping.points / mapping.write / mapping.enum / mapping.graphWrites / mapping.cluster
     std::string message;
 };
 
@@ -93,6 +93,10 @@ PointMappingTargets pointMappingTargets(const std::vector<DeviceConfig>& devices
 // one entry per virtual point and per output device point.
 std::vector<PointMappingProblem> checkPointMapping(const PointMapping& mapping, const PointMappingTargets& targets,
                                                    const std::string& machineCode);
+
+// Cluster control (emsCluster.controlEnabled): every control target needs a live cluster authority token on each
+// write, which only the strategy graph's own controlWrite carries. Output mappings to those targets are refused.
+std::vector<PointMappingProblem> checkPointMappingCluster(const PointMapping& mapping, const EmsClusterConfig& cluster);
 
 // Device points a strategy graph writes directly (enabled controlWrite with submitWrites, pcsWriteback).
 struct GraphDeviceWrite {
