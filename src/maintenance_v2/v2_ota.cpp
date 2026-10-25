@@ -8,6 +8,7 @@
 #include "v2_state.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <cctype>
 #include <chrono>
 #include <iostream>
@@ -141,6 +142,14 @@ void OtaStore::pruneUploads() const {
             continue;
         }
         if (std::find(inUse.begin(), inUse.end(), id) == inUse.end()) removeFile(path);
+    }
+}
+
+void OtaStore::pruneStalePartials() const {
+    FileLock uploading(uploadsDir() + "/upload.lock", false);
+    if (!uploading.locked()) return;  // an upload is writing its partial file right now
+    for (const auto& name : listDirectory(uploadsDir())) {
+        if (name.find(".part") != std::string::npos) removeFile(uploadsDir() + "/" + name);
     }
 }
 
@@ -299,9 +308,16 @@ OtaJobView OtaStore::view(const OtaConfig& ota, const OtaJobRecord& job) const {
         v.healthKnown = true;
         v.healthOk = true;
     } else if (last.stage == "failed") {
-        v.stage = "failed";
-        v.progress = 100;
-        if (v.intent) v.message += " (the OTA service could not prove the device unchanged: recovery is needed before the next upgrade)";
+        if (v.intent) {
+            // OtaService persisted its intent and has not resolved it (no final marker yet): the device may still be
+            // changing, so this is not a final result. The job stays open until the OTA service decides.
+            v.stage = "applying";
+            v.progress = 80;
+            v.message += " (the OTA service has not resolved this job yet; waiting for its result before the next upgrade)";
+        } else {
+            v.stage = "failed";
+            v.progress = 100;
+        }
         if (isRegularFile(staging + "/ota-in-progress")) v.message += " (ota-in-progress marker present)";
     }
     return v;
@@ -338,8 +354,16 @@ int runOtaHelper(const DirectConfig& config, const Options& options, const std::
         std::cerr << "ota helper: unknown job " << jobId << std::endl;
         return 2;
     }
-    FileLock lock(store.jobDirectory(jobId) + "/lock", false);
-    if (!lock.locked()) return 0;  // another helper owns the job
+    // Status probes (GET /ota/jobs/{id}, housekeeping) take the job lock for an instant: wait a little before
+    // concluding that another helper owns the job.
+    std::unique_ptr<FileLock> lock;
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        lock.reset(new FileLock(store.jobDirectory(jobId) + "/lock", false));
+        if (lock->locked()) break;
+        lock.reset();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (!lock) return 0;  // another helper owns the job
     OtaConfig ota;
     std::string error;
     if (!loadOtaConfig(config, &ota, &error)) {

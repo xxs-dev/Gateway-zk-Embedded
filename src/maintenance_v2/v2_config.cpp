@@ -13,6 +13,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <thread>
 
 namespace edge_gateway {
@@ -74,6 +75,41 @@ void fail(FilePlan* plan, const std::string& rule, const std::string& message) {
     plan->checks.push_back(c);
 }
 
+// The maintenance channel's own access and security settings (systemMonitor.directMaintenance except maxRealtimePoints,
+// and the legacy keys directly under systemMonitor) as one comparable string; "" when the text is not JSON.
+std::string channelSettings(const std::string& text) {
+    try {
+        const auto root = parseJson(text);
+        const auto* monitor = root.find("systemMonitor");
+        if (monitor == nullptr || !monitor->isObject()) return "{}";
+        auto form = [](const JsonValue& v) {
+            try {
+                return canonicalJson(v);  // key order does not matter
+            } catch (...) {
+                return toJson(v);  // non-integer numbers: compare as written
+            }
+        };
+        // maxRealtimePoints is a load limit, not an access or security setting: it may change.
+        std::map<std::string, std::string> settings;
+        const auto* block = monitor->find("directMaintenance");
+        if (block != nullptr && block->isObject()) {
+            for (const auto& m : block->asObject().values) {
+                if (m.key != "maxRealtimePoints") settings["directMaintenance." + m.key] = form(*m.value);
+            }
+        } else if (block != nullptr) {
+            settings["directMaintenance"] = form(*block);
+        }
+        for (const char* key : {"listenHost", "listenHosts", "listenPort", "allowedClientCidrs"}) {
+            if (const auto* v = monitor->find(key)) settings[key] = form(*v);
+        }
+        std::string out;
+        for (const auto& kv : settings) out += kv.first + "=" + kv.second + "\n";
+        return out.empty() ? std::string("{}") : out;
+    } catch (...) {
+        return std::string();
+    }
+}
+
 FilePlan planFile(const DirectConfig& config, const JsonValue& item) {
     FilePlan plan;
     plan.file.path = str(item, "path");
@@ -123,6 +159,19 @@ FilePlan planFile(const DirectConfig& config, const JsonValue& item) {
         }
         if (content.find(system_monitor_config_safety::kRedactedSecret) != std::string::npos) {
             fail(&plan, "secrets.restore", "a redacted placeholder has no value on the device");
+            return plan;
+        }
+    }
+    // A push must not change how the channel itself is reached or secured (allowed clients, v1 read-only, fixed
+    // password, credential file, limits): one ticket for SystemMonitor's app config could otherwise switch the
+    // protections off for good. Those settings are changed on the device.
+    if (path == config.appConfigFile) {
+        const auto before = channelSettings(current);
+        const auto after = channelSettings(content);
+        if (before.empty() || after.empty() || before != after) {
+            fail(&plan, "maintenance.settings",
+                 "systemMonitor.directMaintenance (the maintenance channel's own access and security settings) cannot be changed "
+                 "through the maintenance channel; change it on the device");
             return plan;
         }
     }
@@ -277,7 +326,7 @@ FilePlan planDelete(const DirectConfig& config, const std::string& path, const s
 Response Service::configApply(const Request& r) {
     JsonValue body;
     try {
-        body = parseJson(r.body, 2000000);
+        body = parseJson(r.body, 20000);  // file contents are strings: a real request has a few nodes per file
     } catch (const std::exception& ex) {
         return errorResponse(400, "validation_failed", ex.what());
     }
@@ -381,8 +430,16 @@ Response Service::configApply(const Request& r) {
     }
 
     std::lock_guard<std::mutex> lock(configMutex_);
-    Transaction active;
-    if (txs_.findActive(&active)) return errorResponse(409, "apply_in_progress", "transaction " + active.id + " is still " + active.state);
+    {
+        // Two copies of the same request racing past the first lookup: the second one replays the first.
+        Transaction existing;
+        if (txs_.findByRequestId(requestId, &existing)) {
+            const auto again = checkTicket(r, "config.apply", 3, paths, {}, existing.ticketId, false);
+            if (!again.ok) return errorResponse(403, again.code, again.message);
+            return replayedResponse(existing, requestId);
+        }
+    }
+    if (const auto busy = servicesBusy()) return *busy;
     const auto verdict = checkTicket(r, "config.apply", 3, paths, {}, std::string(), true);  // consumes a one-time ticket
     if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
     std::vector<PlannedFile> files;
@@ -487,8 +544,15 @@ Response Service::configDelete(const Request& r) {
         return jsonResponse(dryRun ? 200 : 400, w.text());
     }
     std::lock_guard<std::mutex> lock(configMutex_);
-    Transaction active;
-    if (txs_.findActive(&active)) return errorResponse(409, "apply_in_progress", "transaction " + active.id + " is still " + active.state);
+    {
+        Transaction existing;
+        if (txs_.findByRequestId(requestId, &existing)) {
+            const auto again = checkTicket(r, "config.delete", 3, paths, {}, existing.ticketId, false);
+            if (!again.ok) return errorResponse(403, again.code, again.message);
+            return replayedResponse(existing, requestId);
+        }
+    }
+    if (const auto busy = servicesBusy()) return *busy;
     const auto verdict = checkTicket(r, "config.delete", 3, paths, {}, std::string(), true);
     if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
     std::vector<PlannedFile> files;
@@ -538,6 +602,8 @@ Response Service::configRestore(const Request& r) {
     const auto reason = str(body, "reason", "client restore");
     Transaction tx;
     if (!txs_.load(id, &tx)) return errorResponse(404, "transaction_not_found", "no transaction " + id);
+    // Already rolled back: nothing to do and no ticket spent (the state is readable with the session anyway).
+    if (tx.state == "rolled-back") return jsonResponse(200, transactionJson(tx));
     std::vector<std::string> paths;
     for (const auto& f : tx.files) paths.push_back(f.path);
     std::string abortRequestId;
@@ -546,44 +612,72 @@ Response Service::configRestore(const Request& r) {
     bool resend = !requestId.empty() && tx.restoreRequestId == requestId;
     std::string boundTicket = tx.restoreTicketId;
     if (!resend && aborting && !requestId.empty() && abortRequestId == requestId) {
-        resend = true;  // resent while the helper is still rolling back
+        resend = true;  // resent while the helper is still rolling back (or after it committed regardless)
         boundTicket = abortTicketId;
     }
     const auto verdict = checkTicket(r, "config.restore", 3, paths, {}, resend ? boundTicket : std::string(), !resend);
     if (!verdict.ok) return errorResponse(403, verdict.code, verdict.message);
-    if (tx.state == "rolled-back" || (resend && tx.finished())) return jsonResponse(200, transactionJson(tx));
+    if (resend && tx.state == "failed") return jsonResponse(200, transactionJson(tx));
 
     std::lock_guard<std::mutex> lock(configMutex_);
-    if (!tx.finished()) {
+    if (!txs_.load(id, &tx)) return errorResponse(404, "transaction_not_found", "no transaction " + id);
+    if (!tx.finished() && tx.state != "restoring") {
         // In progress: the helper rolls back at its next step (it polls the abort marker).
         // Answer within the client's request timeout; an unfinished state means "poll the transaction".
-        if (!aborting) txs_.requestAbort(id, reason, requestId, verdict.ticket.ticketId);
+        if (!aborting && !txs_.requestAbort(id, reason, requestId, verdict.ticket.ticketId)) {
+            return errorResponse(500, "internal_error", "cannot record the restore request on the device (disk full?)");
+        }
         const auto deadline = nowMs() + 5000;
         bool helperGone = false;
         while (nowMs() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             if (txs_.load(id, &tx) && tx.finished()) break;
-            if (nowMs() - tx.updatedAt > 15000 && !txs_.helperRunning(id)) {
+            if (transactionStale(tx, 15000) && !txs_.helperRunning(id)) {
                 helperGone = true;  // helper died: restore here
                 break;
             }
         }
-        if (tx.finished() || !helperGone) return jsonResponse(tx.finished() ? 200 : 202, transactionJson(tx));
+        if (!tx.finished() && !helperGone) return jsonResponse(202, transactionJson(tx));
+        if (tx.finished() && tx.state != "committed") return jsonResponse(200, transactionJson(tx));
+        // committed: the helper finished before it saw the abort; restore that commit below.
     }
-    // committed, failed, or in progress without a live helper: restore here under the transaction lock.
+    if (tx.state == "failed") return jsonResponse(200, transactionJson(tx));
+    // committed (or in progress without a live helper): restore here under the transaction lock.
+    {
+        Transaction other;
+        if (txs_.findActive(&other) && other.id != id) {
+            return errorResponse(409, "apply_in_progress", "transaction " + other.id + " is still " + other.state);
+        }
+        std::string otaId;
+        if (otaJobUnfinished(&otaId)) return errorResponse(409, "ota_in_progress", "OTA job " + otaId + " has not finished");
+    }
+    if (system_monitor_config_safety::requiresProductionConfigTransaction(config_.identityConfigFile)) {
+        return errorResponse(409, "production_runtime_locked",
+                             "journal-owned production runtime: config changes go through the provision journal, not direct maintenance");
+    }
     FileLock txLock(txs_.directory(id) + "/lock", false);
-    if (!txLock.locked()) return jsonResponse(200, transactionJson(tx));  // helper still finishing; client polls / retries
+    if (!txLock.locked()) return jsonResponse(202, transactionJson(tx));  // helper still finishing; client polls / retries
     if (!txs_.load(id, &tx)) return errorResponse(404, "transaction_not_found", "no transaction " + id);
-    if (tx.state == "rolled-back") return jsonResponse(200, transactionJson(tx));
-    for (const auto& f : tx.files) {
-        if (!f.written) continue;
-        const auto sha = currentSha(f.path);
-        if (sha != f.afterSha256) {
-            return errorResponse(409, "restore_conflict", f.path + " changed after this transaction; restore would overwrite newer content");
+    if (tx.state == "rolled-back" || tx.state == "failed") return jsonResponse(200, transactionJson(tx));
+    if (tx.state != "restoring") {
+        for (const auto& f : tx.files) {
+            if (!f.written) continue;
+            const auto sha = currentSha(f.path);
+            // the content this transaction wrote, or already the content from before it (an interrupted restore)
+            if (sha != f.afterSha256 && sha != f.beforeSha256) {
+                return errorResponse(409, "restore_conflict", f.path + " changed after this transaction; restore would overwrite newer content");
+            }
         }
     }
+    // Journal the restore before touching any file: a power loss part-way leaves "restoring", which recovery finishes.
+    tx.state = "restoring";
+    tx.message = "restoring the files from before this transaction";
     tx.restoreRequestId = requestId;
     tx.restoreTicketId = verdict.ticket.ticketId;
+    tx.rollbackReason = "restored by client: " + reason;
+    tx.updatedAt = nowMs();
+    std::string saveError;
+    if (!txs_.save(tx, &saveError)) return errorResponse(500, "internal_error", "cannot journal the restore: " + saveError);
     TxRunner runner(config_, options_);
     std::string error;
     if (!runner.restoreFiles(&tx, &error)) {
@@ -595,7 +689,6 @@ Response Service::configRestore(const Request& r) {
     }
     tx.state = "rolled-back";
     tx.rollbackPerformed = true;
-    tx.rollbackReason = "restored by client: " + reason;
     tx.message = tx.rollbackReason;
     tx.rollbackServices = tx.restartedServices ? "pending" : "";
     tx.updatedAt = nowMs();
@@ -610,6 +703,27 @@ Response Service::configRestore(const Request& r) {
         }
     }
     return jsonResponse(200, transactionJson(tx));
+}
+
+Response Service::replayedResponse(const Transaction& tx, const std::string& requestId) {
+    Writer w;
+    w.beginObject().fieldBool("success", true).field("transactionId", tx.id).field("state", tx.state).field("requestId", requestId)
+        .fieldBool("replayed", true).endObject();
+    return jsonResponse(202, w.text());
+}
+
+// Config transactions, their service restarts and OTA jobs all restart gateway services: one at a time.
+std::unique_ptr<Response> Service::servicesBusy() {
+    Transaction active;
+    if (txs_.findActive(&active)) {
+        return std::unique_ptr<Response>(new Response(errorResponse(409, "apply_in_progress", "transaction " + active.id + " is still " +
+                                                                                               (active.finished() ? "restarting services" : active.state))));
+    }
+    std::string otaId;
+    if (otaJobUnfinished(&otaId)) {
+        return std::unique_ptr<Response>(new Response(errorResponse(409, "ota_in_progress", "OTA job " + otaId + " has not finished")));
+    }
+    return std::unique_ptr<Response>();
 }
 
 }  // namespace maintenance_v2

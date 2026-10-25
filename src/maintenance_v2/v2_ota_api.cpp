@@ -306,6 +306,14 @@ Response Service::otaJob(const Request& r) {
     }
     FileLock admission(otas_.jobsDir() + "/admission.lock", true);
     if (otas_.loadJob(job.jobId, &existing)) return errorResponse(409, "job_exists", "jobId " + job.jobId + " was already used");
+    // A config transaction (or its service restart) and an OTA job never run at once: both restart gateway services.
+    std::lock_guard<std::mutex> configLock(configMutex_);
+    {
+        Transaction active;
+        if (txs_.findActive(&active)) {
+            return errorResponse(409, "apply_in_progress", "transaction " + active.id + " is still " + (active.finished() ? "restarting services" : active.state));
+        }
+    }
     job.machineCode = machine;
     job.operatorName = verdict.ticket.operatorLabel();
     job.ticketId = verdict.ticket.ticketId;
@@ -353,7 +361,28 @@ Response Service::otaJobStatus(const std::string& id) {
 
 // Jobs whose helper died (power loss, kill): watch the OtaService evidence again, or close out a job that
 // never reached the OTA service; audit terminal results the helper did not get to.
+bool Service::otaJobUnfinished(std::string* jobId) {
+    const auto ids = otas_.jobIds();
+    if (ids.empty()) return false;
+    OtaConfig ota;
+    std::string error;
+    if (!loadOtaConfig(config_, &ota, &error)) return false;
+    for (const auto& id : ids) {
+        OtaJobRecord job;
+        if (!otas_.loadJob(id, &job) || !job.finalStage.empty()) continue;
+        const auto view = otas_.view(ota, job);
+        if (view.terminal()) {
+            otas_.finish(&job, view);
+            continue;
+        }
+        if (jobId) *jobId = id;
+        return true;
+    }
+    return false;
+}
+
 void Service::otaHousekeeping() {
+    otas_.pruneStalePartials();
     const auto ids = otas_.jobIds();
     if (ids.empty()) return;
     OtaConfig ota;

@@ -12,10 +12,12 @@
 #include <cctype>
 #include <chrono>
 #include <ctime>
+#include <fstream>
 #include <iostream>
 #include <thread>
 
 #ifndef _WIN32
+#include <time.h>
 #include <unistd.h>
 #endif
 
@@ -40,6 +42,25 @@ std::string trim(const std::string& s) {
     while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
     while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
     return s.substr(b, e - b);
+}
+
+std::string currentBootId() {
+    static const std::string id = [] {
+        std::ifstream in("/proc/sys/kernel/random/boot_id");
+        std::string line;
+        std::getline(in, line);
+        return trim(line);
+    }();
+    return id;
+}
+
+// Monotonic milliseconds including suspend (CLOCK_BOOTTIME); steady_clock elsewhere.
+std::int64_t monoNowMs() {
+#if defined(CLOCK_BOOTTIME)
+    timespec ts {};
+    if (::clock_gettime(CLOCK_BOOTTIME, &ts) == 0) return static_cast<std::int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+#endif
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 std::string homeFromConfig(const DirectConfig& config) {
@@ -120,6 +141,7 @@ std::string internalJson(const Transaction& tx) {
     writeStrings(w, "healthFailed", tx.rollbackHealthFailed);
     w.endObject();
     w.field("restoreRequestId", tx.restoreRequestId).field("restoreTicketId", tx.restoreTicketId);
+    w.field("bootId", currentBootId()).fieldInt("monoMs", monoNowMs());
     w.endObject();
     return w.text();
 }
@@ -181,6 +203,8 @@ bool parseInternal(const std::string& text, Transaction* tx) {
         }
         tx->restoreRequestId = str(v, "restoreRequestId");
         tx->restoreTicketId = str(v, "restoreTicketId");
+        tx->savedBootId = str(v, "bootId");
+        integer(v, "monoMs", &tx->savedMonoMs);
         return !tx->id.empty() && !tx->state.empty();
     } catch (...) {
         return false;
@@ -194,6 +218,16 @@ std::string sha256OfFile(const std::string& path) {
 }
 
 }  // namespace
+
+bool transactionStale(const Transaction& tx, std::int64_t graceMs) {
+    const auto boot = currentBootId();
+    if (!tx.savedBootId.empty() && !boot.empty()) {
+        if (tx.savedBootId != boot) return true;  // helpers do not survive a reboot
+        return monoNowMs() - tx.savedMonoMs >= graceMs;
+    }
+    const auto delta = nowMs() - tx.updatedAt;  // journal from before this field: wall clock either way round
+    return delta >= graceMs || delta <= -graceMs;
+}
 
 std::string transactionAction(const Transaction& tx) { return tx.operation == "delete" ? "config.delete" : "config.apply"; }
 
@@ -356,7 +390,7 @@ bool TxStore::findByRequestId(const std::string& requestId, Transaction* tx) con
 bool TxStore::findActive(Transaction* tx) const {
     for (const auto& id : ids()) {
         Transaction t;
-        if (load(id, &t) && !t.finished()) {
+        if (load(id, &t) && t.busy()) {
             *tx = t;
             return true;
         }
@@ -438,12 +472,15 @@ bool TxStore::launchHelper(const std::string& id, const std::string& mode, std::
     return spawnDetached(argv, error);
 }
 
-void TxStore::requestAbort(const std::string& id, const std::string& reason, const std::string& requestId, const std::string& ticketId) const {
+bool TxStore::requestAbort(const std::string& id, const std::string& reason, const std::string& requestId, const std::string& ticketId) const {
     Writer w;
     w.beginObject().field("reason", reason.empty() ? std::string("client restore") : reason).field("requestId", requestId).field("ticketId", ticketId).endObject();
     try {
         writeFileAtomic(directory(id) + "/abort", w.text());
-    } catch (...) {
+        return true;
+    } catch (const std::exception& ex) {
+        std::cerr << "maintenance v2: cannot write the abort marker of " << id << ": " << ex.what() << std::endl;
+        return false;
     }
 }
 
@@ -477,15 +514,34 @@ void TxStore::prune(std::size_t keep) const {
     }
 }
 
+int recoverInterruptedTransactions(const TxStore& store) {
+    int open = 0;
+    for (const auto& id : store.ids()) {
+        Transaction tx;
+        if (!store.load(id, &tx)) continue;
+        const bool pendingRestart = tx.state == "rolled-back" && (tx.rollbackServices == "pending" || tx.rollbackServices == "restarting");
+        if (tx.finished() && !pendingRestart) continue;
+        ++open;
+        if (!transactionStale(tx, 15000) || store.helperRunning(id)) continue;
+        std::string error;
+        if (!store.launchHelper(id, pendingRestart ? "restart" : "recover", &error)) {
+            std::cerr << "maintenance v2: cannot recover " << id << ": " << error << std::endl;
+        }
+    }
+    return open;
+}
+
 // ---------------------------------------------------------------- runner
 
 TxRunner::TxRunner(const DirectConfig& config, const Options& options)
     : config_(config), options_(options), store_(config, options), services_(config, options) {}
 
-void TxRunner::save(Transaction* tx) {
+bool TxRunner::save(Transaction* tx) {
     tx->updatedAt = nowMs();
     std::string error;
-    if (!store_.save(*tx, &error)) std::cerr << "maintenance v2: cannot save transaction " << tx->id << ": " << error << std::endl;
+    if (store_.save(*tx, &error)) return true;
+    std::cerr << "maintenance v2: cannot save transaction " << tx->id << ": " << error << std::endl;
+    return false;
 }
 
 void TxRunner::audit(const Transaction& tx, const std::string& action, const std::string& result) {
@@ -514,7 +570,7 @@ bool TxRunner::restoreFiles(Transaction* tx, std::string* error) {
                 std::string content;
                 if (!readFile(dir + "/backup/" + std::to_string(i), &content)) throw std::runtime_error("backup missing for " + f.path);
                 system_monitor_config_safety::writeFileAtomically(f.path, content, true);
-            } else if (!removeFile(f.path)) {
+            } else if (exists(f.path) && !removeFile(f.path)) {  // already gone: an interrupted restore removed it
                 throw std::runtime_error("cannot remove created file " + f.path);
             }
             f.written = false;
@@ -531,8 +587,9 @@ bool TxRunner::restoreFiles(Transaction* tx, std::string* error) {
 bool TxRunner::healthCheck(Transaction* tx, bool rollbackPhase, const std::string& abortId) {
     const auto timeoutMs = static_cast<std::int64_t>(std::max(1, config_.v2.healthTimeoutSec)) * 1000;
     const auto stableMs = static_cast<std::int64_t>(std::max(0, config_.v2.healthStableSec)) * 1000;
-    const auto deadline = nowMs() + timeoutMs;
+    const auto deadline = monoNowMs() + timeoutMs;  // monotonic: an NTP step does not shorten or stretch the check
     std::int64_t stableSince = 0;
+    bool stable = false;
     std::vector<std::string> failed;
     while (true) {
         if (!abortId.empty() && store_.abortRequested(abortId, nullptr)) return false;
@@ -553,17 +610,23 @@ bool TxRunner::healthCheck(Transaction* tx, bool rollbackPhase, const std::strin
             tx->services = states;
             save(tx);
         }
-        const auto now = nowMs();
+        const auto now = monoNowMs();
         if (failed.empty()) {
             if (stableSince == 0) stableSince = now;
-            if (now - stableSince >= stableMs) break;
+            if (now - stableSince >= stableMs) {
+                stable = true;
+                break;
+            }
         } else {
             stableSince = 0;
         }
         if (now >= deadline) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
-    const bool ok = failed.empty();
+    // Healthy only after healthStableSec without a failure: a unit that keeps restarting and happens to be active
+    // at the deadline is not healthy.
+    const bool ok = stable;
+    if (!ok && failed.empty()) failed.push_back("services were not stable for " + std::to_string(stableMs / 1000) + " s within the health timeout");
     if (rollbackPhase) {
         tx->rollbackHealthKnown = true;
         tx->rollbackHealthOk = ok;
@@ -576,8 +639,9 @@ bool TxRunner::healthCheck(Transaction* tx, bool rollbackPhase, const std::strin
     return ok;
 }
 
-void TxRunner::rollback(Transaction* tx, const std::string& reason) {
+void TxRunner::rollback(Transaction* tx, const std::string& reason, bool restartAlways) {
     std::string error;
+    const auto restoredBefore = tx->restoredFiles;
     if (!restoreFiles(tx, &error)) {
         tx->state = "failed";
         tx->rollbackPerformed = true;
@@ -591,10 +655,11 @@ void TxRunner::rollback(Transaction* tx, const std::string& reason) {
     tx->rollbackPerformed = true;
     tx->rollbackReason = reason;
     tx->message = reason + "; restored the backup taken before applying";
-    tx->rollbackServices = tx->restartedServices ? "restarting" : "";
+    const bool restart = tx->restartedServices || (restartAlways && tx->restoredFiles > restoredBefore);
+    tx->rollbackServices = restart ? "restarting" : "";
     save(tx);
     audit(*tx, reason.compare(0, 18, "restored by client") == 0 ? std::string("config.restore") : transactionAction(*tx), "rolled-back");
-    if (!tx->restartedServices) return;
+    if (!restart) return;
     std::string restartError;
     const bool restarted = services_.restart(&restartError);
     const bool healthy = restarted && healthCheck(tx, true, std::string());
@@ -682,7 +747,10 @@ int TxRunner::apply(const std::string& id) {
                 makeDirectories(parentOf(f.path), 0755);
             }
             f.written = true;  // journal before the write: a crash in between restores the backup
-            save(&tx);
+            if (!save(&tx)) {
+                f.written = false;  // not journaled: do not touch the file
+                throw std::runtime_error("cannot journal the write of " + f.path + " (disk full?)");
+            }
             if (f.remove) {
                 if (!removeFile(f.path)) throw std::runtime_error("cannot remove " + f.path);
             } else {
@@ -747,7 +815,8 @@ int TxRunner::restartAfterRestore(const std::string& id) {
     FileLock lock(store_.directory(id) + "/lock", true);
     Transaction tx;
     if (!lock.locked() || !store_.load(id, &tx)) return 2;
-    if (tx.rollbackServices != "pending") return 0;
+    // "restarting": the previous restart helper died (power loss) before it finished.
+    if (tx.rollbackServices != "pending" && tx.rollbackServices != "restarting") return 0;
     tx.rollbackServices = "restarting";
     save(&tx);
     std::string error;
@@ -777,7 +846,12 @@ int TxRunner::recover(const std::string& id) {
         audit(tx, transactionAction(tx), "rolled-back");
         return 0;
     }
-    rollback(&tx, "interrupted (helper stopped during " + tx.state + ")");
+    if (tx.state == "restoring") {
+        // The server was restoring this committed transaction when it stopped: finish the restore.
+        rollback(&tx, tx.rollbackReason.empty() ? std::string("restored by client") : tx.rollbackReason, true);
+        return 0;
+    }
+    rollback(&tx, "interrupted (helper stopped during " + tx.state + ")", true);
     return 0;
 }
 

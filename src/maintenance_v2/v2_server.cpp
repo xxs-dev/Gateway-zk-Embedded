@@ -42,6 +42,7 @@ namespace bridge = system_monitor_direct_maintenance::bridge;
 namespace {
 
 std::atomic<bool> g_running(false);
+std::atomic<bool> g_stopRequested(false);  // never cleared: a stop that comes before run() still ends it
 std::atomic<int> g_active(0);
 
 // Request deadlines. A connection must finish its TLS handshake and send its headers within requestTimeoutMs, and its body
@@ -53,6 +54,47 @@ const std::uint64_t kMinBodyBytesPerSec = 64 * 1024;
 const std::size_t kPublicBodyBytes = 1024 * 1024;
 std::mutex g_deadlineMutex;
 std::map<int, std::chrono::steady_clock::time_point> g_deadlines;
+
+// Connection admission. One client address may hold at most maxConnections - kReservedSlots connections; above
+// maxConnections, kReservedSlots more are accepted but only serve requests that carry a live session, so clients
+// that never log in (or never finish TLS) cannot lock a logged-in engineer out.
+const int kReservedSlots = 2;
+std::mutex g_peerMutex;
+std::map<std::string, int> g_peers;
+// Buffered request bodies held at once (all connections): the per-request limit alone allows maxConnections x
+// maxRequestBytes.
+std::atomic<std::uint64_t> g_bodyBytes(0);
+
+int perPeerLimit(const DirectConfig& config) { return std::max(1, config.v2.maxConnections - kReservedSlots); }
+
+bool admitPeer(const DirectConfig& config, const std::string& ip) {
+    std::lock_guard<std::mutex> lock(g_peerMutex);
+    auto& n = g_peers[ip];
+    if (n >= perPeerLimit(config)) return false;
+    ++n;
+    return true;
+}
+
+void releasePeer(const std::string& ip) {
+    std::lock_guard<std::mutex> lock(g_peerMutex);
+    const auto it = g_peers.find(ip);
+    if (it != g_peers.end() && --it->second <= 0) g_peers.erase(it);
+}
+
+struct BodyBudget {
+    std::uint64_t bytes = 0;
+    bool reserve(std::uint64_t n, std::uint64_t limit) {
+        auto current = g_bodyBytes.load();
+        do {
+            if (current + n > limit) return false;
+        } while (!g_bodyBytes.compare_exchange_weak(current, current + n));
+        bytes = n;
+        return true;
+    }
+    ~BodyBudget() {
+        if (bytes > 0) g_bodyBytes -= bytes;
+    }
+};
 
 void setDeadline(int fd, std::chrono::milliseconds fromNow) {
     std::lock_guard<std::mutex> lock(g_deadlineMutex);
@@ -189,7 +231,7 @@ int readBody(TlsConnection& tls, Request* request, std::string body) {
     return 0;
 }
 
-void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerContext> tlsContext, std::shared_ptr<Service> service) {
+void serveConnection(int fd, std::string clientIp, bool reservedSlot, std::shared_ptr<TlsServerContext> tlsContext, std::shared_ptr<Service> service) {
     const auto& config = service->config();
     timeval timeout {};
     timeout.tv_sec = std::max(1, config.requestTimeoutMs / 1000);
@@ -208,9 +250,13 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
             int rc = readHead(tls, config, &request, &bodyStart);
             Response early;
             bool answered = false;
+            BodyBudget budget;
             if (rc == 0) {
                 const bool upload = request.method == "POST" && request.path == "/api/v2/ota/uploads";
-                if (!Service::isPublic(request.method, request.path) && !service->sessionValid(request)) {
+                if (reservedSlot && !service->sessionValid(request)) {
+                    early = errorResponse(503, "busy", "all connections are in use; log in, or retry shortly");
+                    answered = true;
+                } else if (!Service::isPublic(request.method, request.path) && !service->sessionValid(request)) {
                     // No live session: answer before reading (or buffering) any of the body.
                     early = request.header("authorization").empty() ? errorResponse(401, "token_required", "log in with POST /api/v2/auth/login")
                                                                      : errorResponse(401, "token_expired", "session expired; log in again");
@@ -228,8 +274,12 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
                     }
                 } else {
                     const std::uint64_t limit = Service::isPublic(request.method, request.path) ? kPublicBodyBytes : config.maxRequestBytes;
+                    const std::uint64_t total = std::max<std::uint64_t>(2 * static_cast<std::uint64_t>(config.maxRequestBytes), 4 * kPublicBodyBytes);
                     if (request.contentLength > limit) {
                         rc = 413;
+                    } else if (!budget.reserve(request.contentLength, total)) {
+                        early = errorResponse(503, "busy", "the device is reading other large requests; retry shortly");
+                        answered = true;
                     } else {
                         setDeadline(fd, bodyAllowance(config, request.contentLength));
                         rc = readBody(tls, &request, bodyStart);
@@ -253,7 +303,11 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
                         });
                     }
                 } else {
-                    tls.writeAll(serialize(response));
+                    // One deadline for the whole response: the per-write send timeout alone restarts after every
+                    // partial write, so a client reading a byte at a time could hold the slot indefinitely.
+                    const auto text = serialize(response);
+                    setDeadline(fd, bodyAllowance(config, text.size()));
+                    tls.writeAll(text);
                 }
             }
             tls.shutdown();
@@ -261,6 +315,7 @@ void serveConnection(int fd, std::string clientIp, std::shared_ptr<TlsServerCont
     }
     clearDeadline(fd);
     ::close(fd);
+    releasePeer(clientIp);
     --g_active;
 }
 
@@ -300,8 +355,31 @@ bool openListener(const std::string& host, int port, Listener* out, std::string*
 }  // namespace
 
 void requestStop() {
+    g_stopRequested = true;
     g_running = false;
 }
+
+#ifndef _WIN32
+namespace {
+
+// The server cannot start (disabled, no allowed clients, no TLS material, no address): transactions interrupted
+// before this start must still be rolled back. Keeps relaunching their helpers until none is left.
+int recoverOnly(const DirectConfig& config, const Options& options) {
+    TxStore store(config, options);
+    if (recoverInterruptedTransactions(store) == 0) return 3;
+    std::cerr << "maintenance v2: not serving; recovering interrupted transactions" << std::endl;
+    auto last = std::chrono::steady_clock::now();
+    while (!g_stopRequested) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        if (std::chrono::steady_clock::now() - last < std::chrono::seconds(30)) continue;
+        last = std::chrono::steady_clock::now();
+        if (recoverInterruptedTransactions(store) == 0) break;
+    }
+    return 3;
+}
+
+}  // namespace
+#endif
 
 int run(const DirectConfig& config, const Options& options) {
 #ifdef _WIN32
@@ -309,21 +387,21 @@ int run(const DirectConfig& config, const Options& options) {
     (void)options;
     return 3;
 #else
-    if (!config.v2.enabled) return 3;
+    if (!config.v2.enabled) return recoverOnly(config, options);
     if (config.allowedClientCidrs.empty() && !config.allowAnyClient) {
         std::cerr << "maintenance v2: allowedClientCidrs is empty; not starting" << std::endl;
-        return 3;
+        return recoverOnly(config, options);
     }
     auto& crypto = Crypto::instance();
     if (!crypto.tlsAvailable()) {
         std::cerr << "maintenance v2: OpenSSL not usable (" << crypto.error() << "); not starting" << std::endl;
-        return 3;
+        return recoverOnly(config, options);
     }
     auto tls = std::make_shared<TlsServerContext>();
     std::string error;
     if (!tls->load(certFile(options), keyFile(options), &error)) {
         std::cerr << "maintenance v2: " << error << " (run SystemMonitor --init-maintenance-tls); not starting" << std::endl;
-        return 3;
+        return recoverOnly(config, options);
     }
     const auto fingerprint = certificateFingerprint(readFileOr(certFile(options)));
     try {
@@ -346,7 +424,7 @@ int run(const DirectConfig& config, const Options& options) {
     }
     if (listeners.empty()) {
         std::cerr << "maintenance v2: no listen address could be bound; not starting" << std::endl;
-        return 3;
+        return recoverOnly(config, options);
     }
     auto service = std::make_shared<Service>(config, options, fingerprint);
     g_running = true;
@@ -380,15 +458,22 @@ int run(const DirectConfig& config, const Options& options) {
             if (fd < 0) continue;
             char ip[INET_ADDRSTRLEN] = {0};
             ::inet_ntop(AF_INET, &client.sin_addr, ip, sizeof(ip));
-            if (!bridge::clientAllowed(config, ntohl(client.sin_addr.s_addr)) || g_active.load() >= config.v2.maxConnections) {
+            const int active = g_active.load();
+            if (!bridge::clientAllowed(config, ntohl(client.sin_addr.s_addr)) || active >= config.v2.maxConnections + kReservedSlots) {
+                ::close(fd);
+                continue;
+            }
+            const std::string peer(ip);
+            if (!admitPeer(config, peer)) {
                 ::close(fd);
                 continue;
             }
             ++g_active;
             try {
-                std::thread(serveConnection, fd, std::string(ip), tls, service).detach();
+                std::thread(serveConnection, fd, peer, active >= config.v2.maxConnections, tls, service).detach();
             } catch (...) {
                 --g_active;
+                releasePeer(peer);
                 ::close(fd);
             }
         }

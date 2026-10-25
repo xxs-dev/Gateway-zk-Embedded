@@ -120,7 +120,7 @@ bool journalLine(const std::string& raw, Writer* w, std::int64_t* tsOut) {
     if (raw.empty() || raw[0] != '{') return false;
     JsonValue v;
     try {
-        v = parseJson(raw, 64);
+        v = parseJson(raw, 4096);  // byte-array MESSAGE fields and many-field records are still one record
     } catch (...) {
         return false;
     }

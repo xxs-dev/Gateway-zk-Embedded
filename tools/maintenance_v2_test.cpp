@@ -633,6 +633,154 @@ void testDebugMode() {
     check(!resurrected, "touch racing with exit never writes the active mode back");
 }
 
+
+// Review 2026-10-25: audit chain after a torn line / a cut multi-byte character, refusals carrying who tried,
+// health stability at the deadline, recovery restarting services, journaled restore, staleness, idle debug mode.
+void testReviewFixes() {
+    {
+        const auto dir = tempDir("audit-torn");
+        const auto file = dir + "/audit.jsonl";
+        AuditLog log(file);
+        AuditEntry e;
+        e.action = "config.apply";
+        e.result = "accepted";
+        check(log.append(e) && log.append(e), "two entries");
+        // power loss in the middle of the third line
+        std::ofstream(file.c_str(), std::ios::app | std::ios::binary) << "{\"action\":\"config.apply\",\"hash\":\"ab";
+        AuditEntry next;
+        next.action = "debug.exit";
+        next.target = std::string(1999, 'a') + "\xe4\xb8\xad\xe4\xb8\xad";  // cut at 2000 bytes would split a character
+        next.clientIp = "10.1.2.3";
+        check(log.append(next), "append after a torn line");
+        const auto entries = log.since(0, 100);
+        check(entries.size() == 3 && entries[2].seq == 3 && entries[2].prevHash == entries[1].hash,
+              "the chain continues from the last valid entry (no restart at seq 1)");
+        check(entries.size() == 3 && entries[2].target.size() == 1999 && entries[2].clientIp == "10.1.2.3" &&
+                  AuditLog::hashOf(entries[2]) == entries[2].hash,
+              "target cut on a character boundary, client address kept, hash recomputes");
+        check(log.since(2, 100).size() == 1, "readers tracking sinceSeq still see the new entry");
+        AuditEntry plain;
+        plain.action = "x";
+        check(AuditLog::toJson(plain, false).find("clientIp") == std::string::npos, "no clientIp field when empty (old entries hash the same)");
+    }
+    {
+        // a refused but correctly signed ticket keeps who presented it (vector file: "expired" is signed)
+        std::string text;
+        readFile(testdataDir() + "/maintenance-v2-ticket-vectors.json", &text);
+        const auto root = parseJson(text, 1000000);
+        std::vector<TrustedKey> keys;
+        for (const auto& k : root.find("platformKeys")->asArray().values) {
+            TrustedKey key;
+            key.keyId = str(*k, "keyId");
+            base64Decode(str(*k, "publicKeyBase64"), &key.publicKey);
+            keys.push_back(key);
+        }
+        bool seen = false;
+        for (const auto& v : root.find("vectors")->asArray().values) {
+            if (str(*v, "expect") != "reject:expired") continue;
+            const auto* device = v->find("device");
+            TicketRequirement req;
+            req.machineCode = str(*device, "machineCode");
+            integer(*device, "nowMs", &req.nowMs);
+            req.action = str(*device, "action");
+            std::int64_t level = 0;
+            integer(*device, "level", &level);
+            req.level = static_cast<int>(level);
+            req.paths = strings(*device, "paths");
+            const auto verdict = verifyTicket(str(*v, "ticket"), keys, req);
+            seen = !verdict.ok && verdict.code == "expired" && !verdict.ticket.ticketId.empty();
+        }
+        check(seen, "a refused signed ticket carries its ticketId for the audit record");
+    }
+    {
+        // stableSec longer than the timeout: always active, never stable long enough -> not committed
+        auto f = makeTxFixture("tx-stable");
+        f.config.v2.healthTimeoutSec = 2;
+        f.config.v2.healthStableSec = 4;
+        TxStore store(f.config, f.options);
+        const auto graph = f.runtime + "/logic/graph.json";
+        auto tx = store.create("REQ-S", "op", "u-1", "FT-S", "test", {plan(graph, "{\"version\":7}\n")});
+        TxRunner runner(f.config, f.options);
+        runner.apply(tx.id);
+        Transaction found;
+        check(store.load(tx.id, &found) && found.state == "rolled-back" && readFileOr(graph) == "{\"version\":1}\n",
+              "active at the deadline but never stable for healthStableSec: rolled back, not committed (" + found.state + ")");
+    }
+    {
+        // helper died while writing (services never restarted by the transaction): recovery restores and restarts
+        auto f = makeTxFixture("tx-applying");
+        TxStore store(f.config, f.options);
+        const auto graph = f.runtime + "/logic/graph.json";
+        auto tx = store.create("REQ-A", "op", "u-1", "FT-A", "test", {plan(graph, "{\"version\":8}\n")});
+        writeText(store.directory(tx.id) + "/backup/0", "{\"version\":1}\n", 0600);
+        writeText(graph, "{\"version\":8}\n");
+        Transaction t;
+        store.load(tx.id, &t);
+        t.state = "applying";
+        t.files[0].written = true;
+        store.save(t);
+        TxRunner runner(f.config, f.options);
+        runner.recover(tx.id);
+        Transaction found;
+        check(store.load(tx.id, &found) && found.state == "rolled-back" && readFileOr(graph) == "{\"version\":1}\n" &&
+                  countLines(f.root + "/restarts") == 1 && found.rollbackServices == "done",
+              "interrupted while applying: files restored and services restarted on the restored files");
+    }
+    {
+        // the server was restoring a committed transaction when the power went: recovery finishes the restore
+        auto f = makeTxFixture("tx-restoring");
+        TxStore store(f.config, f.options);
+        const auto graph = f.runtime + "/logic/graph.json";
+        const auto created = f.runtime + "/logic/created.json";
+        auto tx = store.create("REQ-R", "op", "u-1", "FT-R", "test", {plan(graph, "{\"version\":9}\n"), plan(created, "{\"b\":1}\n")});
+        TxRunner runner(f.config, f.options);
+        check(runner.apply(tx.id) == 0, "committed first");
+        Transaction t;
+        store.load(tx.id, &t);
+        removeFile(created);  // the restore had already removed the created file
+        t.state = "restoring";
+        t.rollbackReason = "restored by client: test";
+        t.restoreTicketId = "FT-RESTORE";
+        store.save(t);
+        check(store.findActive(&t), "a restoring transaction is active");
+        runner.recover(tx.id);
+        Transaction found;
+        check(store.load(tx.id, &found) && found.state == "rolled-back" && readFileOr(graph) == "{\"version\":1}\n" && !exists(created),
+              "interrupted restore finished by recovery (" + found.state + " " + found.message + ")");
+        const auto audit = AuditLog(f.options.stateDirectory + "/audit.jsonl").since(0, 20);
+        check(!audit.empty() && audit.back().action == "config.restore" && audit.back().ticketId == "FT-RESTORE", "finished restore audited as config.restore");
+    }
+    {
+        auto f = makeTxFixture("tx-stale");
+        TxStore store(f.config, f.options);
+        auto tx = store.create("REQ-T", "op", "u-1", "FT-T", "test", {plan(f.runtime + "/logic/graph.json", "{\"version\":10}\n")});
+        Transaction t;
+        store.load(tx.id, &t);
+        check(!transactionStale(t, 15000), "just saved: not stale");
+        t.updatedAt -= 3600 * 1000;  // wall clock moved: irrelevant on the same boot
+        check(!transactionStale(t, 15000), "a wall-clock step does not make it stale");
+        Transaction other = t;
+        other.savedBootId = "another-boot";
+        check(transactionStale(other, 15000), "saved on another boot: stale");
+        Transaction pending = t;
+        pending.state = "rolled-back";
+        pending.rollbackServices = "pending";
+        check(pending.busy(), "rolled back with its service restart pending still owns the services");
+    }
+    {
+        const auto dir = tempDir("debug-idle");
+        DebugModeStore store(dir + "/debug-mode.json");
+        DebugMode m;
+        m.active = true;
+        m.since = 1000;
+        m.lastActivityAt = 1000;
+        store.set(m);
+        DebugMode ended;
+        for (int i = 1; i <= 40; ++i) store.touch(1000 + i * 60000LL, 1800000, &ended, false);  // housekeeping every minute
+        check(!store.get().active, "housekeeping checks do not count as activity: idle debug mode ends after 30 min");
+    }
+}
+
 int main() {
     if (!Crypto::instance().available()) {
         std::cerr << "libcrypto unavailable: " << Crypto::instance().error() << std::endl;
@@ -650,6 +798,7 @@ int main() {
         testOta();
         testV1ReadOnlyWhileV2();
         testConfigParse();
+        testReviewFixes();
     } catch (const std::exception& ex) {
         std::cerr << "exception: " << ex.what() << std::endl;
         return 1;

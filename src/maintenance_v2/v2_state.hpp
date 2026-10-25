@@ -50,6 +50,7 @@ struct AuditEntry {
     std::string target;
     std::string result;
     std::string transactionId;
+    std::string clientIp;  // refusals only; omitted from the JSON (and the hash) when empty
     std::string prevHash;
     std::string hash;
 };
@@ -88,7 +89,8 @@ public:
     // Records activity; returns true when an idle timeout just ended debug mode.
     // Read-check-write happens under one lock, so a request that read the mode just before an exit
     // can never write the old (active) mode back over it.
-    bool touch(std::int64_t now, std::int64_t idleMs, DebugMode* ended);
+    // activity=false (housekeeping): only checks the idle limit, never counts as activity.
+    bool touch(std::int64_t now, std::int64_t idleMs, DebugMode* ended, bool activity = true);
 
 private:
     DebugMode readLocked() const;

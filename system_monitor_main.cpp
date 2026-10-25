@@ -335,7 +335,9 @@ int runSystemMonitor(int argc, char* argv[]) {
         });
     }
     std::thread maintenanceV2Thread;
-    if (!directMaintenanceDisabled && directMaintenanceConfig.v2.enabled) {
+    // Also when v2 is off: interrupted v2 transactions are still recovered (maintenance_v2::run returns at once
+    // when there is nothing to recover).
+    if (!directMaintenanceDisabled) {
         maintenanceV2Thread = std::thread([directMaintenanceConfig, v2Options]() {
             edge_gateway::maintenance_v2::run(directMaintenanceConfig, v2Options);
         });

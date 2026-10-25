@@ -64,9 +64,19 @@ struct Transaction {
     std::string restoreRequestId;
     std::string restoreTicketId;
     bool restartedServices = false;
+    // Stamped on every save: staleness is judged by boot and monotonic time, not the wall clock (an NTP step
+    // must neither cut a health check short nor keep an interrupted transaction from being recovered).
+    std::string savedBootId;
+    std::int64_t savedMonoMs = 0;
 
+    // "restoring": the server restores a committed transaction (journaled first; recovery finishes it).
     bool finished() const { return state == "committed" || state == "rolled-back" || state == "failed"; }
+    // Still owns the services: unfinished, or rolled back with its service restart not done yet.
+    bool busy() const { return !finished() || rollbackServices == "pending" || rollbackServices == "restarting"; }
 };
+
+// No progress for graceMs: another boot since the last save, or that much monotonic time on this boot.
+bool transactionStale(const Transaction& tx, std::int64_t graceMs);
 
 std::string transactionJson(const Transaction& tx);  // client view (handoff 3.5)
 std::string transactionAction(const Transaction& tx);  // config.apply / config.delete
@@ -106,8 +116,8 @@ public:
                        const std::string& operation = "apply");
     bool helperRunning(const std::string& id) const;
     bool launchHelper(const std::string& id, const std::string& mode, std::string* error) const;
-    // Client restore of an in-progress transaction: the helper rolls back at its next step.
-    void requestAbort(const std::string& id, const std::string& reason, const std::string& requestId, const std::string& ticketId) const;
+    // Client restore of an in-progress transaction: the helper rolls back at its next step. False: marker not written.
+    bool requestAbort(const std::string& id, const std::string& reason, const std::string& requestId, const std::string& ticketId) const;
     bool abortRequested(const std::string& id, std::string* reason, std::string* requestId = nullptr, std::string* ticketId = nullptr) const;
     void prune(std::size_t keep) const;
     const std::string& root() const { return root_; }
@@ -117,6 +127,11 @@ private:
     Options options_;
     std::string root_;
 };
+
+// Relaunches helpers for transactions whose helper died (power loss, kill): roll back / finish a restore / finish
+// the service restart. Runs from housekeeping, and on its own when the v2 server cannot start. Returns how many
+// transactions still need a helper.
+int recoverInterruptedTransactions(const TxStore& store);
 
 // Helper side (runs in the helper process or, for restore, under the tx lock).
 class TxRunner {
@@ -130,9 +145,11 @@ public:
 
 private:
     bool healthCheck(Transaction* tx, bool rollbackPhase, const std::string& abortId);
-    void rollback(Transaction* tx, const std::string& reason);
+    // restartAlways: restart (and check) the services whenever a file was restored, even if this transaction
+    // never restarted them (recovery after power loss: the services started on the half-written files).
+    void rollback(Transaction* tx, const std::string& reason, bool restartAlways = false);
     void audit(const Transaction& tx, const std::string& action, const std::string& result);
-    void save(Transaction* tx);
+    bool save(Transaction* tx);
 
     DirectConfig config_;
     Options options_;

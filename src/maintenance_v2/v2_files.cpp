@@ -145,9 +145,14 @@ std::vector<std::string> listDirectory(const std::string& path) {
 }
 
 bool appendLineDurable(const std::string& path, const std::string& line, unsigned mode) {
-    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, mode);
+    const int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_APPEND | O_CLOEXEC, mode);
     if (fd < 0) return false;
-    const bool ok = writeAllFd(fd, line + "\n") && ::fsync(fd) == 0;
+    // A line torn by a power loss has no newline: start on a fresh line so the new one stays readable.
+    std::string text = line + "\n";
+    const off_t size = ::lseek(fd, 0, SEEK_END);
+    char last = '\n';
+    if (size > 0 && ::pread(fd, &last, 1, size - 1) == 1 && last != '\n') text = "\n" + text;
+    const bool ok = writeAllFd(fd, text) && ::fsync(fd) == 0;
     ::close(fd);
     return ok;
 }

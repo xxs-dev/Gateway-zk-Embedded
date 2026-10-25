@@ -65,6 +65,8 @@ public:
     void removeUpload(const std::string& uploadId) const;
     // Removes uploads (and stale partial files) that no unfinished job uses.
     void pruneUploads() const;
+    // Removes partial files of interrupted uploads, unless an upload is running (housekeeping).
+    void pruneStalePartials() const;
 
     bool saveJob(const OtaJobRecord& job, std::string* error) const;
     bool loadJob(const std::string& jobId, OtaJobRecord* out) const;

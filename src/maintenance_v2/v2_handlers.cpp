@@ -167,14 +167,15 @@ std::vector<std::string> Service::expectedUnits() {
 }
 
 void Service::record(const std::string& action, const Ticket& ticket, const std::string& target, const std::string& result,
-                     const std::string& transactionId) {
+                     const std::string& transactionId, const std::string& clientIp) {
     AuditEntry e;
     e.operatorName = ticket.operatorLabel();
     e.ticketId = ticket.ticketId;
     e.action = action;
-    e.target = target.size() > 2000 ? target.substr(0, 2000) : target;
+    e.target = target;  // bounded on a UTF-8 character boundary by AuditLog::append
     e.result = result;
     e.transactionId = transactionId;
+    e.clientIp = clientIp;
     std::string error;
     if (!audit_.append(e, &error)) std::cerr << "maintenance v2 audit: " << error << std::endl;
 }
@@ -184,8 +185,9 @@ bool Service::isPublic(const std::string& method, const std::string& path) {
     if (path.compare(0, base.size(), base) != 0) return true;  // 404 without a body
     const auto p = path.substr(base.size());
     if (method == "GET")
+        // Live streams hold a connection for a long time: they need a session (polling /points/query stays public).
         return p == "/health" || p == "/identity" || p == "/auth/state" || p == "/system/status" || p == "/telemetry/full" ||
-               p == "/realtime/stream" || p == "/ota/capabilities";
+               p == "/ota/capabilities";
     return method == "POST" && (p == "/points/query" || p == "/auth/login");
 }
 
@@ -242,30 +244,21 @@ TicketVerdict Service::checkTicket(const Request& request, const std::string& ac
         std::string target;
         for (const auto& p : paths) target += (target.empty() ? "" : ",") + p;
         for (std::size_t i = 0; i < points.size() && i < 32; ++i) target += (target.empty() ? "" : ",") + std::to_string(points[i]);
-        record(action, verdict.ticket, target, "rejected:" + verdict.code);
+        record(action, verdict.ticket, target, "rejected:" + verdict.code, std::string(), request.clientIp);
     }
     return verdict;
 }
 
 void Service::housekeeping() {
     DebugMode ended;
-    if (debug_.touch(nowMs(), static_cast<std::int64_t>(config_.v2.debugIdleSec) * 1000, &ended)) {
+    if (debug_.touch(nowMs(), static_cast<std::int64_t>(config_.v2.debugIdleSec) * 1000, &ended, false)) {
         Ticket t;
         t.ticketId = ended.ticketId;
         t.operatorName = ended.operatorName;
         record("debug.exit", t, std::string(), "idle-timeout");
     }
-    // Transactions whose helper died (power loss, kill): roll back / finish the restart.
-    for (const auto& id : txs_.ids()) {
-        Transaction tx;
-        if (!txs_.load(id, &tx)) continue;
-        const bool pendingRestart = tx.state == "rolled-back" && tx.rollbackServices == "pending";
-        if ((tx.finished() && !pendingRestart) || nowMs() - tx.updatedAt < 15000 || txs_.helperRunning(id)) continue;
-        std::string error;
-        if (!txs_.launchHelper(id, pendingRestart ? "restart" : "recover", &error)) {
-            std::cerr << "maintenance v2: cannot recover " << id << ": " << error << std::endl;
-        }
-    }
+    // Transactions whose helper died (power loss, kill): roll back / finish a restore or the restart.
+    recoverInterruptedTransactions(txs_);
     try {
         otaHousekeeping();
     } catch (const std::exception& ex) {
@@ -481,6 +474,11 @@ Response Service::snapshot(const Request& r) {
         extra.beginArray();
         std::int64_t added = 0;
         std::int64_t bytes = 0;
+        std::int64_t listedBytes = 0;
+        integer(root, "totalBytes", &listedBytes);
+        // Same total as the v1 snapshot (48 MB): the extra files must not push the reply past it.
+        const std::int64_t kMaxTotalBytes = 48LL * 1024 * 1024;
+        bool truncated = false;
         const auto runtime = parentOf(config_.identityConfigFile);
         for (const char* sub : {"/apps", "/devices", "/logic"}) {
             const auto dir = runtime + sub;
@@ -491,6 +489,10 @@ Response Service::snapshot(const Request& r) {
                 if (name.size() < 6 || name.compare(name.size() - 5, 5, ".json") != 0 || listed.count(path) || !isRegularFile(path)) continue;
                 std::string content;
                 if (!readFile(path, &content) || content.size() > 4U * 1024U * 1024U) continue;
+                if (listedBytes + bytes + static_cast<std::int64_t>(content.size()) > kMaxTotalBytes || added >= 256) {
+                    truncated = true;
+                    continue;
+                }
                 struct stat st {};
                 ::stat(path.c_str(), &st);
                 extra.beginObject()
@@ -522,6 +524,7 @@ Response Service::snapshot(const Request& r) {
             else if (m.key == "totalBytes") w.fieldInt("totalBytes", total + bytes);
             else w.key(m.key).raw(toJson(*m.value));
         }
+        if (truncated) w.field("extraFilesOmitted", "runtime files beyond the 48 MB snapshot total were left out");
         w.endObject();
         return jsonResponse(200, w.text());
     } catch (const std::exception&) {

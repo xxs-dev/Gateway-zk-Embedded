@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -96,6 +97,9 @@ private:
     Response otaUpload(const Request& request);
     Response otaJob(const Request& request);
     Response otaJobStatus(const std::string& id);
+    Response replayedResponse(const Transaction& tx, const std::string& requestId);
+    std::unique_ptr<Response> servicesBusy();      // 409 while a transaction or OTA job owns the services
+    bool otaJobUnfinished(std::string* jobId);     // an accepted OTA job without a final result
     void otaHousekeeping();
 
     bool authenticate(const Request& request, Response* deny, Auth* auth);
@@ -105,7 +109,7 @@ private:
     std::vector<std::string> expectedUnits();
     std::string deviceMachineCode();
     void record(const std::string& action, const Ticket& ticket, const std::string& target, const std::string& result,
-                const std::string& transactionId = std::string());
+                const std::string& transactionId = std::string(), const std::string& clientIp = std::string());
 
     DirectConfig config_;
     Options options_;

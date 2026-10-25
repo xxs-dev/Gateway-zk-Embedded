@@ -41,25 +41,15 @@ MappingPlanCheck checkMappingPlan(const std::string& runtimeDir, const std::map<
         c.errors.emplace_back("mapping.format", ex.what());
         return c;
     }
-    // ComputeEngine's app config as it will be (a changed one is loaded from a temporary file next to it).
+    // ComputeEngine's app config as it will be.
     const auto appPath = runtimeDir + "/apps/mqtt-service.json";
     AppConfig app;
     try {
         std::string appText;
         const auto it = overrides.find(appPath);
         if (it != overrides.end()) {
-            const auto temp = appPath + ".mapping-check." + std::to_string(nowMs());
-            {
-                std::ofstream out(temp.c_str(), std::ios::binary | std::ios::trunc);
-                out << it->second;
-            }
-            try {
-                app = ConfigLoader::loadAppConfigFromFile(temp);
-            } catch (...) {
-                removeFile(temp);
-                throw;
-            }
-            removeFile(temp);
+            // Parsed in memory: no temporary copy in the live runtime tree (with its secrets restored).
+            app = ConfigLoader::loadAppConfigFromText(it->second, appPath);
         } else {
             app = ConfigLoader::loadAppConfigFromFile(appPath);
         }

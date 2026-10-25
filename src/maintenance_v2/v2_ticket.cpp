@@ -30,6 +30,13 @@ TicketVerdict reject(const std::string& code, const std::string& message) {
     return v;
 }
 
+// After the signature verified: keep who presented the ticket for the refusal's audit record.
+TicketVerdict rejectSigned(const Ticket& ticket, const std::string& code, const std::string& message) {
+    auto v = reject(code, message);
+    v.ticket = ticket;
+    return v;
+}
+
 bool parsePayload(const JsonValue& root, Ticket* t, std::string* why) {
     if (!root.isObject()) {
         *why = "payload is not an object";
@@ -177,24 +184,24 @@ TicketVerdict verifyTicket(const std::string& wire, const std::vector<TrustedKey
     if (signature.size() != 64 || !Crypto::instance().verifyEd25519(key->publicKey, kSignPrefix + payload, signature)) {
         return reject("bad_signature", "signature does not verify with " + ticket.keyId);
     }
-    if (ticket.machineCode != req.machineCode) return reject("machine_mismatch", "ticket is for " + ticket.machineCode);
-    if (req.nowMs < ticket.notBefore - kTicketClockSkewMs) return reject("not_yet_valid", "ticket is not valid yet");
-    if (req.nowMs > ticket.expiresAt + kTicketClockSkewMs) return reject("expired", "ticket expired");
+    if (ticket.machineCode != req.machineCode) return rejectSigned(ticket, "machine_mismatch", "ticket is for " + ticket.machineCode);
+    if (req.nowMs < ticket.notBefore - kTicketClockSkewMs) return rejectSigned(ticket, "not_yet_valid", "ticket is not valid yet");
+    if (req.nowMs > ticket.expiresAt + kTicketClockSkewMs) return rejectSigned(ticket, "expired", "ticket expired");
     if (std::find(ticket.actions.begin(), ticket.actions.end(), req.action) == ticket.actions.end()) {
-        return reject("action_not_allowed", "ticket does not allow " + req.action);
+        return rejectSigned(ticket, "action_not_allowed", "ticket does not allow " + req.action);
     }
-    if (ticket.level < req.level) return reject("level_too_low", "action needs L" + std::to_string(req.level));
+    if (ticket.level < req.level) return rejectSigned(ticket, "level_too_low", "action needs L" + std::to_string(req.level));
     if (!ticket.configPaths.empty()) {
         for (const auto& path : req.paths) {
             if (std::find(ticket.configPaths.begin(), ticket.configPaths.end(), path) == ticket.configPaths.end()) {
-                return reject("path_not_allowed", path + " is outside the ticket");
+                return rejectSigned(ticket, "path_not_allowed", path + " is outside the ticket");
             }
         }
     }
     if (!ticket.pointIndexes.empty()) {
         for (const auto point : req.points) {
             if (std::find(ticket.pointIndexes.begin(), ticket.pointIndexes.end(), point) == ticket.pointIndexes.end()) {
-                return reject("point_not_allowed", "point " + std::to_string(point) + " is outside the ticket");
+                return rejectSigned(ticket, "point_not_allowed", "point " + std::to_string(point) + " is outside the ticket");
             }
         }
     }

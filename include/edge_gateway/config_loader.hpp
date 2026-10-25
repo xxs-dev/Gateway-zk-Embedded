@@ -17,6 +17,8 @@ public:
         const DeviceIdentity& identity
     );
     static AppConfig loadAppConfigFromFile(const std::string& filePath);
+    // The content an app config file at filePath would have (relative paths resolved against filePath); nothing is read.
+    static AppConfig loadAppConfigFromText(const std::string& text, const std::string& filePath);
     static DeviceIdentity loadDeviceIdentityFromFile(const std::string& filePath);
     static void applyIdentity(DeviceConfig& config, const DeviceIdentity& identity);
     static MqttDriverConfig loadMqttDriverConfigFromFile(const std::string& filePath);

@@ -4505,6 +4505,16 @@ AppConfig ConfigLoader::loadAppConfigFromFile(const std::string& filePath) {
     throw std::runtime_error("failed to open app config file: " + filePath);
 }
 
+AppConfig ConfigLoader::loadAppConfigFromText(const std::string& text, const std::string& filePath) {
+    try {
+        auto config = parseAppConfig(text);
+        resolveAppConfigRelativePaths(config, filePath);
+        return config;
+    } catch (const std::exception& ex) {
+        throw std::runtime_error("failed to parse app config file: " + filePath + ": " + ex.what());
+    }
+}
+
 DeviceIdentity ConfigLoader::loadDeviceIdentityFromFile(const std::string& filePath) {
     if (filePath.empty()) {
         return DeviceIdentity();
