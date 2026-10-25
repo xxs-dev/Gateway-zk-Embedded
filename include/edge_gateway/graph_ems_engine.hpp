@@ -51,6 +51,8 @@ struct GraphEmsConfig {
 
     // Production loader: the referenced graphFile must contain a V2 executable graph.
     static GraphEmsConfig loadFromFile(const std::string& path);
+    // Same as loadFromFile for graph JSON already in memory (no temporary file, no path encoding issues).
+    static GraphEmsConfig loadFromText(const std::string& text);
 
     // Explicit migration/test input only. Production services must never call this loader.
     static GraphEmsConfig loadLegacyV1ForMigration(const std::string& path);

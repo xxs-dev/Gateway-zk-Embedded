@@ -2796,6 +2796,12 @@ GraphEmsConfig GraphEmsConfig::loadFromFile(const std::string& path) {
     return parseExecutableV2Graph(root.asObject());
 }
 
+GraphEmsConfig GraphEmsConfig::loadFromText(const std::string& text) {
+    const auto root = JsonParser(text).parse();
+    if (!root.isObject()) throw std::runtime_error("graph EMS config must be a JSON object");
+    return parseExecutableV2Graph(root.asObject());
+}
+
 GraphEmsConfig GraphEmsConfig::loadLegacyV1ForMigration(const std::string& path) {
     const auto root = readGraphJson(path);
     return parseLegacyV1Graph(root.asObject());
