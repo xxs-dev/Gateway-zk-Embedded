@@ -19,16 +19,6 @@ INIT_START_SERVICES="${INIT_START_SERVICES:-1}"
 INIT_RUN_SMOKE="${INIT_RUN_SMOKE:-1}"
 INIT_RESET_SHM="${INIT_RESET_SHM:-0}"
 INIT_KEEP_WORK_DIR="${INIT_KEEP_WORK_DIR:-0}"
-INIT_TLS_UPDATE_LOCAL_APP="${INIT_TLS_UPDATE_LOCAL_APP:-1}"
-INIT_TLS_FORCE_KEY="${INIT_TLS_FORCE_KEY:-0}"
-INIT_TLS_VALIDITY_DAYS="${INIT_TLS_VALIDITY_DAYS:-}"
-INIT_TLS_GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
-INIT_TLS_FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
-INIT_TLS_CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
-INIT_TLS_CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-}"
-INIT_TLS_CA_SOURCE="${INIT_TLS_CA_SOURCE:-}"
-INIT_TLS_CERT_SOURCE="${INIT_TLS_CERT_SOURCE:-}"
-INIT_TLS_KEY_SOURCE="${INIT_TLS_KEY_SOURCE:-}"
 INIT_MQTT_CONNECT_TEST="${INIT_MQTT_CONNECT_TEST:-0}"
 INIT_PACKAGE_PROFILE="${INIT_PACKAGE_PROFILE:-}"
 INIT_EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
@@ -60,22 +50,8 @@ Options:
   --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
   --mqtt-username USER            MQTT username
   --mqtt-password PASSWORD        MQTT password
-  --mqtt-tls, --no-mqtt-tls       Enable or disable MQTT TLS config
-  --tls-ca-file FILE              MQTT TLS CA path on the device
-  --tls-cert-file FILE            MQTT TLS client cert path on the device
-  --tls-key-file FILE             MQTT TLS client key path on the device
-  --tls-ca-source FILE            Win-signed CA source file uploaded by the client
-  --tls-cert-source FILE          Win-signed client certificate source file uploaded by the client
-  --tls-key-source FILE           Win-signed client private key source file uploaded by the client
-  --tls-platform-url URL          Platform base URL for TLS enrollment
-  --tls-token TOKEN               TLS enrollment token
+  --mqtt-tls, --no-mqtt-tls       Enable or disable MQTT TLS config (certificate files: config/runtime/tls/)
   --ota-pubkey FILE               OTA signature public key (PEM); default: ota/ota.pub from the package
-  --tls-validity-days DAYS        Requested client certificate validity days
-  --tls-force-key                 Regenerate client private key during enrollment
-  --tls-generate-root-ca          Generate local bootstrap root CA before enrollment
-  --tls-force-root-ca             Regenerate local bootstrap root CA
-  --tls-ca-validity-days DAYS     Local bootstrap root CA validity days
-  --tls-ca-subject SUBJECT        Local bootstrap root CA subject
   --start, --no-start             Start services after init; default start
   --smoke, --no-smoke             Run production smoke test; default run
   --reset-shm                     Clear gateway shared memory before start
@@ -92,11 +68,11 @@ Environment variables with the same meaning are also supported:
   INIT_PROMPT INIT_PACKAGE INIT_RUNTIME_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
   INIT_PACKAGE_PROFILE INIT_EDGE_PACKAGE_MANIFEST
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
-  INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
-  INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
-  INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
-  INIT_TLS_CA_SOURCE INIT_TLS_CERT_SOURCE INIT_TLS_KEY_SOURCE
+  INIT_MQTT_TLS_ENABLED
   INIT_DIRECT_MAINTENANCE_ENABLED INIT_DIRECT_LISTEN_HOSTS INIT_DIRECT_ALLOWED_CIDRS
+
+Device certificates (MQTT client and maintenance channel) are not handled here: after init the engineering
+client runs gateway-tls-enroll.sh csr / install on the device and relays the CSR to the platform.
 EOF
 }
 
@@ -176,78 +152,10 @@ while [ "$#" -gt 0 ]; do
       INIT_MQTT_TLS_ENABLED=false
       shift
       ;;
-    --tls-ca-file)
-      [ "$#" -ge 2 ] || { echo "--tls-ca-file requires a value" >&2; exit 2; }
-      INIT_MQTT_CA_FILE="$2"
-      shift 2
-      ;;
-    --tls-cert-file)
-      [ "$#" -ge 2 ] || { echo "--tls-cert-file requires a value" >&2; exit 2; }
-      INIT_MQTT_CERT_FILE="$2"
-      shift 2
-      ;;
-    --tls-key-file)
-      [ "$#" -ge 2 ] || { echo "--tls-key-file requires a value" >&2; exit 2; }
-      INIT_MQTT_KEY_FILE="$2"
-      shift 2
-      ;;
-    --tls-ca-source)
-      [ "$#" -ge 2 ] || { echo "--tls-ca-source requires a value" >&2; exit 2; }
-      INIT_TLS_CA_SOURCE="$2"
-      shift 2
-      ;;
-    --tls-cert-source)
-      [ "$#" -ge 2 ] || { echo "--tls-cert-source requires a value" >&2; exit 2; }
-      INIT_TLS_CERT_SOURCE="$2"
-      shift 2
-      ;;
-    --tls-key-source)
-      [ "$#" -ge 2 ] || { echo "--tls-key-source requires a value" >&2; exit 2; }
-      INIT_TLS_KEY_SOURCE="$2"
-      shift 2
-      ;;
-    --tls-platform-url)
-      [ "$#" -ge 2 ] || { echo "--tls-platform-url requires a value" >&2; exit 2; }
-      INIT_TLS_PLATFORM_URL="$2"
-      shift 2
-      ;;
     --ota-pubkey)
       [ "$#" -ge 2 ] || { echo "--ota-pubkey requires a value" >&2; exit 2; }
       OTA_SIGNING_PUBKEY="$2"
       export OTA_SIGNING_PUBKEY
-      shift 2
-      ;;
-    --tls-token)
-      [ "$#" -ge 2 ] || { echo "--tls-token requires a value" >&2; exit 2; }
-      INIT_TLS_ENROLLMENT_TOKEN="$2"
-      shift 2
-      ;;
-    --tls-validity-days)
-      [ "$#" -ge 2 ] || { echo "--tls-validity-days requires a value" >&2; exit 2; }
-      INIT_TLS_VALIDITY_DAYS="$2"
-      shift 2
-      ;;
-    --tls-force-key)
-      INIT_TLS_FORCE_KEY=1
-      shift
-      ;;
-    --tls-generate-root-ca)
-      INIT_TLS_GENERATE_ROOT_CA=1
-      shift
-      ;;
-    --tls-force-root-ca)
-      INIT_TLS_FORCE_ROOT_CA=1
-      INIT_TLS_GENERATE_ROOT_CA=1
-      shift
-      ;;
-    --tls-ca-validity-days)
-      [ "$#" -ge 2 ] || { echo "--tls-ca-validity-days requires a value" >&2; exit 2; }
-      INIT_TLS_CA_VALIDITY_DAYS="$2"
-      shift 2
-      ;;
-    --tls-ca-subject)
-      [ "$#" -ge 2 ] || { echo "--tls-ca-subject requires a value" >&2; exit 2; }
-      INIT_TLS_CA_SUBJECT="$2"
       shift 2
       ;;
     --start)
@@ -348,30 +256,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     mqtt_password=*|INIT_MQTT_PASSWORD=*)
       INIT_MQTT_PASSWORD="${1#*=}"
-      shift
-      ;;
-    tls_platform_url=*|INIT_TLS_PLATFORM_URL=*)
-      INIT_TLS_PLATFORM_URL="${1#*=}"
-      shift
-      ;;
-    tls_token=*|INIT_TLS_ENROLLMENT_TOKEN=*)
-      INIT_TLS_ENROLLMENT_TOKEN="${1#*=}"
-      shift
-      ;;
-    tls_validity_days=*|INIT_TLS_VALIDITY_DAYS=*)
-      INIT_TLS_VALIDITY_DAYS="${1#*=}"
-      shift
-      ;;
-    tls_generate_root_ca=*|INIT_TLS_GENERATE_ROOT_CA=*)
-      INIT_TLS_GENERATE_ROOT_CA="${1#*=}"
-      shift
-      ;;
-    tls_ca_validity_days=*|INIT_TLS_CA_VALIDITY_DAYS=*)
-      INIT_TLS_CA_VALIDITY_DAYS="${1#*=}"
-      shift
-      ;;
-    tls_ca_subject=*|INIT_TLS_CA_SUBJECT=*)
-      INIT_TLS_CA_SUBJECT="${1#*=}"
       shift
       ;;
     direct_maintenance_enabled=*|directMaintenance=*|INIT_DIRECT_MAINTENANCE_ENABLED=*)
@@ -514,10 +398,6 @@ broker_implies_tls_value() {
   else
     printf 'false\n'
   fi
-}
-
-safe_machine_file_prefix() {
-  printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g'
 }
 
 normalize_runtime_mode() {
@@ -688,36 +568,6 @@ require_file() {
   fi
 }
 
-install_win_signed_tls_bundle() {
-  if [ -z "${INIT_TLS_CA_SOURCE:-}" ] && [ -z "${INIT_TLS_CERT_SOURCE:-}" ] && [ -z "${INIT_TLS_KEY_SOURCE:-}" ]; then
-    return 1
-  fi
-  if [ -z "${INIT_TLS_CA_SOURCE:-}" ] || [ -z "${INIT_TLS_CERT_SOURCE:-}" ] || [ -z "${INIT_TLS_KEY_SOURCE:-}" ]; then
-    echo "Win-signed TLS install requires ca/cert/key source files together" >&2
-    exit 2
-  fi
-  if [ -z "${INIT_MQTT_CA_FILE:-}" ] || [ -z "${INIT_MQTT_CERT_FILE:-}" ] || [ -z "${INIT_MQTT_KEY_FILE:-}" ]; then
-    echo "Win-signed TLS install requires ca/cert/key destination files" >&2
-    exit 2
-  fi
-
-  require_file "$INIT_TLS_CA_SOURCE" "Win-signed TLS CA source"
-  require_file "$INIT_TLS_CERT_SOURCE" "Win-signed TLS certificate source"
-  require_file "$INIT_TLS_KEY_SOURCE" "Win-signed TLS private key source"
-
-  mkdir -p "$(dirname "$INIT_MQTT_CA_FILE")" "$(dirname "$INIT_MQTT_CERT_FILE")" "$(dirname "$INIT_MQTT_KEY_FILE")"
-  install -m 0644 "$INIT_TLS_CA_SOURCE" "$INIT_MQTT_CA_FILE"
-  install -m 0644 "$INIT_TLS_CERT_SOURCE" "$INIT_MQTT_CERT_FILE"
-  # Create the private key with 0600 from the start (no world-readable window).
-  install -m 0600 "$INIT_TLS_KEY_SOURCE" "$INIT_MQTT_KEY_FILE"
-  rm -f "$INIT_TLS_CA_SOURCE" "$INIT_TLS_CERT_SOURCE" "$INIT_TLS_KEY_SOURCE" 2>/dev/null || true
-  echo "windows signed tls ca: $INIT_MQTT_CA_FILE"
-  echo "windows signed tls certificate: $INIT_MQTT_CERT_FILE"
-  echo "windows signed tls private key: $INIT_MQTT_KEY_FILE"
-  echo "windows signed tls temp files cleaned"
-  return 0
-}
-
 if ! command -v tar >/dev/null 2>&1; then
   echo "tar command not found" >&2
   exit 1
@@ -747,9 +597,6 @@ EXISTING_MQTT_BROKER=$(json_string_value "$EXISTING_MQTT_FILE" "broker" || true)
 EXISTING_MQTT_USERNAME=$(json_string_value "$EXISTING_MQTT_FILE" "username" || true)
 EXISTING_MQTT_PASSWORD=$(json_string_value "$EXISTING_MQTT_FILE" "password" || true)
 EXISTING_MQTT_TLS_ENABLED=$(json_tls_bool_value "$EXISTING_MQTT_FILE" "enabled" || true)
-EXISTING_MQTT_CA_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "caFile" || true)
-EXISTING_MQTT_CERT_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "certFile" || true)
-EXISTING_MQTT_KEY_FILE=$(json_string_value "$EXISTING_MQTT_FILE" "keyFile" || true)
 EXISTING_MQTT_TLS_INSECURE=$(json_tls_bool_value "$EXISTING_MQTT_FILE" "insecureSkipVerify" || true)
 
 FACTORY_MACHINE_CODE=$(json_string_value "$PACKAGE_ROOT/config/factory/runtime/device_identity.json" "machineCode" || true)
@@ -758,9 +605,6 @@ FACTORY_MQTT_BROKER=$(json_string_value "$FACTORY_MQTT_FILE" "broker" || true)
 FACTORY_MQTT_USERNAME=$(json_string_value "$FACTORY_MQTT_FILE" "username" || true)
 FACTORY_MQTT_PASSWORD=$(json_string_value "$FACTORY_MQTT_FILE" "password" || true)
 FACTORY_MQTT_TLS_ENABLED=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "enabled" || true)
-FACTORY_MQTT_CA_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "caFile" || true)
-FACTORY_MQTT_CERT_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "certFile" || true)
-FACTORY_MQTT_KEY_FILE=$(json_string_value "$FACTORY_MQTT_FILE" "keyFile" || true)
 FACTORY_MQTT_TLS_INSECURE=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "insecureSkipVerify" || true)
 
 DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
@@ -785,18 +629,7 @@ if is_interactive_init; then
   INIT_MQTT_TLS_ENABLED=$(prompt_bool "Enable MQTT TLS" "$DEFAULT_MQTT_TLS_ENABLED")
   INIT_MQTT_INSECURE_SKIP_VERIFY=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
   if truthy "$INIT_MQTT_TLS_ENABLED"; then
-    safe_machine=$(safe_machine_file_prefix "$INIT_MACHINE_CODE")
-    DEFAULT_MQTT_CA_FILE=$(first_nonempty "${INIT_MQTT_CA_FILE:-}" "$EXISTING_MQTT_CA_FILE" "$FACTORY_MQTT_CA_FILE" "$GATEWAY_HOME/config/runtime/tls/ca.crt")
-    DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQTT_CERT_FILE" "$FACTORY_MQTT_CERT_FILE" "$GATEWAY_HOME/config/runtime/tls/$safe_machine-client.pem")
-    DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE" "$GATEWAY_HOME/config/runtime/tls/$safe_machine-client.key")
-    INIT_MQTT_CA_FILE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
-    INIT_MQTT_CERT_FILE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
-    INIT_MQTT_KEY_FILE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
-    INIT_TLS_GENERATE_ROOT_CA=$(prompt_bool "Generate local bootstrap root CA" "$INIT_TLS_GENERATE_ROOT_CA")
-    INIT_TLS_PLATFORM_URL=$(prompt_value "TLS enrollment platform URL" "${INIT_TLS_PLATFORM_URL:-}")
-    INIT_TLS_ENROLLMENT_TOKEN=$(prompt_value "TLS enrollment token" "${INIT_TLS_ENROLLMENT_TOKEN:-}" 1)
-    INIT_TLS_VALIDITY_DAYS=$(prompt_value "TLS certificate validity days" "$INIT_TLS_VALIDITY_DAYS")
-    INIT_TLS_CA_VALIDITY_DAYS=$(prompt_value "TLS bootstrap root CA validity days" "$INIT_TLS_CA_VALIDITY_DAYS")
+    echo "MQTT TLS files: $GATEWAY_HOME/config/runtime/tls/{ca.crt,$INIT_MACHINE_CODE-client.pem,$INIT_MACHINE_CODE-client.key} (installed later by gateway-tls-enroll.sh)" >&2
   fi
   INIT_START_SERVICES=$(prompt_bool "Start gateway services after init" "$INIT_START_SERVICES")
   INIT_RUN_SMOKE=$(prompt_bool "Run production smoke test" "$INIT_RUN_SMOKE")
@@ -810,6 +643,10 @@ if [ "$INIT_RUNTIME_MODE" = "agc_avc" ] && [ -z "$INIT_RUNTIME_PACKAGE" ]; then
   exit 2
 fi
 export INIT_MACHINE_CODE="${INIT_MACHINE_CODE:-$DEFAULT_MACHINE_CODE}"
+# The machine code is the certificate CN and part of file names (same rule as gateway-tls-enroll.sh and the platform).
+case "$INIT_MACHINE_CODE" in
+  ""|*[!A-Za-z0-9._-]*) echo "invalid machineCode (allowed: A-Z a-z 0-9 . _ -): $INIT_MACHINE_CODE" >&2; exit 2 ;;
+esac
 export INIT_MQTT_BROKER="${INIT_MQTT_BROKER:-$DEFAULT_MQTT_BROKER}"
 export INIT_MQTT_USERNAME="${INIT_MQTT_USERNAME:-$DEFAULT_MQTT_USERNAME}"
 export INIT_MQTT_PASSWORD="${INIT_MQTT_PASSWORD:-$DEFAULT_MQTT_PASSWORD}"
@@ -822,28 +659,17 @@ export INIT_DIRECT_LISTEN_HOSTS="$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}
 export INIT_DIRECT_ALLOWED_CIDRS="$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")"
 
 tls_requested=0
-if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] || truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
-  tls_requested=1
-fi
-if [ -n "${INIT_TLS_CA_SOURCE:-}" ] || [ -n "${INIT_TLS_CERT_SOURCE:-}" ] || [ -n "${INIT_TLS_KEY_SOURCE:-}" ]; then
-  tls_requested=1
-fi
 if truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
   tls_requested=1
 fi
 
-if [ "$tls_requested" -eq 1 ] && [ -n "${INIT_MACHINE_CODE:-}" ]; then
-  safe_machine=$(safe_machine_file_prefix "$INIT_MACHINE_CODE")
+# MQTT TLS always uses the files gateway-tls-enroll.sh installs (one convention, no per-site paths).
+if [ "$tls_requested" -eq 1 ]; then
   export INIT_MQTT_TLS_ENABLED="${INIT_MQTT_TLS_ENABLED:-true}"
   export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-false}"
-  export INIT_MQTT_CA_FILE="${INIT_MQTT_CA_FILE:-$GATEWAY_HOME/config/runtime/tls/ca.crt}"
-  export INIT_MQTT_CERT_FILE="${INIT_MQTT_CERT_FILE:-$GATEWAY_HOME/config/runtime/tls/$safe_machine-client.pem}"
-  export INIT_MQTT_KEY_FILE="${INIT_MQTT_KEY_FILE:-$GATEWAY_HOME/config/runtime/tls/$safe_machine-client.key}"
-fi
-
-if [ "$INSTALL_SYSTEMD" = "0" ] && [ "$tls_requested" -eq 1 ]; then
-  echo "INSTALL_SYSTEMD=0 isolation forbids TLS enrollment or certificate generation" >&2
-  exit 2
+  export INIT_MQTT_CA_FILE="$GATEWAY_HOME/config/runtime/tls/ca.crt"
+  export INIT_MQTT_CERT_FILE="$GATEWAY_HOME/config/runtime/tls/$INIT_MACHINE_CODE-client.pem"
+  export INIT_MQTT_KEY_FILE="$GATEWAY_HOME/config/runtime/tls/$INIT_MACHINE_CODE-client.key"
 fi
 
 export SOURCE_ROOT="$PACKAGE_ROOT"
@@ -879,11 +705,9 @@ export EDGE_PACKAGE_MANIFEST="${INIT_EDGE_PACKAGE_MANIFEST:-}"
 export START_SERVICES=0
 export RESET_SHM="$INIT_RESET_SHM"
 export INIT_TLS_APP_PREPARE=0
-# Only the online enrollment branch updates apps. Pre-signed bundles and
-# root-CA/CSR-only requests retain their existing configuration semantics.
-if [ "$tls_requested" -eq 1 ] && truthy "$INIT_TLS_UPDATE_LOCAL_APP" && \
-   [ -n "${INIT_TLS_PLATFORM_URL:-}" ] && [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ] && \
-   [ -z "$INIT_TLS_CA_SOURCE" ] && [ -z "$INIT_TLS_CERT_SOURCE" ] && [ -z "$INIT_TLS_KEY_SOURCE" ]; then
+# Apps get their MQTT TLS fields at install time; gateway-tls-enroll.sh install later only checks them
+# (--require-prepared-app) and writes the certificate files.
+if [ "$tls_requested" -eq 1 ]; then
   export INIT_TLS_APP_PREPARE=1
   export INIT_TLS_FINAL_CA_FILE="$INIT_MQTT_CA_FILE"
   export INIT_TLS_FINAL_CERT_FILE="$INIT_MQTT_CERT_FILE"
@@ -913,57 +737,13 @@ if [ "$INIT_RUNTIME_MODE" != "ems" ]; then
   fi
 fi
 
-if [ "$tls_requested" -eq 1 ]; then
-  if [ -z "${INIT_MACHINE_CODE:-}" ]; then
-    echo "INIT_MACHINE_CODE is required for TLS enrollment" >&2
-    exit 2
-  fi
-
-  if install_win_signed_tls_bundle; then
-    :
-  else
-    TLS_ENROLL_SCRIPT="$DEPLOY_DIR/gateway-tls-enroll.sh"
-    if [ ! -f "$TLS_ENROLL_SCRIPT" ]; then
-      TLS_ENROLL_SCRIPT="$GATEWAY_HOME/bin/gateway-tls-enroll.sh"
-    fi
-    require_file "$TLS_ENROLL_SCRIPT" "TLS enrollment script"
-
-    set -- --machine-code "$INIT_MACHINE_CODE" \
-      --ca-file "$INIT_MQTT_CA_FILE" --cert-file "$INIT_MQTT_CERT_FILE" --key-file "$INIT_MQTT_KEY_FILE"
-    if truthy "${INIT_TLS_GENERATE_ROOT_CA:-0}"; then
-      set -- "$@" --generate-root-ca --ca-validity-days "$INIT_TLS_CA_VALIDITY_DAYS"
-      if [ -n "${INIT_TLS_CA_SUBJECT:-}" ]; then
-        set -- "$@" --ca-subject "$INIT_TLS_CA_SUBJECT"
-      fi
-      if truthy "${INIT_TLS_FORCE_ROOT_CA:-0}"; then
-        set -- "$@" --force-root-ca
-      fi
-    fi
-    if [ -n "${INIT_TLS_PLATFORM_URL:-}" ] || [ -n "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
-      if [ -z "${INIT_TLS_PLATFORM_URL:-}" ] || [ -z "${INIT_TLS_ENROLLMENT_TOKEN:-}" ]; then
-        echo "TLS enrollment requested but INIT_TLS_PLATFORM_URL or INIT_TLS_ENROLLMENT_TOKEN is empty" >&2
-        exit 2
-      fi
-      set -- "$@" --platform-url "$INIT_TLS_PLATFORM_URL" --token "$INIT_TLS_ENROLLMENT_TOKEN"
-    elif truthy "${INIT_MQTT_TLS_ENABLED:-false}" || { [ -n "${INIT_MQTT_BROKER:-}" ] && broker_implies_tls "$INIT_MQTT_BROKER"; }; then
-      echo "MQTT TLS requested but platform enrollment URL/token is empty" >&2
-      exit 2
-    fi
-    if [ -n "$INIT_TLS_VALIDITY_DAYS" ]; then
-      set -- "$@" --validity-days "$INIT_TLS_VALIDITY_DAYS"
-    fi
-    if truthy "$INIT_TLS_UPDATE_LOCAL_APP"; then
-      set -- "$@" --update-local-app
-      if [ "$INIT_TLS_APP_PREPARE" = "1" ]; then
-        set -- "$@" --require-prepared-app
-      fi
-    fi
-    if truthy "$INIT_TLS_FORCE_KEY"; then
-      set -- "$@" --force-key
-    fi
-
-    GATEWAY_HOME="$GATEWAY_HOME" sh "$TLS_ENROLL_SCRIPT" "$@"
-  fi
+# Without its certificate the device is not finished: MQTT would only retry and the smoke test would fail.
+# Start and smoke run after gateway-tls-enroll.sh install (the engineering client's init wizard does this).
+if [ "$tls_requested" -eq 1 ] && { [ ! -f "$INIT_MQTT_CERT_FILE" ] || [ ! -f "$INIT_MQTT_KEY_FILE" ]; }; then
+  echo "MQTT TLS configured but the device certificate is not installed yet; services not started, smoke test not run."
+  echo "next: gateway-tls-enroll.sh csr --purpose mqtt, relay the CSR to the platform, gateway-tls-enroll.sh install, then start services and run production-smoke-test.sh"
+  INIT_START_SERVICES=0
+  INIT_RUN_SMOKE=0
 fi
 
 if truthy "$INIT_START_SERVICES"; then

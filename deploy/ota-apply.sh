@@ -731,6 +731,18 @@ def is_safe_target(dst):
         return normalized in allowed_systemd_targets
     return False
 
+def is_device_credential(path):
+    # Device keys and certificates come only from gateway-tls-enroll.sh on the device (keys never leave it):
+    # OTA neither writes nor cleans them. Only stunnel *.conf files and the ticket key list are package files.
+    normalized = os.path.abspath(path)
+    name = os.path.basename(normalized)
+    if safe_child_path(normalized, "/opt/modbus-gateway/config/runtime/tls"):
+        return normalized == "/opt/modbus-gateway/config/runtime/tls" or not name.endswith(".conf") \
+            or os.path.dirname(normalized) != "/opt/modbus-gateway/config/runtime/tls"
+    if safe_child_path(normalized, "/opt/modbus-gateway/config/maintenance-v2"):
+        return normalized != "/opt/modbus-gateway/config/maintenance-v2/trusted-ticket-keys.json"
+    return False
+
 def needs_gateway_services_restart(dst):
     normalized = os.path.abspath(dst).replace("\\", "/")
     if normalized.startswith("/opt/modbus-gateway/config/runtime/tls/"):
@@ -854,6 +866,8 @@ for item in manifest.get("files", []):
         raise SystemExit(f"unsafe or missing manifest source: {item.get('path', '')}")
     if not is_safe_target(pre_dst):
         raise SystemExit(f"unsafe manifest target: {pre_dst}")
+    if is_device_credential(pre_dst):
+        raise SystemExit(f"OTA package may not install device keys or certificates: {pre_dst}; use gateway-tls-enroll.sh")
     check_ota_policy(pre_src, pre_dst)
 
 def durable_write(path, text, append=False):
@@ -902,6 +916,9 @@ for rule in manifest.get("cleanBeforeApply", []):
         for path in glob.glob(os.path.join(target, pattern)):
             if not os.path.isfile(path):
                 continue
+            if is_device_credential(path):
+                log(f"[manifest-clean-skip] device credential {path}")
+                continue
             backup_path = os.path.join(backup_dir, os.path.relpath(path, "/"))
             os.makedirs(os.path.dirname(backup_path), exist_ok=True)
             shutil.copy2(path, backup_path)
@@ -913,7 +930,7 @@ for item in manifest.get("files", []):
     dst = os.path.abspath(item["target"])
     if not safe_child_path(src, root_dir) or not os.path.isfile(src):
         raise SystemExit(f"unsafe or missing manifest source: {item.get('path', '')}")
-    if not is_safe_target(dst):
+    if not is_safe_target(dst) or is_device_credential(dst):
         raise SystemExit(f"unsafe manifest target: {dst}")
     verify_manifest_checksum(item, src)
     if (

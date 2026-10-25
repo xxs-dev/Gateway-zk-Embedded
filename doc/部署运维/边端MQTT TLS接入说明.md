@@ -11,7 +11,7 @@
 - `include/edge_gateway/models.hpp`：`MqttTlsConfig` 和 `MqttConfig` 字段定义。
 - `src/config_loader.cpp`：解析 app 配置中的 `mqtt.tls.*`。
 - `src/builtin_mqtt_driver_publisher.cpp`：解析 broker、加载 OpenSSL、建立 TLS、校验证书、收发 MQTT 报文。
-- `deploy/gateway-tls-enroll.sh`：生成客户端私钥/CSR，并向平台申请签发证书。
+- `deploy/gateway-tls-enroll.sh`：设备证书的唯一入口——本机生成私钥与 CSR、校验并安装平台签发的证书、回退、查看（MQTT 客户端证书与维护通道证书同一条路径）。
 - `deploy/gateway-services.sh`：按 app broker 自动选择是否启动 `mqtt-tls-tunnel@*.service`。
 - `deploy/production-smoke-test.sh`：生产验收时检查 MQTT TLS、证书文件和 stunnel 配置。
 
@@ -90,112 +90,45 @@ TLS 配置位于每个 app 配置的 `mqtt.tls` 下。常见文件：
 }
 ```
 
-## 3. 内置 TLS 接入流程
+## 3. 证书从哪里来（唯一路径）
 
-推荐生产流程不再手工预置客户端证书，而是在初始化或维护时走 enrollment：
+设备证书只由平台信任服务签发，只走下面这一条路径；不再有入网令牌、设备直连平台、本地 bootstrap 根 CA、人工拷贝证书或 OTA 下发证书。
 
-1. 平台启用 TLS enrollment。平台如果没有显式配置 CA 证书和私钥，会在平台配置根目录自动生成并持久化 `runtime/tls/enrollment-ca.crt` 和 `runtime/tls/enrollment-ca.key`。
-2. 边端初始化时明确输入 `machineCode`。该值会写入 `device_identity.json`，并作为 MQTT `clientId` 和后续 topic 定向依据。
-3. 边端执行 `production-init.sh --tls-generate-root-ca --tls-platform-url ... --tls-token ...`，由边端本机生成私钥/CSR，平台签发客户端证书，边端落盘 `ca.crt`、`<machineCode>-client.pem`、`<machineCode>-client.key`。
-4. 初始化脚本更新 app 中的 `mqtt.tls` 路径并重启服务。
+1. `production-init.sh` 写入 MQTT 配置。启用 MQTT TLS 时，`mqtt.tls` 固定指向 `config/runtime/tls/` 下的 `ca.crt`、`<machineCode>-client.pem`、`<machineCode>-client.key`；证书还没装好时不启动服务、不跑生产自检。
+2. 工程客户端（已登录的工程师）在设备上执行 `gateway-tls-enroll.sh csr`：设备本机生成 ECDSA P-256 私钥（待用，`<key>.pending`）并输出 CSR，CN = 机器码。私钥不离开设备。
+3. 客户端以工程师身份把 CSR 交给平台：`POST /api/v3/trust/certificates`（带 `Idempotency-Key`），平台按用途签发：`MQTT_CLIENT`（clientAuth）或 `MAINTENANCE_SERVER`（serverAuth），返回 `chainPem`（设备证书 + 设备 CA）与 `caPem`（平台根 CA 与服务 CA）。
+4. 客户端把两个 PEM 写到设备临时文件，先 `install --dry-run`（全部校验、不写任何文件），确认后 `install`，然后重启服务并做健康确认；失败执行 `rollback` 回到安装前。
+5. 维护通道证书走同一条路径（`--purpose maintenance`），客户端用平台下发的签名指纹清单核对设备出示的证书。
 
-目录和权限仍应满足：
+机器码只能使用 `A-Z a-z 0-9 . _ -`（证书 CN 与文件名，`production-init.sh`、本脚本和平台同一规则）。
 
-```sh
-mkdir -p /opt/modbus-gateway/config/runtime/tls
-chmod 755 /opt/modbus-gateway/config/runtime/tls
-```
-
-如果现场采用人工证书交付，不走平台签发，可以手工放入 CA、客户端证书和私钥：
+## 4. gateway-tls-enroll.sh
 
 ```sh
-cp ca.crt /opt/modbus-gateway/config/runtime/tls/ca.crt
-cp GW0001-client.pem /opt/modbus-gateway/config/runtime/tls/GW0001-client.pem
-cp GW0001-client.key /opt/modbus-gateway/config/runtime/tls/GW0001-client.key
-chmod 644 /opt/modbus-gateway/config/runtime/tls/ca.crt
-chmod 644 /opt/modbus-gateway/config/runtime/tls/GW0001-client.pem
-chmod 600 /opt/modbus-gateway/config/runtime/tls/GW0001-client.key
+gateway-tls-enroll.sh csr      --purpose mqtt|maintenance [--machine-code CODE] [--new-key]
+gateway-tls-enroll.sh install  --purpose mqtt|maintenance --chain FILE --ca FILE [--machine-code CODE] [--dry-run]
+gateway-tls-enroll.sh rollback --purpose mqtt|maintenance [--machine-code CODE]
+gateway-tls-enroll.sh show     --purpose mqtt|maintenance [--machine-code CODE]
 ```
 
-然后修改需要连接 broker 的 app 配置。
+`--machine-code` 不填时读取 `config/runtime/device_identity.json`。
 
-至少确认：
+| 用途 | 私钥 | 证书 | CA |
+| --- | --- | --- | --- |
+| `mqtt` | `config/runtime/tls/<machineCode>-client.key`（600） | `config/runtime/tls/<machineCode>-client.pem`（证书 + 设备 CA） | `config/runtime/tls/ca.crt` |
+| `maintenance` | `config/maintenance-v2/server.key`（600） | `config/maintenance-v2/server.crt`（证书 + 设备 CA） | — |
 
-- `mqtt-service.json`：第三方转发、全量上传、实时请求、控制、OTA、事件补发。
-- `monitor-service.json`：系统监测、诊断、配置拉取。
-- `camera-service.json`：摄像头服务启用并通过 MQTT 上报状态时才需要。
+- `csr`：没有待用私钥时生成一把，已有则复用（同一 CSR 可重发）；`--new-key` 强制换新（轮换）。待用私钥在安装前不影响正在运行的服务。
+- `install` 会拒绝（退出码 4）：证书不属于本机待用或当前私钥、CN 不是本机机器码、不是 P-256、链不到 `--ca` 给的平台根、过期、用途不对（MQTT 要 clientAuth，维护通道要 serverAuth）。链里缺设备 CA 或参数不全退出码 2。
+- `install` 成功前把要被替换的文件留一份（`.previous-<purpose>/`），`rollback` 一步回到安装前；首次安装的回退会删掉新装的文件。
+- 输出 `key=value`：`purpose`、`fingerprint`（SHA-256，大写冒号分隔，与平台、客户端的指纹清单一致）、`serial`、`notAfter`、`key=pending|current`、`replacesFingerprint`、`certFile`，以及 `dryRun=1` / `installed=1` / `rolledBack=1`。
+- 脚本不改 app 配置、不重启服务、不联网：配置由 `production-init.sh` 写好，重启和健康确认由客户端做。
 
-最后重启统一服务入口：
-
-```sh
-systemctl restart gateway-services.service
-```
-
-查看目标服务日志：
-
-```sh
-journalctl -u gateway-services.service -n 100 --no-pager
-journalctl -u mqtt-driver@mqtt-service.service -n 200 --no-pager
-journalctl -u system-monitor@monitor-service.service -n 200 --no-pager
-```
-
-## 4. 证书登记和签发
-
-边端提供 `gateway-tls-enroll.sh` 用于生成私钥、CSR，并可调用平台签发接口。
-
-只生成私钥和 CSR：
-
-```sh
-GATEWAY_HOME=/opt/modbus-gateway \
-sh /opt/modbus-gateway/bin/gateway-tls-enroll.sh \
-  --machine-code GW0001 \
-  --generate-root-ca
-```
-
-输出文件默认位于：
-
-```text
-/opt/modbus-gateway/config/runtime/tls/ca.crt
-/opt/modbus-gateway/config/runtime/tls/ca.key
-/opt/modbus-gateway/config/runtime/tls/GW0001-client.key
-/opt/modbus-gateway/config/runtime/tls/GW0001-client.csr
-```
-
-向平台申请签发并更新本地 app 配置：
-
-```sh
-GATEWAY_HOME=/opt/modbus-gateway \
-sh /opt/modbus-gateway/bin/gateway-tls-enroll.sh \
-  --machine-code GW0001 \
-  --platform-url https://platform.example.com \
-  --token "$TLS_ENROLLMENT_TOKEN" \
-  --generate-root-ca \
-  --validity-days 365 \
-  --update-local-app \
-  --restart
-```
-
-签发流程：
-
-- 生成或复用 `/opt/modbus-gateway/config/runtime/tls/<machineCode>-client.key`。
-- 生成 CSR，subject 为 `/CN=<machineCode>/O=KYXN/OU=edge-gateway`。
-- 如果传入 `--generate-root-ca`，先生成本地 bootstrap 根 CA，便于离线检查证书目录；平台签发成功后，最终 `ca.crt` 以平台返回的 CA 为准。
-- 请求平台接口 `/api/config/tls/enrollment/sign`。
-- 请求头使用 `X-Edge-Tls-Enrollment-Token`。
-- 平台返回 `certificatePem` 和 `caPem` 后，边端写入 `<machineCode>-client.pem` 和 `ca.crt`。
-- `--update-local-app` 会把 app 配置中的 `mqtt.tls` 改为启用，并写入 CA、证书、私钥路径。
-
-注意：
-
-- 私钥文件权限应保持 `600`。
-- 不要把私钥、真实 token、MQTT 密码提交进仓库。
-- `--force-key` 会重新生成私钥，旧证书会失配，需重新签发。
+证书轮换：`csr --new-key` → 平台签发 → `install` → 重启 → 健康确认（失败 `rollback`）。平台对同一设备同一用途最多保留 4 张有效证书，超出时最旧的自动替代。
 
 ## 5. 出厂初始化中的 TLS
 
-`deploy/production-init.sh` 支持通过命令行或环境变量写入 MQTT TLS 参数。
-
-常用参数：
+`production-init.sh` 只决定是否启用 MQTT TLS，不处理证书：
 
 ```sh
 sh /opt/modbus-gateway/bin/production-init.sh \
@@ -204,36 +137,12 @@ sh /opt/modbus-gateway/bin/production-init.sh \
   --mqtt-username mqtt-user \
   --mqtt-password mqtt-password \
   --mqtt-tls \
-  --tls-ca-file /opt/modbus-gateway/config/runtime/tls/ca.crt \
-  --tls-cert-file /opt/modbus-gateway/config/runtime/tls/GW0001-client.pem \
-  --tls-key-file /opt/modbus-gateway/config/runtime/tls/GW0001-client.key \
-  --tls-generate-root-ca \
-  --tls-platform-url https://platform.example.com \
-  --tls-token "$TLS_ENROLLMENT_TOKEN" \
-  --tls-validity-days 365
+  --no-start --no-smoke
 ```
 
-对应环境变量：
-
-```sh
-INIT_MACHINE_CODE=GW0001
-INIT_MQTT_BROKER=ssl://broker.example.com:8883
-INIT_MQTT_USERNAME=mqtt-user
-INIT_MQTT_PASSWORD=mqtt-password
-INIT_MQTT_TLS_ENABLED=true
-INIT_MQTT_CA_FILE=/opt/modbus-gateway/config/runtime/tls/ca.crt
-INIT_MQTT_CERT_FILE=/opt/modbus-gateway/config/runtime/tls/GW0001-client.pem
-INIT_MQTT_KEY_FILE=/opt/modbus-gateway/config/runtime/tls/GW0001-client.key
-INIT_MQTT_INSECURE_SKIP_VERIFY=false
-INIT_TLS_GENERATE_ROOT_CA=1
-INIT_TLS_PLATFORM_URL=https://platform.example.com
-INIT_TLS_ENROLLMENT_TOKEN=...
-INIT_TLS_VALIDITY_DAYS=365
-```
-
-当前 `production-init.sh` 在检测到 TLS broker、`INIT_MQTT_TLS_ENABLED=true` 或 TLS 签发参数时，会走证书部署流程。量产初始化启用 MQTT TLS 时，必须提供 `INIT_TLS_PLATFORM_URL` 和 `INIT_TLS_ENROLLMENT_TOKEN`，由平台签发客户端证书。只传 `INIT_TLS_GENERATE_ROOT_CA=1` 时只会准备本地 bootstrap CA、客户端私钥和 CSR，不会让 MQTT TLS 半成品配置生效。
-
-如果现场采用人工拷贝证书，不走平台签发，应先完成非 TLS 或不启动 MQTT TLS 的初始化，再手工放置证书、修改 runtime app 配置并重启 `gateway-services.service`。
+- broker 为 `ssl://`、`tls://`、`mqtts://` 或 `--mqtt-tls`（`INIT_MQTT_TLS_ENABLED=true`）时启用 TLS，`mqtt.tls` 的三个文件路径固定为上表 `mqtt` 一行，不接受自定义路径。
+- 证书文件还不存在时，初始化完成配置后不启动服务、不跑自检，并提示下一步；装好证书后由客户端启动服务并跑 `production-smoke-test.sh`。
+- 批量初始化（`batch-init-devices.sh`）同样只写配置，证书由客户端逐台安装。
 
 ## 6. stunnel 兜底方案
 
@@ -323,7 +232,7 @@ grep -nE '"broker"|"tls"|"caFile"|"certFile"|"keyFile"|"insecureSkipVerify"' \
 ls -l /opt/modbus-gateway/config/runtime/tls
 openssl x509 -in /opt/modbus-gateway/config/runtime/tls/ca.crt -noout -subject -issuer -dates
 openssl x509 -in /opt/modbus-gateway/config/runtime/tls/GW0001-client.pem -noout -subject -issuer -dates
-openssl rsa -in /opt/modbus-gateway/config/runtime/tls/GW0001-client.key -check -noout
+openssl pkey -in /opt/modbus-gateway/config/runtime/tls/GW0001-client.key -noout -text | head -3
 ```
 
 手动测试 broker 握手：
@@ -380,10 +289,10 @@ openssl s_client \
 
 ## 9. 生产安全要求
 
-- 不要把真实 CA 私钥、客户端私钥、MQTT 密码、TLS enrollment token 放入仓库。
-- 出厂包可包含目录和模板，真实证书应在设备初始化或平台签发时落地到 `config/runtime/tls`。
+- 不要把私钥、MQTT 密码放入仓库。
+- 出厂包只含目录和 stunnel 模板；设备证书只由 `gateway-tls-enroll.sh install` 落地。
 - 客户端私钥权限建议 `600`。
 - 生产必须开启服务端证书校验和 hostname 校验。
 - 生产禁止使用 `insecureSkipVerify=true` 作为长期方案。
 - broker 使用公网地址时，优先使用域名和公开可信或平台下发的 CA 链。
-- 证书轮换通过 OTA 下发 `config/runtime/tls/*` 时，manifest 应触发 `gateway-services.service` 重启，使 MQTT 服务重新建连。
+- OTA 包不能写入或清理设备私钥与证书（`config/runtime/tls/` 下除 `*.conf` 外的文件、`config/maintenance-v2/` 下除 `trusted-ticket-keys.json` 外的文件），`ota-apply.sh` 会拒绝；轮换走第 4 节。

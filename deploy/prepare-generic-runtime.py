@@ -403,11 +403,8 @@ def prepare_tls_apps(args):
                                        monitor=name == "monitor-service.json")
                 if before != tls_snapshot(fd):
                     raise ValueError("KIOSK_INPUT_CHANGED")
-                if args.require_prepared and raw != result:
-                    raise ValueError("TLS_APP_NOT_PREPARED")
                 plans.append((name, fd, before, raw, result))
-            # Validate every candidate before publishing any file. A provider in
-            # production-init never rewrites: any drift is a failure, not a fixup.
+            # Validate every candidate before publishing any file.
             for name, fd, before, raw, result in plans:
                 current = os.open(name, kiosk_flags(), dir_fd=directory)
                 try:
@@ -415,10 +412,9 @@ def prepare_tls_apps(args):
                         raise ValueError("KIOSK_INPUT_CHANGED")
                 finally:
                     os.close(current)
-            if not args.require_prepared and not getattr(args, "check_only", False):
-                for name, fd, before, raw, result in plans:
-                    if raw != result:
-                        kiosk_publish(directory, name, result, stat.S_IMODE(before[5]))
+            for name, fd, before, raw, result in plans:
+                if raw != result:
+                    kiosk_publish(directory, name, result, stat.S_IMODE(before[5]))
     finally:
         os.close(directory)
 
@@ -840,8 +836,6 @@ if __name__ == "__main__":
     tls.add_argument("--ca-file", required=True)
     tls.add_argument("--cert-file", required=True)
     tls.add_argument("--key-file", required=True)
-    tls.add_argument("--require-prepared", action="store_true")
-    tls.add_argument("--check-only", action="store_true")
     for command in ("check-kiosk-parents", "prepare-kiosk-parents", "project-kiosk", "install-kiosk-script"):
         kiosk = commands.add_parser(command)
         kiosk.add_argument("--home", required=True, type=Path)

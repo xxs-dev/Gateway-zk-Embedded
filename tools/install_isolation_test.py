@@ -370,6 +370,42 @@ exec /bin/cp "$@"
         self.assertEqual(0, result.returncode, result.stdout)
         self.assertEqual('{"value":1}\n', target.read_text())
 
+    def test_ota_refuses_device_keys_and_certificates(self):
+        tls = Path("/opt/modbus-gateway/config/runtime/tls")
+        maintenance = Path("/opt/modbus-gateway/config/maintenance-v2")
+        for target in (tls / "GW0001-client.key", tls / "GW0001-client.pem", tls / "ca.crt", tls / "GW0001-client.key.pending",
+                       tls / ".previous-mqtt/ca.crt", maintenance / "server.key", maintenance / "server.crt"):
+            with self.subTest(target=str(target)):
+                write(target, "device credential\n")
+                result = self.run_script("ota-apply.sh", self.ota_package(str(target), "from a package\n"))
+                self.assertNotEqual(0, result.returncode, result.stdout)
+                self.assertIn("may not install device keys or certificates", result.stdout)
+                self.assertEqual("device credential\n", target.read_text())
+
+    def test_ota_still_installs_the_ticket_key_list(self):
+        target = Path("/opt/modbus-gateway/config/maintenance-v2/trusted-ticket-keys.json")
+        result = self.run_script("ota-apply.sh", self.ota_package(str(target), "{}\n"))
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual("{}\n", target.read_text())
+
+    def test_ota_clean_skips_device_credentials(self):
+        tls = Path("/opt/modbus-gateway/config/runtime/tls")
+        write(tls / "GW0001-client.key", "key\n")
+        write(tls / "old-stunnel.conf", "old\n")
+        # The payload is plain config so no service restart runs in the background of this fixture.
+        args = self.ota_package("/opt/modbus-gateway/config/runtime/logic/fixture.json", "{}\n")
+        package = self.root / "ota-package"
+        manifest = json.loads((package / "manifest.json").read_text())
+        manifest["cleanBeforeApply"] = [{"target": str(tls), "patterns": ["*"]}]
+        write(package / "manifest.json", json.dumps(manifest))
+        with tarfile.open(args[0], "w:gz") as archive:
+            archive.add(package / "manifest.json", arcname="manifest.json")
+            archive.add(package / "payload", arcname="payload")
+        result = self.run_script("ota-apply.sh", args)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual("key\n", (tls / "GW0001-client.key").read_text())
+        self.assertFalse((tls / "old-stunnel.conf").exists())
+
     def test_ota_compatibility_type_missing_and_conflict_rejected(self):
         valid = {"pointStoreAbi": 11, "clusterProtocol": 2, "upgradeMode": "offline-all-participants"}
         for bad in ({}, {**valid, "pointStoreAbi": "11"}, {**valid, "clusterProtocol": True},

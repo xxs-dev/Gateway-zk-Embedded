@@ -1,150 +1,76 @@
 #!/bin/sh
+# Device certificates from the Gateway-zk platform trust service. One path for both uses:
+#
+#   csr       make (or reuse) this device's pending ECDSA P-256 key and print a CSR with CN = machine code
+#   install   check the platform's certificate chain against that key and the CA bundle, then install it
+#             (--dry-run: all checks, nothing written)
+#   rollback  put back what the last install replaced (or remove what it added)
+#   show      print the installed certificate's fingerprint, serial and expiry
+#
+# The device never talks to the platform: the engineering client relays the CSR (signed for a logged-in
+# engineer) and brings the certificate back. Private keys are created here and never leave the device.
+#
+#   gateway-tls-enroll.sh csr      --purpose mqtt|maintenance [--machine-code CODE] [--new-key]
+#   gateway-tls-enroll.sh install  --purpose mqtt|maintenance --chain FILE --ca FILE [--machine-code CODE] [--dry-run]
+#   gateway-tls-enroll.sh rollback --purpose mqtt|maintenance [--machine-code CODE]
+#   gateway-tls-enroll.sh show     --purpose mqtt|maintenance [--machine-code CODE]
+#
+# Files (GATEWAY_HOME defaults to /opt/modbus-gateway):
+#   mqtt         config/runtime/tls/<machine>-client.key, <machine>-client.pem (leaf + device CA), ca.crt
+#   maintenance  config/maintenance-v2/server.key, server.crt (leaf + device CA)
+# A new key waits as <key>.pending until a certificate for it is installed, so the running service keeps its
+# current certificate until then. Services are restarted by the caller after install (and after rollback).
+# Exit codes: 2 usage, 3 nothing installed / nothing to roll back, 4 certificate refused.
 set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 BASE_DIR="${GATEWAY_HOME:-/opt/modbus-gateway}"
 IDENTITY_FILE="$BASE_DIR/config/runtime/device_identity.json"
 TLS_DIR="$BASE_DIR/config/runtime/tls"
-APP_CONFIG="$BASE_DIR/config/runtime/apps/mqtt-service.json"
+MAINTENANCE_DIR="$BASE_DIR/config/maintenance-v2"
+COMMAND=""
+PURPOSE=""
 MACHINE_CODE=""
-PLATFORM_URL=""
-ENROLLMENT_TOKEN=""
-VALIDITY_DAYS=""
-FORCE_KEY=0
-RESTART_SERVICES=0
-UPDATE_LOCAL_APP=0
-REQUIRE_PREPARED_APP=0
-KEY_FILE=""
-CERT_FILE=""
-CA_FILE=""
-GENERATE_ROOT_CA="${INIT_TLS_GENERATE_ROOT_CA:-0}"
-FORCE_ROOT_CA="${INIT_TLS_FORCE_ROOT_CA:-0}"
-CA_VALIDITY_DAYS="${INIT_TLS_CA_VALIDITY_DAYS:-3650}"
-CA_SUBJECT="${INIT_TLS_CA_SUBJECT:-/CN=KYXN Gateway Local Root CA/O=KYXN/OU=edge-gateway}"
-# Enrollment sends the token and receives the MQTT trust anchor: https only
-# unless explicitly overridden for a lab.
-ALLOW_INSECURE_HTTP="${INIT_TLS_ALLOW_INSECURE_HTTP:-0}"
-PLATFORM_CA_FILE="${INIT_TLS_PLATFORM_CA_FILE:-}"
+CHAIN_FILE=""
+CA_SOURCE=""
+NEW_KEY=0
+DRY_RUN=0
 
 usage() {
-  cat >&2 <<'EOF'
-Usage: gateway-tls-enroll.sh [options]
-
-Options:
-  --machine-code CODE       Device machineCode; defaults to runtime/device_identity.json
-  --platform-url URL        Platform base URL, e.g. https://edge.example.com
-  --token TOKEN             TLS enrollment token for the platform sign endpoint
-  --tls-dir DIR             TLS output dir; defaults to /opt/modbus-gateway/config/runtime/tls
-  --app-config FILE         MQTT app config to update when --update-local-app is set
-  --ca-file FILE            Override the enrollment CA destination
-  --cert-file FILE          Override the client certificate destination
-  --key-file FILE           Override the client private key destination
-  --require-prepared-app    Reject app drift instead of rewriting staged config
-  --validity-days DAYS      Requested client certificate validity days
-  --force-key               Regenerate the private key even when it already exists
-  --generate-root-ca        Generate a local bootstrap root CA before enrollment
-  --force-root-ca           Regenerate the local bootstrap root CA
-  --ca-validity-days DAYS   Local bootstrap root CA validity days; defaults to 3650
-  --ca-subject SUBJECT      Local bootstrap root CA subject
-  --update-local-app        Update mqtt.tls caFile/certFile/keyFile in local app config
-  --restart                 Restart gateway-services.service after successful enrollment
-  --platform-ca FILE        CA bundle used to verify the platform https certificate
-  --allow-insecure-http     Allow an http:// platform URL (lab only; token sent in clear)
-  -h, --help                Show this help
-
-Without --platform-url and --token, the script only creates client.key and client.csr.
-EOF
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
+
+fail() {
+  echo "$1" >&2
+  exit "${2:-1}"
+}
+
+[ "$#" -ge 1 ] || { usage; exit 2; }
+COMMAND="$1"
+shift
+case "$COMMAND" in
+  csr|install|rollback|show) ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage; exit 2 ;;
+esac
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --machine-code)
-      MACHINE_CODE="${2:-}"
-      shift 2
-      ;;
-    --platform-url)
-      PLATFORM_URL="${2:-}"
-      shift 2
-      ;;
-    --token)
-      ENROLLMENT_TOKEN="${2:-}"
-      shift 2
-      ;;
-    --tls-dir)
-      TLS_DIR="${2:-}"
-      shift 2
-      ;;
-    --app-config)
-      APP_CONFIG="${2:-}"
-      shift 2
-      ;;
-    --ca-file) CA_FILE="${2:-}"; shift 2 ;;
-    --cert-file) CERT_FILE="${2:-}"; shift 2 ;;
-    --key-file) KEY_FILE="${2:-}"; shift 2 ;;
-    --require-prepared-app) REQUIRE_PREPARED_APP=1; shift ;;
-    --validity-days)
-      VALIDITY_DAYS="${2:-}"
-      shift 2
-      ;;
-    --force-key)
-      FORCE_KEY=1
-      shift
-      ;;
-    --generate-root-ca)
-      GENERATE_ROOT_CA=1
-      shift
-      ;;
-    --force-root-ca)
-      FORCE_ROOT_CA=1
-      GENERATE_ROOT_CA=1
-      shift
-      ;;
-    --ca-validity-days)
-      CA_VALIDITY_DAYS="${2:-}"
-      shift 2
-      ;;
-    --ca-subject)
-      CA_SUBJECT="${2:-}"
-      shift 2
-      ;;
-    --restart)
-      RESTART_SERVICES=1
-      shift
-      ;;
-    --update-local-app)
-      UPDATE_LOCAL_APP=1
-      shift
-      ;;
-    --platform-ca)
-      PLATFORM_CA_FILE="${2:-}"
-      shift 2
-      ;;
-    --allow-insecure-http)
-      ALLOW_INSECURE_HTTP=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "unknown option: $1" >&2
-      usage
-      exit 2
-      ;;
+    --purpose) PURPOSE="${2:-}"; shift 2 ;;
+    --machine-code) MACHINE_CODE="${2:-}"; shift 2 ;;
+    --chain) CHAIN_FILE="${2:-}"; shift 2 ;;
+    --ca) CA_SOURCE="${2:-}"; shift 2 ;;
+    --new-key) NEW_KEY=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-if ! command -v openssl >/dev/null 2>&1; then
-  echo "openssl command not found" >&2
-  exit 1
-fi
+command -v openssl >/dev/null 2>&1 || fail "openssl command not found"
 
 if [ -z "$MACHINE_CODE" ]; then
-  if [ ! -f "$IDENTITY_FILE" ]; then
-    echo "machineCode is required and identity file not found: $IDENTITY_FILE" >&2
-    exit 1
-  fi
+  [ -f "$IDENTITY_FILE" ] || fail "machineCode is required and identity file not found: $IDENTITY_FILE"
   MACHINE_CODE=$(python3 - "$IDENTITY_FILE" <<'PY'
 import json
 import sys
@@ -153,192 +79,180 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
 PY
 )
 fi
-
+# The platform issues CN = machine code exactly; keep to characters that are safe in a subject and a file name.
 case "$MACHINE_CODE" in
-  ""|*/*|*\\*|*+*|*#*)
-    echo "invalid machineCode: $MACHINE_CODE" >&2
-    exit 1
-    ;;
+  ""|*[!A-Za-z0-9._-]*) fail "invalid machineCode: $MACHINE_CODE" 2 ;;
 esac
 
-SAFE_MACHINE=$(printf '%s' "$MACHINE_CODE" | sed 's/[^A-Za-z0-9._-]/_/g')
-mkdir -p "$TLS_DIR"
-KEY_FILE="${KEY_FILE:-$TLS_DIR/$SAFE_MACHINE-client.key}"
-CSR_FILE="$TLS_DIR/$SAFE_MACHINE-client.csr"
-CERT_FILE="${CERT_FILE:-$TLS_DIR/$SAFE_MACHINE-client.pem}"
-CA_FILE="${CA_FILE:-$TLS_DIR/ca.crt}"
-CA_KEY_FILE="$TLS_DIR/ca.key"
+case "$PURPOSE" in
+  mqtt)
+    KEY_FILE="$TLS_DIR/$MACHINE_CODE-client.key"
+    CERT_FILE="$TLS_DIR/$MACHINE_CODE-client.pem"
+    CA_FILE="$TLS_DIR/ca.crt"
+    VERIFY_PURPOSE="sslclient"
+    ;;
+  maintenance)
+    KEY_FILE="$MAINTENANCE_DIR/server.key"
+    CERT_FILE="$MAINTENANCE_DIR/server.crt"
+    CA_FILE=""
+    VERIFY_PURPOSE="sslserver"
+    ;;
+  *) fail "--purpose must be mqtt or maintenance" 2 ;;
+esac
+PENDING_KEY="$KEY_FILE.pending"
+KEY_DIR=$(dirname "$KEY_FILE")
+# What the last install replaced: copies of the files that existed ("existed") and the names it created ("absent").
+PREVIOUS_DIR="$KEY_DIR/.previous-$PURPOSE"
 
-update_tls_apps() {
-  set -- "$SCRIPT_DIR/prepare-generic-runtime.py" prepare-tls-apps \
-    --app-config "$APP_CONFIG" --ca-file "$CA_FILE" --cert-file "$CERT_FILE" --key-file "$KEY_FILE" "$@"
-  if [ "$REQUIRE_PREPARED_APP" -eq 1 ]; then
-    set -- "$@" --require-prepared
-  fi
-  python3 "$@"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/gz-tls.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# SHA-256 of the DER certificate, uppercase hex with colons (what the platform and the engineering client pin).
+fingerprint() {
+  openssl x509 -in "$1" -noout -fingerprint -sha256 | sed 's/^[^=]*=//'
 }
 
-if [ "$UPDATE_LOCAL_APP" -eq 1 ] && [ -n "$PLATFORM_URL" ] && [ -n "$ENROLLMENT_TOKEN" ]; then
-  update_tls_apps --check-only
-fi
-mkdir -p "$(dirname "$KEY_FILE")" "$(dirname "$CERT_FILE")" "$(dirname "$CA_FILE")"
-
-truthy() {
-  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-    1|y|yes|true|on) return 0 ;;
-    *) return 1 ;;
-  esac
+public_key() {
+  openssl pkey -in "$1" -pubout 2>/dev/null
 }
 
-if truthy "$GENERATE_ROOT_CA"; then
-  case "$CA_VALIDITY_DAYS" in
-    ""|*[!0-9]*)
-      echo "invalid --ca-validity-days: $CA_VALIDITY_DAYS" >&2
-      exit 2
-      ;;
-  esac
-  if truthy "$FORCE_ROOT_CA" || [ ! -s "$CA_FILE" ] || [ ! -s "$CA_KEY_FILE" ]; then
-    umask 077
-    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$CA_KEY_FILE" >/dev/null 2>&1
-    openssl req -x509 -new -nodes \
-      -key "$CA_KEY_FILE" \
-      -sha256 \
-      -days "$CA_VALIDITY_DAYS" \
-      -out "$CA_FILE" \
-      -subj "$CA_SUBJECT" >/dev/null 2>&1
-    chmod 600 "$CA_KEY_FILE" 2>/dev/null || true
-    chmod 644 "$CA_FILE" 2>/dev/null || true
-    echo "bootstrap root ca: $CA_FILE"
-  else
-    echo "bootstrap root ca exists: $CA_FILE"
-  fi
-fi
+is_p256_key() {
+  openssl pkey -in "$1" -noout -text 2>/dev/null | grep -q -E 'ASN1 OID: prime256v1|NIST CURVE: P-256'
+}
 
-if [ "$FORCE_KEY" -eq 1 ] || [ ! -s "$KEY_FILE" ]; then
+if [ "$COMMAND" = "csr" ]; then
   umask 077
-  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEY_FILE" >/dev/null 2>&1
-  chmod 600 "$KEY_FILE" 2>/dev/null || true
-fi
-
-openssl req -new \
-  -key "$KEY_FILE" \
-  -out "$CSR_FILE" \
-  -subj "/CN=$MACHINE_CODE/O=KYXN/OU=edge-gateway" >/dev/null 2>&1
-chmod 644 "$CSR_FILE" 2>/dev/null || true
-
-echo "private key: $KEY_FILE"
-echo "csr: $CSR_FILE"
-
-if [ -z "$PLATFORM_URL" ] && [ -z "$ENROLLMENT_TOKEN" ]; then
-  echo "platform enrollment skipped"
+  mkdir -p "$KEY_DIR"
+  chmod 700 "$KEY_DIR" 2>/dev/null || true
+  if [ "$NEW_KEY" -eq 1 ] || [ ! -s "$PENDING_KEY" ]; then
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -pkeyopt ec_param_enc:named_curve \
+      -out "$WORK/key.pem" >/dev/null 2>&1 || fail "openssl could not create a P-256 key"
+    chmod 600 "$WORK/key.pem"
+    mv -f "$WORK/key.pem" "$PENDING_KEY"
+  fi
+  is_p256_key "$PENDING_KEY" || fail "pending key is not ECDSA P-256: $PENDING_KEY"
+  openssl req -new -key "$PENDING_KEY" -subj "/CN=$MACHINE_CODE" -sha256 -out "$WORK/req.pem" >/dev/null 2>&1 \
+    || fail "openssl could not create the CSR"
+  cat "$WORK/req.pem"
   exit 0
 fi
-if [ -z "$PLATFORM_URL" ] || [ -z "$ENROLLMENT_TOKEN" ]; then
-  echo "--platform-url and --token must be provided together" >&2
-  exit 2
-fi
-case "$PLATFORM_URL" in
-  https://*) ;;
-  http://*)
-    if ! truthy "$ALLOW_INSECURE_HTTP"; then
-      echo "refusing http:// platform URL; use https or --allow-insecure-http (lab only)" >&2
-      exit 2
-    fi
-    ;;
-  *)
-    echo "unsupported platform URL scheme: $PLATFORM_URL" >&2
-    exit 2
-    ;;
-esac
-if [ -n "$PLATFORM_CA_FILE" ] && [ ! -r "$PLATFORM_CA_FILE" ]; then
-  echo "platform CA file is not readable: $PLATFORM_CA_FILE" >&2
-  exit 2
-fi
 
-python3 - "$PLATFORM_URL" "$ENROLLMENT_TOKEN" "$MACHINE_CODE" "$CSR_FILE" "$CERT_FILE" "$CA_FILE" "$KEY_FILE" "$APP_CONFIG" "$VALIDITY_DAYS" "$UPDATE_LOCAL_APP" "$PLATFORM_CA_FILE" <<'PY'
-import json
-import os
-import ssl
-import sys
-import tempfile
-import urllib.error
-import urllib.request
-
-platform_url, token, machine_code, csr_file, cert_file, ca_file, key_file, app_config, validity_days, update_local_app, platform_ca = sys.argv[1:12]
-with open(csr_file, "r", encoding="utf-8") as fh:
-    csr_pem = fh.read()
-
-payload = {
-    "machineCode": machine_code,
-    "csrPem": csr_pem,
-    "certificateFile": "runtime/tls/" + os.path.basename(cert_file),
-    "caBundleFile": "runtime/tls/" + os.path.basename(ca_file),
-    "keyFile": "runtime/tls/" + os.path.basename(key_file),
-    "updateAppConfig": False,
+describe() {
+  echo "fingerprint=$(fingerprint "$1")"
+  echo "serial=$(openssl x509 -in "$1" -noout -serial | sed 's/^serial=//')"
+  echo "notAfter=$(openssl x509 -in "$1" -noout -enddate | sed 's/^notAfter=//')"
 }
-if validity_days:
-    payload["validityDays"] = int(validity_days)
 
-endpoint = platform_url.rstrip("/") + "/api/config/tls/enrollment/sign"
-request = urllib.request.Request(
-    endpoint,
-    data=json.dumps(payload).encode("utf-8"),
-    headers={
-        "Content-Type": "application/json",
-        "X-Edge-Tls-Enrollment-Token": token,
-    },
-    method="POST",
-)
-context = ssl.create_default_context(cafile=platform_ca or None)
-try:
-    with urllib.request.urlopen(request, timeout=30, context=context) as response:
-        body = response.read().decode("utf-8")
-except urllib.error.HTTPError as exc:
-    body = exc.read().decode("utf-8", errors="replace")
-    raise SystemExit(f"platform sign request failed: HTTP {exc.code}: {body}")
-
-result = json.loads(body)
-if not result.get("success"):
-    raise SystemExit("platform sign request failed: " + json.dumps(result, ensure_ascii=False))
-
-def require_pem(name, value):
-    text = str(value or "")
-    if "-----BEGIN CERTIFICATE-----" not in text or "-----END CERTIFICATE-----" not in text:
-        raise SystemExit(f"platform sign response has no valid {name}")
-    return text
-
-def atomic_write(path, text):
-    directory = os.path.dirname(path) or "."
-    fd, temporary = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.chmod(temporary, 0o644)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-certificate_pem = require_pem("certificatePem", result.get("certificatePem"))
-ca_pem = require_pem("caPem", result.get("caPem"))
-os.makedirs(os.path.dirname(cert_file), exist_ok=True)
-atomic_write(cert_file, certificate_pem)
-atomic_write(ca_file, ca_pem)
-
-print("certificate: " + cert_file)
-print("ca: " + ca_file)
-PY
-
-if [ "$UPDATE_LOCAL_APP" -eq 1 ]; then
-  update_tls_apps
+if [ "$COMMAND" = "show" ]; then
+  [ -s "$CERT_FILE" ] || fail "no certificate installed: $CERT_FILE" 3
+  echo "purpose=$PURPOSE"
+  describe "$CERT_FILE"
+  echo "certFile=$CERT_FILE"
+  [ -s "$PENDING_KEY" ] && echo "pendingKey=1" || echo "pendingKey=0"
+  [ -d "$PREVIOUS_DIR" ] && echo "rollbackAvailable=1" || echo "rollbackAvailable=0"
+  exit 0
 fi
 
-if [ "$RESTART_SERVICES" -eq 1 ]; then
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl restart gateway-services.service
-  elif [ -x "$BASE_DIR/bin/gateway-services.sh" ]; then
-    "$BASE_DIR/bin/gateway-services.sh" restart
+if [ "$COMMAND" = "rollback" ]; then
+  [ -f "$PREVIOUS_DIR/existed" ] && [ -f "$PREVIOUS_DIR/absent" ] || fail "nothing to roll back for $PURPOSE" 3
+  umask 077
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    cp -p "$PREVIOUS_DIR/$name" "$KEY_DIR/$name.rollback"
+    mv -f "$KEY_DIR/$name.rollback" "$KEY_DIR/$name"
+  done < "$PREVIOUS_DIR/existed"
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    rm -f "$KEY_DIR/$name"
+  done < "$PREVIOUS_DIR/absent"
+  rm -rf "$PREVIOUS_DIR"
+  echo "purpose=$PURPOSE"
+  if [ -s "$CERT_FILE" ]; then
+    describe "$CERT_FILE"
+  else
+    echo "fingerprint="
   fi
+  echo "rolledBack=1"
+  exit 0
 fi
+
+# ---- install ---------------------------------------------------------------------------------------------------
+[ -n "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ] || fail "--chain FILE (leaf + device CA from the platform) is required" 2
+[ -n "$CA_SOURCE" ] && [ -s "$CA_SOURCE" ] || fail "--ca FILE (platform root and service CA) is required" 2
+
+# Split the chain: first certificate is the leaf, the rest are intermediates.
+awk -v dir="$WORK" '
+  /-----BEGIN CERTIFICATE-----/ { n++; out = (n == 1) ? dir "/leaf.pem" : dir "/intermediates.pem" }
+  out != "" { print >> out }
+  /-----END CERTIFICATE-----/ { out = "" }
+' "$CHAIN_FILE"
+[ -s "$WORK/leaf.pem" ] || fail "chain has no certificate" 2
+[ -s "$WORK/intermediates.pem" ] || fail "chain must contain the device CA after the leaf" 2
+
+# Which local key does this certificate belong to: the pending one (normal) or the current one (re-install)?
+openssl x509 -in "$WORK/leaf.pem" -noout -pubkey > "$WORK/leaf.pub" 2>/dev/null || fail "leaf is not a certificate" 2
+SOURCE_KEY=""
+if [ -s "$PENDING_KEY" ] && [ "$(public_key "$PENDING_KEY")" = "$(cat "$WORK/leaf.pub")" ]; then
+  SOURCE_KEY="$PENDING_KEY"
+elif [ -s "$KEY_FILE" ] && [ "$(public_key "$KEY_FILE")" = "$(cat "$WORK/leaf.pub")" ]; then
+  SOURCE_KEY="$KEY_FILE"
+else
+  fail "certificate does not belong to this device's key (run csr on this device first)" 4
+fi
+is_p256_key "$SOURCE_KEY" || fail "device key is not ECDSA P-256" 4
+
+SUBJECT_CN=$(openssl x509 -in "$WORK/leaf.pem" -noout -subject -nameopt RFC2253 | sed -n 's/^subject=//; s/.*CN=\([^,]*\).*/\1/p')
+[ "$SUBJECT_CN" = "$MACHINE_CODE" ] || fail "certificate is for $SUBJECT_CN, not $MACHINE_CODE" 4
+
+# Chain to the platform root, validity period and key usage for this purpose (clientAuth / serverAuth).
+openssl verify -CAfile "$CA_SOURCE" -untrusted "$WORK/intermediates.pem" -purpose "$VERIFY_PURPOSE" "$WORK/leaf.pem" \
+  > "$WORK/verify.out" 2>&1 || { cat "$WORK/verify.out" >&2; fail "certificate does not verify against the platform CA bundle" 4; }
+
+echo "purpose=$PURPOSE"
+describe "$WORK/leaf.pem"
+[ "$SOURCE_KEY" = "$PENDING_KEY" ] && echo "key=pending" || echo "key=current"
+if [ -s "$CERT_FILE" ]; then
+  echo "replacesFingerprint=$(fingerprint "$CERT_FILE")"
+else
+  echo "replacesFingerprint="
+fi
+echo "certFile=$CERT_FILE"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "dryRun=1"
+  exit 0
+fi
+
+umask 077
+mkdir -p "$KEY_DIR"
+chmod 700 "$KEY_DIR" 2>/dev/null || true
+# Keep what is about to be replaced, for rollback.
+rm -rf "$PREVIOUS_DIR"
+mkdir -m 700 "$PREVIOUS_DIR"
+: > "$PREVIOUS_DIR/existed"
+: > "$PREVIOUS_DIR/absent"
+for target in "$CERT_FILE" "$KEY_FILE" ${CA_FILE:+"$CA_FILE"}; do
+  name=$(basename "$target")
+  if [ -e "$target" ]; then
+    cp -p "$target" "$PREVIOUS_DIR/$name"
+    echo "$name" >> "$PREVIOUS_DIR/existed"
+  else
+    echo "$name" >> "$PREVIOUS_DIR/absent"
+  fi
+done
+
+# Stage everything next to its destination, then rename: each file switches atomically.
+cat "$WORK/leaf.pem" "$WORK/intermediates.pem" > "$CERT_FILE.new"
+chmod 644 "$CERT_FILE.new"
+if [ -n "$CA_FILE" ]; then
+  cp "$CA_SOURCE" "$CA_FILE.new"
+  chmod 644 "$CA_FILE.new"
+  mv -f "$CA_FILE.new" "$CA_FILE"
+fi
+if [ "$SOURCE_KEY" = "$PENDING_KEY" ]; then
+  cp "$PENDING_KEY" "$KEY_FILE.new"
+  chmod 600 "$KEY_FILE.new"
+  mv -f "$KEY_FILE.new" "$KEY_FILE"
+  rm -f "$PENDING_KEY"
+fi
+mv -f "$CERT_FILE.new" "$CERT_FILE"
+echo "installed=1"

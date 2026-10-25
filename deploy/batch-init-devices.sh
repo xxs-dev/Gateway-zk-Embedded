@@ -22,7 +22,7 @@ Options:
   -h, --help         show help
 
 CSV columns:
-  host,port,user,password,machine_code,mqtt_broker,mqtt_username,mqtt_password,tls_platform_url,tls_enrollment_token,tls_validity_days,runtime_mode,tls_generate_root_ca,tls_ca_validity_days,tls_ca_subject
+  host,port,user,password,machine_code,mqtt_broker,mqtt_username,mqtt_password,runtime_mode
 
 Transport:
   Uses scp to upload the package and production-init.sh, then ssh to execute it.
@@ -32,8 +32,9 @@ Global defaults can be supplied with environment variables:
   EDGE_SSH_USER EDGE_SSH_PASSWORD EDGE_SSH_PORT
   INIT_RUNTIME_MODE
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
-  INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
-  INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
+
+Device certificates are not part of batch init. With a TLS broker, production-init installs the
+configuration only; the engineering client then installs each device's certificate (gateway-tls-enroll.sh).
 EOF
 }
 
@@ -158,13 +159,7 @@ build_remote_env() {
   broker="$2"
   mqtt_username="$3"
   mqtt_password="$4"
-  tls_platform_url="$5"
-  tls_token="$6"
-  tls_validity_days="$7"
-  runtime_mode="$8"
-  tls_generate_root_ca="$9"
-  tls_ca_validity_days="${10}"
-  tls_ca_subject="${11}"
+  runtime_mode="$5"
 
   remote_env="INIT_MACHINE_CODE=$(shell_quote "$machine_code")"
   if [ -n "$runtime_mode" ]; then
@@ -179,24 +174,6 @@ build_remote_env() {
   if [ -n "$mqtt_password" ]; then
     remote_env="$remote_env INIT_MQTT_PASSWORD=$(shell_quote "$mqtt_password")"
   fi
-  if [ -n "$tls_platform_url" ]; then
-    remote_env="$remote_env INIT_TLS_PLATFORM_URL=$(shell_quote "$tls_platform_url")"
-  fi
-  if [ -n "$tls_token" ]; then
-    remote_env="$remote_env INIT_TLS_ENROLLMENT_TOKEN=$(shell_quote "$tls_token")"
-  fi
-  if [ -n "$tls_validity_days" ]; then
-    remote_env="$remote_env INIT_TLS_VALIDITY_DAYS=$(shell_quote "$tls_validity_days")"
-  fi
-  if [ -n "$tls_generate_root_ca" ]; then
-    remote_env="$remote_env INIT_TLS_GENERATE_ROOT_CA=$(shell_quote "$tls_generate_root_ca")"
-  fi
-  if [ -n "$tls_ca_validity_days" ]; then
-    remote_env="$remote_env INIT_TLS_CA_VALIDITY_DAYS=$(shell_quote "$tls_ca_validity_days")"
-  fi
-  if [ -n "$tls_ca_subject" ]; then
-    remote_env="$remote_env INIT_TLS_CA_SUBJECT=$(shell_quote "$tls_ca_subject")"
-  fi
   remote_env="$remote_env INIT_START_SERVICES=$(shell_quote "${INIT_START_SERVICES:-1}")"
   remote_env="$remote_env INIT_RUN_SMOKE=$(shell_quote "${INIT_RUN_SMOKE:-1}")"
   remote_env="$remote_env INIT_RESET_SHM=$(shell_quote "${INIT_RESET_SHM:-0}")"
@@ -208,7 +185,7 @@ build_remote_env() {
 ok_count=0
 fail_count=0
 
-while IFS=, read -r host port user password machine_code mqtt_broker mqtt_username mqtt_password tls_platform_url tls_token tls_validity_days runtime_mode tls_generate_root_ca tls_ca_validity_days tls_ca_subject rest || [ -n "${host:-}" ]; do
+while IFS=, read -r host port user password machine_code mqtt_broker mqtt_username mqtt_password runtime_mode rest || [ -n "${host:-}" ]; do
   host=$(trim "${host:-}")
   case "$host" in
     ""|\#*) continue ;;
@@ -222,13 +199,7 @@ while IFS=, read -r host port user password machine_code mqtt_broker mqtt_userna
   mqtt_broker=$(first_nonempty "$(trim "${mqtt_broker:-}")" "${INIT_MQTT_BROKER:-}" "")
   mqtt_username=$(first_nonempty "$(trim "${mqtt_username:-}")" "${INIT_MQTT_USERNAME:-}" "")
   mqtt_password=$(first_nonempty "$(trim "${mqtt_password:-}")" "${INIT_MQTT_PASSWORD:-}" "")
-  tls_platform_url=$(first_nonempty "$(trim "${tls_platform_url:-}")" "${INIT_TLS_PLATFORM_URL:-}" "")
-  tls_token=$(first_nonempty "$(trim "${tls_token:-}")" "${INIT_TLS_ENROLLMENT_TOKEN:-}" "")
-  tls_validity_days=$(first_nonempty "$(trim "${tls_validity_days:-}")" "${INIT_TLS_VALIDITY_DAYS:-}" "")
   runtime_mode=$(first_nonempty "$(trim "${runtime_mode:-}")" "${INIT_RUNTIME_MODE:-}" "")
-  tls_generate_root_ca=$(first_nonempty "$(trim "${tls_generate_root_ca:-}")" "${INIT_TLS_GENERATE_ROOT_CA:-}" "")
-  tls_ca_validity_days=$(first_nonempty "$(trim "${tls_ca_validity_days:-}")" "${INIT_TLS_CA_VALIDITY_DAYS:-}" "")
-  tls_ca_subject=$(first_nonempty "$(trim "${tls_ca_subject:-}")" "${INIT_TLS_CA_SUBJECT:-}" "")
 
   if [ -z "$machine_code" ]; then
     echo "skip $host: machine_code is empty" >&2
@@ -237,11 +208,11 @@ while IFS=, read -r host port user password machine_code mqtt_broker mqtt_userna
   fi
 
   echo "== init $host as $machine_code =="
-  # Secrets (MQTT password, enrollment token) travel in a 0600 env file, never
+  # Secrets (MQTT password) travel in a 0600 env file, never
   # on the remote command line where any local user could read them via ps.
   env_file=$(mktemp "${TMPDIR:-/tmp}/gateway-init-env.XXXXXX")
   chmod 600 "$env_file"
-  build_remote_env "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" "$tls_platform_url" "$tls_token" "$tls_validity_days" "$runtime_mode" "$tls_generate_root_ca" "$tls_ca_validity_days" "$tls_ca_subject" > "$env_file"
+  build_remote_env "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" "$runtime_mode" > "$env_file"
   if run_ssh "$host" "$port" "$user" "$password" "rm -rf $(shell_quote "$REMOTE_DIR") && mkdir -p $(shell_quote "$REMOTE_DIR") && chmod 700 $(shell_quote "$REMOTE_DIR")" &&
      run_scp "$host" "$port" "$user" "$password" "$PACKAGE" "$REMOTE_DIR/gateway-factory-defaults.tar.gz" &&
      run_scp "$host" "$port" "$user" "$password" "$SCRIPT_DIR/production-init.sh" "$REMOTE_DIR/production-init.sh" &&

@@ -566,23 +566,13 @@ class TlsAppContractTests(unittest.TestCase):
                data=raw if raw is not None else json.dumps(value).encode())
         args = types.SimpleNamespace(app_config=PurePosixPath('/source/apps/mqtt-service.json'),
                                      ca_file='/synthetic/ca.crt', cert_file='/synthetic/client.pem',
-                                     key_file='/synthetic/client.key', require_prepared=False)
+                                     key_file='/synthetic/client.key')
         module.os, module.Path = fs, PurePosixPath
         return module, fs, args
 
-    def test_check_only_retains_bytes_and_all_candidate_policies(self):
+    def test_invalid_candidate_leaves_every_app_unchanged(self):
         module, fs, args = self.fixture()
         fs.add('/source/apps/aaa.json', stat.S_IFREG | 0o600, data=b'{"mqtt":{}}')
-        args.check_only = True
-        before = copy.deepcopy(fs.entries)
-        module.prepare_tls_apps(args)
-        self.assertEqual(before, fs.entries)
-        self.assertFalse(any(e[0] in ('create', 'replace', 'fchmod') for e in fs.events))
-        args.require_prepared = True
-        with self.assertRaisesRegex(ValueError, 'TLS_APP_NOT_PREPARED'):
-            module.prepare_tls_apps(args)
-        self.assertEqual(before, fs.entries)
-        args.require_prepared = False
         fs.entries['/source/apps/monitor-service.json']['data'] = b'{"mqtt":{},"mqtt":{}}'
         changed = copy.deepcopy(fs.entries)
         with self.assertRaisesRegex(ValueError, 'KIOSK_JSON_INVALID'):
@@ -629,21 +619,14 @@ class TlsAppContractTests(unittest.TestCase):
                 self.assertEqual(before, fs.entries)
                 self.assertFalse(fs.handles)
 
-    def test_prepared_provider_checks_without_rewriting_and_rejects_drift(self):
+    def test_prepared_apps_are_not_rewritten(self):
         module, fs, args = self.fixture()
         module.prepare_tls_apps(args)
         before = copy.deepcopy(fs.entries)
-        fs.events.clear(); args.require_prepared = True
+        fs.events.clear()
         module.prepare_tls_apps(args)
         self.assertEqual(before, fs.entries)
         self.assertFalse(any(e[0] in ('create', 'replace', 'fchmod') for e in fs.events))
-        value = json.loads(fs.entries['/source/apps/monitor-service.json']['data'])
-        value['mqtt']['tls']['enabled'] = False
-        fs.entries['/source/apps/monitor-service.json']['data'] = json.dumps(value).encode()
-        changed = copy.deepcopy(fs.entries)
-        with self.assertRaisesRegex(ValueError, 'TLS_APP_NOT_PREPARED'):
-            module.prepare_tls_apps(args)
-        self.assertEqual(changed, fs.entries)
         self.assertFalse(fs.handles)
 
     def test_opened_source_change_rejected_before_publish(self):
