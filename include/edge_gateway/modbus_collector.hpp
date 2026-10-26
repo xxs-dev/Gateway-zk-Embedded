@@ -58,10 +58,9 @@ private:
         std::int64_t nowMs,
         bool realtimeFocused
     ) const;
-    std::vector<ReadTask> splitMixedPriorityTasks(const std::vector<ReadTask>& tasks) const;
     std::vector<ReadTask> limitToOfflineProbeTasks(const std::vector<ReadTask>& tasks) const;
     std::vector<ReadTask> limitToMeterTaskBudget(
-        const std::vector<ReadTask>& tasks,
+        std::vector<ReadTask> tasks,
         std::int64_t nowMs,
         int maxTasksPerCycle,
         bool realtimeFocused = false
@@ -77,6 +76,8 @@ private:
     // Shortened to the fastest point interval; a single in-flight request may overrun.
     int timeSliceMs_ = 1000;
     bool backgroundDeferred_ = false;
+    bool selectedTaskCoalescingHealthy_ = true;
+    std::vector<std::size_t> readablePointOrder_;
     std::unordered_map<std::uint32_t, int> pointFailureCounts_;
     int consecutiveSuccesses_ = 0;
     int consecutiveFailures_ = 0;

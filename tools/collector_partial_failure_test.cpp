@@ -1457,6 +1457,124 @@ void verifySlowAdaptiveSplitYieldsWithoutInventingFailures() {
     cleanupStore(storeName);
 }
 
+void verifySelectedAdjacentTasksShareRead(bool focused) {
+    const std::string name = "gateway_selected_adjacent_test";
+    cleanupStore(name);
+    {
+        auto config = buildConfig(name);
+        config.collect.maxBatchRegisters = 8;
+        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
+        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 1;
+        config.collect.backgroundTaskIntervalMs = 200;
+        auto slow = lowPriorityPoint(500002, "background", 11);
+        slow.read.intervalMs = 500;
+        config.points = {onlinePoint(), registerPoint(500001, "left", 10), slow,
+                         registerPoint(500003, "right", 12), registerPoint(500004, "alias", 12)};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(10, 10); client->setRegister(11, 11); client->setRegister(12, 12);
+        TestCollector collector(config, store, client);
+        const auto first = collector.collectOnce(1000, focused);
+        require(first.executedTasks.size() == 2, "background interval bypassed by merge");
+        const auto merged = collector.collectOnce(1200, focused);
+        require(merged.executedTasks.size() == 1 && merged.executedTasks[0].start == 10 &&
+                merged.executedTasks[0].count == 3, "eligible adjacent priority groups were not merged");
+        require(merged.values.size() == 4, "merged read lost shared-register fields");
+        for (const auto& value : merged.values) {
+            const auto expected = value.index == 500001 ? 10 : value.index == 500002 ? 11 : 12;
+            require(value.value == expected, "merged read offset decoded wrong register");
+        }
+        const auto notDue = collector.collectOnce(1400, focused);
+        require(notDue.executedTasks.size() == 2 && client->readCount(11) == 0,
+                "not-due background point used to bridge gap");
+    }
+    cleanupStore(name);
+}
+
+void verifyMergeBoundariesAndFailureIsolation() {
+    for (int mode = 0; mode < 6; ++mode) {
+        const std::string name = "gateway_merge_boundary_test";
+        cleanupStore(name);
+        {
+            auto config = buildConfig(name);
+            config.collect.maxBatchRegisters = mode == 1 ? 1 : 8;
+            config.collect.batchOptimize = mode != 2;
+            config.collect.maxBackgroundTasksPerMeterPerCycle = mode == 3 ? 0 : 1;
+            config.collect.backgroundTaskIntervalMs = 0;
+            auto background = lowPriorityPoint(500002, "background", mode == 0 ? 12 : 11);
+            if (mode == 4) background.read.function = 4;
+            if (mode == 5) background.enabled = false;
+            config.points = {onlinePoint(), registerPoint(500001, "critical", 10), background};
+            edge_gateway::MemoryPointStore store(config.memoryStore);
+            auto client = std::make_shared<FakeModbusClient>();
+            TestCollector collector(config, store, client);
+            const auto result = collector.collectOnce(1000);
+            require(result.executedTasks.size() == ((mode == 3 || mode == 5) ? 1 : 2),
+                    "merge crossed gap/function/cap/budget/enable boundary");
+            for (const auto& task : result.executedTasks) require(task.count == 1, "unexpected merged range");
+        }
+        cleanupStore(name);
+    }
+    const std::string name = "gateway_merge_failure_test";
+    cleanupStore(name);
+    {
+        auto config = buildConfig(name);
+        config.collect.maxBatchRegisters = 8;
+        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
+        config.collect.backgroundTaskIntervalMs = 0;
+        config.collect.taskFailureBackoffThreshold = 1;
+        config.collect.taskFailureBackoffMs = 500;
+        config.collect.slaveFailureBackoffThreshold = 100;
+        config.points = {onlinePoint(), registerPoint(500001, "critical", 10),
+                         lowPriorityPoint(500002, "background", 11)};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->failRangeWithMessage(10, 2, "modbus exception code=2 illegal data address");
+        TestCollector collector(config, store, client);
+        try { collector.collectOnce(1000); } catch (const std::runtime_error&) {}
+        require(client->readCount(10) == 1 && client->readCount(11) == 0, "failed merged request retried immediately");
+        const auto backedOff = collector.collectOnce(1200);
+        require(backedOff.executedTasks.empty(), "merged failure bypassed original task backoff");
+        const auto recovered = collector.collectOnce(1600);
+        require(recovered.executedTasks.size() == 2 && recovered.values.size() == 2,
+                "failed merged range did not recover as separate original tasks");
+        const auto retry = collector.collectOnce(1800);
+        require(retry.executedTasks.size() == 2, "known rejected combined range retried after leaf recovery");
+    }
+    cleanupStore(name);
+}
+
+void verifyMergedBackgroundAccountingAndReservation() {
+    for (const bool slow : {false, true}) {
+        const std::string name = "gateway_merge_background_test";
+        cleanupStore(name);
+        {
+            auto config = buildConfig(name);
+            config.collect.maxBatchRegisters = 8;
+            config.collect.maxTasksPerMeterPerCycle = 2;
+            config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
+            config.collect.backgroundTaskIntervalMs = slow ? 0 : 200;
+            config.points = {onlinePoint(), registerPoint(500001, "critical", 11),
+                             lowPriorityPoint(500002, "background", 10)};
+            if (slow) config.points.push_back(registerPoint(500003, "first_critical", 0));
+            edge_gateway::MemoryPointStore store(config.memoryStore);
+            auto client = std::make_shared<FakeModbusClient>();
+            client->readDelayMs = slow ? 100 : 0;
+            TestCollector collector(config, store, client);
+            collector.collectOnce(1000);
+            const auto merged = collector.collectOnce(slow ? 1101 : 1200);
+            require(merged.executedTasks.front().start == 10 && merged.executedTasks.front().count == 2,
+                    "background reservation/preceding register not coalesced correctly");
+            if (!slow) {
+                const auto deferred = collector.collectOnce(1300);
+                require(deferred.executedTasks.size() == 1 && deferred.executedTasks.front().start == 11,
+                        "mixed read failed to consume background interval");
+            }
+        }
+        cleanupStore(name);
+    }
+}
+
 void verifyNonFiniteFloatDecodeRejected() {
     auto point = registerPoint(500100, "non_finite_float", 0);
     point.read.dataType = "float32";
@@ -1476,6 +1594,10 @@ void verifyNonFiniteFloatDecodeRejected() {
 
 int main() {
     try {
+        verifySelectedAdjacentTasksShareRead(false);
+        verifySelectedAdjacentTasksShareRead(true);
+        verifyMergeBoundariesAndFailureIsolation();
+        verifyMergedBackgroundAccountingAndReservation();
         verifySlowRequestsYieldAndRotateWithoutStarvation(false);
         verifySlowRequestsYieldAndRotateWithoutStarvation(true);
         verifyBackgroundYieldsWhenRealtimeBecomesDue();

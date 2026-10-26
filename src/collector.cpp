@@ -4,9 +4,11 @@
 #include <chrono>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <stdexcept>
 
@@ -77,11 +79,18 @@ Collector::Collector(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
         };
     }
-    for (const auto& point : config_.points) {
+    for (std::size_t i = 0; i < config_.points.size(); ++i) {
+        const auto& point = config_.points[i];
         if (point.enabled && point.read.enable && point.read.dataType != "device_online") {
             timeSliceMs_ = std::min(timeSliceMs_, effectiveIntervalMs(point));
+            readablePointOrder_.push_back(i);
         }
     }
+    std::stable_sort(readablePointOrder_.begin(), readablePointOrder_.end(), [&](auto lhs, auto rhs) {
+        const auto& a = config_.points[lhs];
+        const auto& b = config_.points[rhs];
+        return std::tie(a.read.function, a.address) < std::tie(b.read.function, b.address);
+    });
 }
 
 CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
@@ -104,34 +113,31 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     if (shouldSkipForBackoff(nowMs)) {
         return result;
     }
-    const auto points = duePoints(nowMs);
-    std::vector<PointDefinition> realtimePoints;
-    std::vector<PointDefinition> backgroundPoints;
-    realtimePoints.reserve(points.size());
-    backgroundPoints.reserve(points.size());
-    for (const auto& point : points) {
+    std::vector<const PointDefinition*> realtimePoints;
+    std::vector<const PointDefinition*> backgroundPoints;
+    realtimePoints.reserve(readablePointOrder_.size());
+    backgroundPoints.reserve(readablePointOrder_.size());
+    for (const auto index : readablePointOrder_) {
+        const auto& point = config_.points[index];
+        const auto last = lastReadMs_.find(point.index);
+        if (last != lastReadMs_.end() && nowMs - last->second < effectiveIntervalMs(point)) continue;
         if (pointPriority(point) == 0) {
-            realtimePoints.push_back(point);
+            realtimePoints.push_back(&point);
         } else {
-            backgroundPoints.push_back(point);
+            backgroundPoints.push_back(&point);
         }
     }
-    const auto buildPlannedTasks = [&](const std::vector<PointDefinition>& sourcePoints) {
-        auto tasks = ReadTaskPlanner::build(
+    const auto buildPlannedTasks = [&](const std::vector<const PointDefinition*>& sourcePoints) {
+        auto tasks = ReadTaskPlanner::buildSorted(
             sourcePoints,
             config_.collect.maxBatchRegisters,
             config_.collect.batchOptimize
         );
-        tasks = splitMixedPriorityTasks(tasks);
+        if (taskFailureStates_.empty()) return tasks;
         return expandBackedOffTasksBeforeBudget(tasks, nowMs, realtimeFocused);
     };
     auto realtimeTasks = buildPlannedTasks(realtimePoints);
     auto backgroundTasks = buildPlannedTasks(backgroundPoints);
-
-    std::vector<ReadTask> candidateTasks;
-    candidateTasks.reserve(realtimeTasks.size() + backgroundTasks.size());
-    candidateTasks.insert(candidateTasks.end(), realtimeTasks.begin(), realtimeTasks.end());
-    candidateTasks.insert(candidateTasks.end(), backgroundTasks.begin(), backgroundTasks.end());
 
     bool hasSuccessfulRead = false;
     std::string firstFailureMessage;
@@ -174,14 +180,17 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     std::vector<ReadTask> plannedTasks;
     bool backgroundSelected = false;
     const bool offlineProbeMode = config_.collect.offlineProbeOnly && !online_ && consecutiveFailures_ > 0 &&
-        static_cast<int>(candidateTasks.size()) > config_.collect.offlineProbeTaskCount;
+        static_cast<int>(realtimeTasks.size() + backgroundTasks.size()) > config_.collect.offlineProbeTaskCount;
     if (offlineProbeMode) {
+        auto candidateTasks = std::move(realtimeTasks);
+        candidateTasks.insert(candidateTasks.end(), std::make_move_iterator(backgroundTasks.begin()),
+                              std::make_move_iterator(backgroundTasks.end()));
         plannedTasks = limitToOfflineProbeTasks(candidateTasks);
         const auto realtimeTaskBudget = realtimeFocused
             ? config_.collect.realtimeMaxTasksPerMeterPerCycle
             : config_.collect.maxTasksPerMeterPerCycle;
         plannedTasks = limitToMeterTaskBudget(
-            plannedTasks,
+            std::move(plannedTasks),
             nowMs,
             realtimeTaskBudget,
             realtimeFocused
@@ -191,16 +200,12 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             ? config_.collect.realtimeMaxTasksPerMeterPerCycle
             : config_.collect.maxTasksPerMeterPerCycle;
         auto selectedRealtimeTasks = limitToMeterTaskBudget(
-            realtimeTasks,
+            std::move(realtimeTasks),
             nowMs,
             realtimeTaskBudget,
             realtimeFocused
         );
-        plannedTasks.insert(
-            plannedTasks.end(),
-            selectedRealtimeTasks.begin(),
-            selectedRealtimeTasks.end()
-        );
+        plannedTasks = std::move(selectedRealtimeTasks);
 
         const auto backgroundBudget = std::max(
             0,
@@ -220,7 +225,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         }
         if (backgroundDue) {
             auto selectedBackgroundTasks = limitToMeterTaskBudget(
-                backgroundTasks,
+                std::move(backgroundTasks),
                 nowMs,
                 backgroundBudget,
                 realtimeFocused
@@ -229,16 +234,52 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
                 backgroundSelected = true;
                 // Reserve one overdue background request after a slice deferred it.
                 if (backgroundDeferred_) {
-                    plannedTasks.insert(plannedTasks.begin(), selectedBackgroundTasks.front());
+                    plannedTasks.insert(plannedTasks.begin(), std::move(selectedBackgroundTasks.front()));
                     selectedBackgroundTasks.erase(selectedBackgroundTasks.begin());
                 }
                 plannedTasks.insert(
                     plannedTasks.end(),
-                    selectedBackgroundTasks.begin(),
-                    selectedBackgroundTasks.end()
+                    std::make_move_iterator(selectedBackgroundTasks.begin()),
+                    std::make_move_iterator(selectedBackgroundTasks.end())
                 );
             }
         }
+    }
+
+    // Coalesce only approved due tasks, keeping the earliest selected execution slot.
+    // Retain original failure identities so batching cannot bypass their backoff.
+    std::unordered_map<std::string, std::vector<ReadTask>> coalescedParts;
+    if (!offlineProbeMode && config_.collect.batchOptimize && selectedTaskCoalescingHealthy_ &&
+        taskFailureStates_.empty()) {
+        for (std::size_t i = 0; i < plannedTasks.size(); ++i) {
+            auto& task = plannedTasks[i];
+            if (task.points.empty()) continue;
+            std::vector<ReadTask> parts;
+            bool extended;
+            do {
+                extended = false;
+                for (std::size_t j = i + 1; j < plannedTasks.size(); ++j) {
+                    auto& other = plannedTasks[j];
+                    if (other.points.empty() || task.function != other.function) continue;
+                    const auto start = std::min(task.start, other.start);
+                    const auto end = std::max(task.start + task.count, other.start + other.count);
+                    if (other.start > task.start + task.count || task.start > other.start + other.count ||
+                        end - start > config_.collect.maxBatchRegisters) continue;
+                    if (parts.empty()) parts.push_back(task);
+                    parts.push_back(other);
+                    task.points.insert(task.points.end(), std::make_move_iterator(other.points.begin()),
+                                       std::make_move_iterator(other.points.end()));
+                    other.points.clear();
+                    task.start = start;
+                    task.count = end - start;
+                    for (auto& point : task.points) point.offset = point.definition.address - start;
+                    extended = true;
+                }
+            } while (extended);
+            if (!parts.empty()) coalescedParts.emplace(taskBackoffKey(task), std::move(parts));
+        }
+        plannedTasks.erase(std::remove_if(plannedTasks.begin(), plannedTasks.end(),
+            [](const auto& task) { return task.points.empty(); }), plannedTasks.end());
     }
 
     int skippedTasks = 0;
@@ -348,20 +389,36 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             return false;
         }
         result.executedTasks.push_back(task);
-        if (taskPriority(task) > 0) backgroundAttempted = true;
+        const bool hasBackground = std::any_of(task.points.begin(), task.points.end(),
+            [&](const auto& point) { return pointPriority(point.definition) > 0; });
+        if (hasBackground) backgroundAttempted = true;
         std::vector<std::uint16_t> block;
         try {
             block = executeReadTask(task);
-            if (taskPriority(task) > 0) lastBackgroundTaskMs_ = schedulingNowMs();
+            if (hasBackground) lastBackgroundTaskMs_ = schedulingNowMs();
             if (block.size() < static_cast<std::size_t>(task.count)) {
                 throw std::runtime_error("modbus block length is shorter than planned task");
             }
             noteTaskReadSuccess(task);
             decodeSuccessfulBlock(task, block);
         } catch (const std::exception& ex) {
-            if (taskPriority(task) > 0) lastBackgroundTaskMs_ = schedulingNowMs();
+            if (hasBackground) lastBackgroundTaskMs_ = schedulingNowMs();
             const auto messageText = std::string(ex.what());
             const auto failureKind = classifyModbusFailure(ex);
+            const auto parts = coalescedParts.find(taskBackoffKey(task));
+            if (parts != coalescedParts.end()) {
+                // Fall back for this collector's lifetime, even if individual reads later recover.
+                selectedTaskCoalescingHealthy_ = false;
+                for (const auto& original : parts->second) {
+                    noteTaskReadFailure(original, schedulingNowMs(), realtimeFocused, messageText, failureKind);
+                }
+                logTaskFailure(task, ex, "disable-selected-task-coalescing");
+                if (recordPointFailures) {
+                    const auto message = buildTaskFailureMessage(task, ex);
+                    for (const auto& point : task.points) recordFailure(point.definition, message);
+                }
+                return true;
+            }
             noteTaskReadFailure(task, schedulingNowMs(), realtimeFocused, messageText, failureKind);
             if (canAdaptiveSplitFailure(failureKind) && canAdaptiveSplitTask(task) &&
                 depth < config_.collect.adaptiveSplitMaxDepth) {
@@ -478,6 +535,7 @@ bool Collector::currentOnline() const {
 }
 
 bool Collector::shouldSkipTaskForBackoff(const ReadTask& task, std::int64_t nowMs, bool realtimeFocused) const {
+    if (taskFailureStates_.empty()) return false;
     const auto it = taskFailureStates_.find(taskBackoffKey(task));
     if (it == taskFailureStates_.end()) {
         return false;
@@ -739,35 +797,6 @@ std::vector<ReadTask> Collector::expandBackedOffTasksBeforeBudget(
     return expanded;
 }
 
-std::vector<ReadTask> Collector::splitMixedPriorityTasks(const std::vector<ReadTask>& tasks) const {
-    if (tasks.empty()) {
-        return tasks;
-    }
-
-    std::vector<ReadTask> split;
-    split.reserve(tasks.size());
-    for (const auto& task : tasks) {
-        bool hasHighPriority = false;
-        bool hasLowPriority = false;
-        for (const auto& taskPoint : task.points) {
-            if (pointPriority(taskPoint.definition) == 0) {
-                hasHighPriority = true;
-            } else {
-                hasLowPriority = true;
-            }
-        }
-
-        if (!hasHighPriority || !hasLowPriority) {
-            split.push_back(task);
-            continue;
-        }
-
-        auto pointTasks = splitReadTaskByPoint(task);
-        split.insert(split.end(), pointTasks.begin(), pointTasks.end());
-    }
-    return split;
-}
-
 std::vector<ReadTask> Collector::limitToOfflineProbeTasks(const std::vector<ReadTask>& tasks) const {
     if (!config_.collect.offlineProbeOnly || online_ || consecutiveFailures_ == 0 ||
         static_cast<int>(tasks.size()) <= config_.collect.offlineProbeTaskCount) {
@@ -787,7 +816,7 @@ std::vector<ReadTask> Collector::limitToOfflineProbeTasks(const std::vector<Read
 }
 
 std::vector<ReadTask> Collector::limitToMeterTaskBudget(
-    const std::vector<ReadTask>& tasks,
+    std::vector<ReadTask> tasks,
     std::int64_t nowMs,
     int maxTasksPerCycle,
     bool realtimeFocused
@@ -799,34 +828,19 @@ std::vector<ReadTask> Collector::limitToMeterTaskBudget(
         static_cast<std::size_t>(maxTasksPerCycle),
         tasks.size()
     );
-    std::vector<std::size_t> order(tasks.size());
-    std::iota(order.begin(), order.end(), 0);
-    std::stable_sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs) {
-        const auto lhsBackedOff = shouldSkipTaskForBackoff(tasks[lhs], nowMs, realtimeFocused);
-        const auto rhsBackedOff = shouldSkipTaskForBackoff(tasks[rhs], nowMs, realtimeFocused);
-        if (lhsBackedOff != rhsBackedOff) {
-            return !lhsBackedOff && rhsBackedOff;
-        }
-        const auto lhsPriority = taskPriority(tasks[lhs]);
-        const auto rhsPriority = taskPriority(tasks[rhs]);
-        if (lhsPriority != rhsPriority) {
-            return lhsPriority < rhsPriority;
-        }
-        const auto lhsOldest = taskOldestValueUpdateMs(tasks[lhs]);
-        const auto rhsOldest = taskOldestValueUpdateMs(tasks[rhs]);
-        if (lhsOldest != rhsOldest) {
-            return lhsOldest < rhsOldest;
-        }
-        return lhs < rhs;
-    });
+    using Rank = std::tuple<bool, int, std::int64_t, std::size_t>;
+    std::vector<Rank> order;
+    order.reserve(tasks.size());
+    for (std::size_t i = 0; i < tasks.size(); ++i) {
+        order.emplace_back(shouldSkipTaskForBackoff(tasks[i], nowMs, realtimeFocused),
+                           taskPriority(tasks[i]), taskOldestValueUpdateMs(tasks[i]), i);
+    }
+    std::partial_sort(order.begin(), order.begin() + budget, order.end());
 
     std::vector<ReadTask> limited;
     limited.reserve(budget);
-    for (const auto index : order) {
-        if (limited.size() >= budget) {
-            break;
-        }
-        limited.push_back(tasks[index]);
+    for (std::size_t i = 0; i < budget; ++i) {
+        limited.push_back(std::move(tasks[std::get<3>(order[i])]));
     }
     return limited;
 }
