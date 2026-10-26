@@ -390,7 +390,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         }
         result.executedTasks.push_back(task);
         const bool hasBackground = std::any_of(task.points.begin(), task.points.end(),
-            [&](const auto& point) { return pointPriority(point.definition) > 0; });
+            [this](const ReadTaskPoint& point) { return this->pointPriority(point.definition) > 0; });
         if (hasBackground) backgroundAttempted = true;
         std::vector<std::uint16_t> block;
         try {
