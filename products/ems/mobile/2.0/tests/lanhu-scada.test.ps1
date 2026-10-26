@@ -10,7 +10,7 @@ try {
     & (Join-Path $root 'products\ems\mobile\2.0\tools\generate-scada.ps1') -SourceProjectDirectory (Join-Path $root 'products\ems\mobile\2.0\scada\base-project') -OutputProjectDirectory (Join-Path $output 'project') -OutputPackage (Join-Path $output 'lanhu.kyscada') -MachineCode COMM202600999 -LocalOperatorPassword $password
     $screens=@(Get-ChildItem (Join-Path $output 'project\screens') -Filter '*.json' | ForEach-Object {Get-Content $_.FullName -Raw|ConvertFrom-Json})
     if($screens.Count-ne56){throw 'Lanhu screen count changed'}
-    foreach($asset in @('login-background.png','login-logo.png','login-user.png','login-password.png')){
+    foreach($asset in @('login-background.png','login-logo.png','login-user.png','login-password.png','access-lock.png','single-load-meter.png','single-grid-meter.png','single-pcs.png','single-battery.png')){
         if(-not(Test-Path (Join-Path $output "project/assets/lanhu-assets/$asset"))){throw "Missing login asset: $asset"}
     }
     $map=@{}; Get-Content (Join-Path $output 'project\runtime-map.json') -Raw|ConvertFrom-Json|ForEach-Object {$map[$_.tagId]=$_}
@@ -29,6 +29,36 @@ try {
     if(@($topology.widgets|Where-Object type -eq 'qtParallelTopology').Count-ne1){throw 'Dynamic vehicle topology is missing'}
     if(@($topology.widgets|Where-Object widgetId -like 'topology-storage-*').Count){throw 'Fixed vehicle placeholders must not remain'}
     if(@($topology.widgets|Where-Object type -eq 'qtParallelTopology'|ForEach-Object {$_.bindings}).Count){throw 'Dynamic peers must not borrow local telemetry'}
+    $single=$screens|Where-Object screenId -eq 'Topology-Single'
+    $gridState=$single.widgets|Where-Object widgetId -eq 'single-pcs-grid-state'
+    if($gridState.properties.qtBackgroundColor-ne'#90979F'-or$gridState.properties.unavailableStateLabel-ne'--'){throw 'Unknown PCS mode must retain a neutral background and unavailable label'}
+    if($gridState.stateRules.Count-ne2){throw 'PCS mode pair rules missing'}
+    foreach($rule in $gridState.stateRules){
+        if($rule.match-ne'all'-or$rule.conditions.Count-ne2){throw 'PCS mode must require both feedback points'}
+        foreach($condition in $rule.conditions){
+            $index=$map[$condition.tagId].index
+            $expected=if($index-eq[int]$rule.code){'1'}else{'0'}
+            if($index-notin@(1216,1217)-or$condition.comparison-ne'eq'-or$condition.value-ne$expected){throw 'PCS mode pair is not exclusive and binary'}
+        }
+        if(@($rule.conditions.tagId|Select-Object -Unique).Count-ne2){throw 'PCS mode pair duplicates one feedback point'}
+    }
+    if(@($single.widgets|Where-Object widgetId -eq 'single-pcs-dc-divider').Count-ne1){throw 'Single topology DC summary divider is missing'}
+    foreach($entry in @(@{Id='single-load-label-1';X=463},@{Id='single-load-label-2';X=610},@{Id='single-grid-label-1';X=1116},@{Id='single-grid-label-2';X=1263},@{Id='single-pcs-ac-label-1';X=811},@{Id='single-pcs-ac-label-2';X=981})){
+        if(($single.widgets|Where-Object widgetId -eq $entry.Id).geometry.x-ne$entry.X){throw "Single topology summary spacing differs from the design: $($entry.Id)"}
+    }
+    foreach($field in $single.widgets|Where-Object type -eq 'qtValue'){
+        if($field.properties.qtFontWeight-ne'Normal'){throw "Single topology value is too bold: $($field.widgetId)"}
+    }
+    foreach($id in @('single-load-band','single-grid-band','single-pcs-band','single-battery-band')){
+        if(($single.widgets|Where-Object widgetId -eq $id).properties.qtCornerRadius-ne8){throw "Single topology title band loses its rounded corners: $id"}
+    }
+    foreach($entry in @(@{Id='single-load-value-0';I=9039},@{Id='single-grid-value-0';I=1139},@{Id='single-pcs-ac-value-0';I=1230},@{Id='single-pcs-dc-voltage';I=1244},@{Id='single-pcs-dc-power';I=1243},@{Id='single-battery-soc';I=1569},@{Id='single-load-breaker';I=999},@{Id='single-grid-breaker';I=998},@{Id='single-pcs-breaker';I=997})){
+        $widget=@($single.widgets|Where-Object widgetId -eq $entry.Id)
+        if($widget.Count-ne1-or$widget[0].bindings.Count-ne1-or$map[$widget[0].bindings[0].tagId].index-ne$entry.I){throw "Single topology binding mismatch: $($entry.Id)"}
+    }
+    if(@($single.widgets|Where-Object {$_.widgetId-like'single-bus-*'-or$_.widgetId-eq'single-battery-breaker-reserved'}|ForEach-Object {$_.bindings}).Count){throw 'Unconfirmed bus/DC feedback borrows another source'}
+    if(@($single.widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count){throw 'Single topology must remain read-only'}
+    if(@($single.widgets|Group-Object widgetId|Where-Object Count -gt 1).Count){throw 'Duplicate single topology widget IDs'}
     if(@($strategy.widgets|Where-Object {$null-ne$_.action-and$_.action.type-eq'toggle'}).Count-ne1){throw 'Only confirmed reverse-power enable may be writable'}
     foreach($id in @('Control-Mccb','Control-Diesel')){
         if(@(($screens|Where-Object screenId -eq $id).widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count-ne0){throw 'Reserved device has fabricated writes'}
@@ -78,6 +108,15 @@ try {
         if($screen.screenId-eq'Devices-Diesel'-and$devices.Count){throw 'Diesel displays unrelated alarms'}
     }}
     $monitorPcs=$screens|Where-Object screenId -eq 'Devices-Pcs'
+    if(($monitorPcs.widgets|Where-Object widgetId -eq 'pcs-overview-band').geometry.y-ne396){throw 'PCS DC/AC footer not updated'}
+    $monitorBms=$screens|Where-Object screenId -eq 'Devices-Bms'
+    if(@($monitorBms.widgets|Where-Object widgetId -eq 'bms-energy-total-panel').Count){throw 'Old merged BMS totals remain'}
+    if(@($monitorBms.widgets|Where-Object widgetId -like 'bms-energy-total-*-tile').Count-ne3){throw 'BMS totals require three independent tiles'}
+    $thermal=$screens|Where-Object screenId -eq 'Devices-Thermal'
+    foreach($section in @('liquid','dehumidifier','fan','fire','alarms')){
+        $heading=$thermal.widgets|Where-Object widgetId -eq "thermal-$section-heading"
+        if($heading.properties.qtTextAlignment-ne'Center'){throw "TMS section is not centered: $section"}
+    }
     $acPanel=($monitorPcs.widgets|Where-Object widgetId -eq 'pcs-ac-panel').geometry
     foreach($field in $monitorPcs.widgets|Where-Object widgetId -like 'pcs-ac-total-*'){
         if($field.geometry.y+$field.geometry.height -gt $acPanel.y+$acPanel.height-4){throw 'PCS totals overflow their panel'}

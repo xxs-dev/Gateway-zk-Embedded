@@ -130,7 +130,7 @@ function Ref-ControlChrome($Widgets,$Kind) {
 function Ref-Command($Widgets,$Id,$Title,$Index,$Value,$X,$Y,$Color='#2599D6') {
     $b=Ref-Button $Id $Title '' $X $Y 82 36 $false 18
     $b.properties.qtBackgroundColor='#F2FAFF';$b.properties.qtBorderColor=$Color;$b.properties.qtTextColor=$Color;$b.properties.qtFontSize=14
-    $icon=if($Title-in@('停机','停止','快速停机')){'stop'}elseif($Title-eq'运行'-or$Title-eq'启用'){'run'}elseif($Title-eq'复位'){'reset'}else{''}
+    $icon=if($Title-in@('停机','停止','快速停机')){'stop'}elseif($Title-eq'运行'-or$Title-eq'启用'){'run'}elseif($Title-eq'复位'){'reset'}elseif($Title-eq'合闸'){'breaker'}elseif($Title-eq'自动'){'auto'}else{''}
     if($icon){$b.properties | Add-Member qtIconFile "assets/lanhu-assets/command-$icon.png"}
     if($null-ne$Index -and (Is-WritableIndex ([uint32]$Index))){$b.action=New-Action 'writeSetpoint' '' $Index $Value}
     $Widgets.Add($b)
@@ -176,10 +176,10 @@ function Ref-SettingRow($Widgets,$Id,$Title,$Index,$X,$Y,$Width=560,$Icon='contr
     $Widgets.Add($b)
 }
 function Ref-DeviceTile($Widgets,$Id,$Title,$Icon,$Command,$X,$Y,$Color='#2599D6') {
-    $panel=Ref-Panel "$Id-panel" $X $Y 388 84
+    $panel=Ref-Panel "$Id-panel" $X $Y 385 84
     $panel.properties|Add-Member qtBorderColor '#E6E6E6';$Widgets.Add($panel)
     $Widgets.Add((New-LanhuImage "$Id-icon" $Icon ($X+14) ($Y+18) 42 42))
-    $Widgets.Add((Ref-Text "$Id-title" $Title ($X+74) ($Y+10) 178 28 16))
+    $Widgets.Add((Ref-Text "$Id-title" $Title ($X+74) ($Y+10) 178 28 16 '#303438' $true))
     $Widgets.Add((Ref-Text "$Id-status-title" '当前状态：' ($X+74) ($Y+40) 76 28 14 '#777E85'))
     Ref-Value $Widgets "$Id-feedback" $null ($X+150) ($Y+40) 46 28
     Ref-Command $Widgets "$Id-reserved" $Command $null '' ($X+280) ($Y+24) $Color
@@ -205,10 +205,10 @@ function Build-RefDeviceControl($Kind) {
             Ref-SettingRow $w 'tms-heat-return-reserved' '制热回差温度(℃)' $null 792 612 540
         }
         'Mccb' {
-            foreach($i in 0..8){$x=162+($i%3)*412;$y=350+[math]::Floor($i/3)*100;Ref-DeviceTile $w "mccb-$i" ('断路器{0:00}'-f($i+1)) 'control-breaker.png' '合闸' $x $y}
+            foreach($i in 0..8){$x=162+($i%3)*412;$y=348+[math]::Floor($i/3)*102;Ref-DeviceTile $w "mccb-$i" ('断路器{0:00}'-f($i+1)) 'control-breaker.png' '合闸' $x $y}
         }
         'Diesel' {
-            $items=@(@{Id='diesel-start';T='遥控快速停机';Icon='control-diesel-start.png';Command='快速停机';Color='#EE5078'},@{Id='diesel-breaker';T='遥控市电合分闸';Icon='control-breaker.png';Command='合闸';Color='#2599D6'},@{Id='diesel-mode';T='遥控发电合分闸';Icon='control-mode-small.png';Command='合闸';Color='#2599D6'},@{Id='diesel-reset';T='遥控手/自动';Icon='control-reset.png';Command='自动';Color='#2599D6'})
+            $items=@(@{Id='diesel-start';T='遥控快速停机';Icon='control-diesel-start.png';Command='快速停机';Color='#EE5078'},@{Id='diesel-breaker';T='遥控市电合分闸';Icon='control-grid-breaker.png';Command='合闸';Color='#2599D6'},@{Id='diesel-mode';T='遥控发电合分闸';Icon='control-mode-small.png';Command='合闸';Color='#2599D6'},@{Id='diesel-reset';T='遥控手/自动';Icon='control-reset.png';Command='自动';Color='#2599D6'})
             for($i=0;$i-lt4;$i++){$s=$items[$i];$x=162+($i%3)*412;$y=350+[math]::Floor($i/3)*100;Ref-DeviceTile $w $s.Id $s.T $s.Icon $s.Command $x $y $s.Color}
         }
     }
@@ -325,10 +325,105 @@ function Ref-TopologyCard($Widgets,$Id,$Title,$Source,$Image,$X,$Y,$Storage=$fal
         Ref-Value $Widgets "$Id-soc" 1569 ($X+250) ($Y+240) 90 20 '%' 12
     }
 }
+function Ref-SingleBand($Widgets,$Id,$X,$Y,$Width,$Height) {
+    $Widgets.Add((New-LanhuPanel $Id $X $Y $Width $Height '#F7F7F7' 1))
+    $Widgets.Add((New-Frame "$Id-bottom" $X ($Y+8) $Width ($Height-8) '#F7F7F7' 1))
+}
+function Ref-SingleSummary($Widgets,$Id,$Meter,$X,$Y,$Width,$Offsets=@(0,138,285),$Dividers=@(99,246)) {
+    $items=@(@{T='P总';K='TotalP';U='kW'},@{T='Q总';K='TotalQ';U='kvar'},@{T='功率因数';K='Factor';U=''})
+    foreach($i in 0..2){
+        $item=$items[$i];$left=$X+$Offsets[$i]
+        $cellWidth=if($i-lt2){$Dividers[$i]-$Offsets[$i]-8}else{$Width-$Offsets[$i]}
+        $Widgets.Add((Ref-Text "$Id-label-$i" $item.T $left $Y $cellWidth 24 14 '#777E85'))
+        Ref-Value $Widgets "$Id-value-$i" $Meter[$item.K] $left ($Y+26) $cellWidth 28 $item.U 18
+        $Widgets[$Widgets.Count-1].properties.qtTextAlignment='Left'
+        if($i-lt2){$Widgets.Add((New-Frame "$Id-divider-$i" ($X+$Dividers[$i]) ($Y+8) 1 36 '#E0E3E6' 1))}
+    }
+}
+function Ref-SinglePhases($Widgets,$Id,$Meter,$X,$Y,$Width,$Reactive=$false,$Offsets=@(0,137,274)) {
+    $rows=@(@{K='V';T='U';U='V'},@{K='P';T='P';U='kW'})
+    if($Reactive){$rows+=@{K='Q';T='Q';U='kvar'}}
+    $Widgets.Add((New-Frame "$Id-rule" $X ($Y-8) $Width 1 '#E0E3E6' 1))
+    for($row=0;$row-lt$rows.Count;$row++){
+        $item=$rows[$row]
+        foreach($i in 0..2){
+            $left=$X+$Offsets[$i];$top=$Y+$row*25
+            $cellWidth=if($i-lt2){$Offsets[$i+1]-$Offsets[$i]}else{$Width-$Offsets[$i]}
+            $Widgets.Add((Ref-Text "$Id-$row-$i-label" ($item.T+@('a','b','c')[$i]) $left $top 30 24 13 '#777E85'))
+            Ref-Value $Widgets "$Id-$row-$i" $Meter[$item.K][$i] ($left+33) $top ($cellWidth-39) 24 $item.U 13
+            $Widgets[$Widgets.Count-1].properties.qtTextAlignment='Left'
+        }
+    }
+}
+function Ref-SingleBreaker($Widgets,$Id,$Index,$X,$Y) {
+    # Use real DI feedback only; missing/bad quality stays neutral, never closed red.
+    $bindings=@();$rules=@()
+    if(Has-Index $Index){
+        $bindings=@((New-Binding $Index))
+        $rules=@((New-StateRule 'open' '' '#18C773' $Index 'eq' '0' 10),(New-StateRule 'closed' '' '#F52D59' $Index 'eq' '1' 20))
+    }
+    $Widgets.Add((New-Widget $Id 'statusCard' '' $X $Y 9 18 5 $bindings $rules $null ([ordered]@{
+        qtBackgroundColor='#90979F';qtBorderless='true';qtHideStatusLamp='true';qtCornerRadius=2
+        stateLabelVisible='false';unavailableStateLabel=' ';qtFontSize=1;qtTheme='light'
+    })))
+}
+function Build-RefSingleTopology($Widgets) {
+    $load=Get-LanhuMeterIndexes 'Through';$grid=Get-LanhuMeterIndexes 'Input';$pcs=Get-LanhuMeterIndexes 'Pcs'
+    foreach($item in @(@{Id='load';T='负载侧';M=$load;X=302;Y=176;Image='single-load-meter.png';IX=150;IY=176;IW=145;IH=133},@{Id='grid';T='电源(并机)侧';M=$grid;X=955;Y=169;Image='single-grid-meter.png';IX=807;IY=177;IW=140;IH=132})){
+        $id='single-'+$item.Id;$x=$item.X;$y=$item.Y
+        $Widgets.Add((New-LanhuImage "$id-image" $item.Image $item.IX $item.IY $item.IW $item.IH))
+        $Widgets.Add((Ref-Panel "$id-panel" $x $y 402 159))
+        Ref-SingleBand $Widgets "$id-band" $x $y 402 36
+        $Widgets.Add((Ref-Text "$id-title" $item.T $x ($y+3) 402 30 18 '#303438' $true 'Center'))
+        Ref-SingleSummary $Widgets $id $item.M ($x+23) ($y+44) 357
+        Ref-SinglePhases $Widgets $id $item.M ($x+23) ($y+108) 357
+    }
+    $Widgets.Add((New-Frame 'single-ac-bus' 129 409 1262 6 '#2B6396' 1))
+    foreach($line in @(@{Id='load';X=219;Y=342;H=67},@{Id='grid';X=871;Y=319;H=90},@{Id='pcs';X=499;Y=416;H=60},@{Id='battery';X=499;Y=601;H=75})){
+        $Widgets.Add((New-Frame "single-line-$($line.Id)" $line.X $line.Y 3 $line.H '#A2BED6' 1))
+    }
+    Ref-SingleBreaker $Widgets 'single-load-breaker' 999 216 379
+    Ref-SingleBreaker $Widgets 'single-grid-breaker' 998 868 357
+    Ref-SingleBreaker $Widgets 'single-pcs-breaker' 997 496 447
+    # No confirmed DC-contactor feedback or independent bus meter exists in this profile.
+    $Widgets.Add((New-Frame 'single-battery-breaker-reserved' 496 638 9 18 '#90979F' 5))
+    $Widgets.Add((Ref-Text 'single-bus-title' 'AC母线' 148 423 160 30 18 '#2B6396' $true))
+    foreach($i in 0..3){$y=460+$i*31;$Widgets.Add((Ref-Text "single-bus-$i-label" @('频率','Ua','Ub','Uc')[$i] 148 $y 34 28 13 '#2B6396'));Ref-Value $Widgets "single-bus-$i" $null 183 $y 105 28 $(if($i-eq0){'Hz'}else{'V'}) 14}
+    $Widgets.Add((New-LanhuImage 'single-pcs-image' 'single-pcs.png' 420 490 160 108))
+    $Widgets.Add((New-LanhuImage 'single-battery-image' 'single-battery.png' 420 691 160 104))
+    $Widgets.Add((Ref-Panel 'single-pcs-panel' 627 429 730 223))
+    Ref-SingleBand $Widgets 'single-pcs-band' 627 429 730 39
+    $Widgets.Add((Ref-Text 'single-pcs-title' 'PCS' 880 434 43 28 18 '#303438' $true))
+    $bindings=@();$rules=@()
+    if((Has-Index 1216)-and(Has-Index 1217)){
+        foreach($entry in @(@{I=1216;Other=1217;T='并网';C='#18C773'},@{I=1217;Other=1216;T='离网';C='#F52D59'})){
+            $bindings+=New-Binding $entry.I
+            $rule=New-StateRule ([string]$entry.I) $entry.T $entry.C $entry.I 'eq' '1' $entry.I
+            $rule.conditions+=(New-StateRule '' '' '' $entry.Other 'eq' '0' 0).conditions
+            $rules+=$rule
+        }
+    }
+    $Widgets.Add((New-Widget 'single-pcs-grid-state' 'statusCard' '' 928 436 46 24 5 $bindings $rules $null ([ordered]@{qtBackgroundColor='#90979F';qtCornerRadius=2;qtFontSize=17;qtTextColor='#FFFFFF';qtTheme='light';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';qtTextAlignment='Center';unavailableStateLabel='--'})))
+    Monitor-Heading $Widgets 'single-pcs-ac' 'AC' 'monitor-measurement.png' 649 478
+    Monitor-Heading $Widgets 'single-pcs-dc' 'DC' 'monitor-measurement.png' 1099 478
+    Ref-SingleSummary $Widgets 'single-pcs-ac' $pcs 649 506 390 @(0,162,332) @(110,280)
+    Ref-SinglePhases $Widgets 'single-pcs-ac' $pcs 649 570 390 $true @(0,151,304)
+    $Widgets.Add((New-Frame 'single-pcs-divider' 1072 479 1 162 '#E0E3E6' 1))
+    $Widgets.Add((New-Frame 'single-pcs-dc-divider' 1210 513 1 36 '#E0E3E6' 1))
+    foreach($item in @(@{Id='voltage';T='直流电压';I=1244;U='V';X=1099},@{Id='power';T='直流功率';I=1243;U='kW';X=1260})){
+        Monitor-Field $Widgets "single-pcs-dc-$($item.Id)" $item.T $item.I $item.U $item.X 506 96 18
+    }
+    $Widgets.Add((Ref-Panel 'single-battery-panel' 627 700 156 86))
+    Ref-SingleBand $Widgets 'single-battery-band' 627 700 156 37
+    $Widgets.Add((Ref-Text 'single-battery-title' '电池组' 627 704 156 30 18 '#303438' $true 'Center'))
+    $Widgets.Add((Ref-Text 'single-battery-soc-label' 'SOC' 650 748 48 28 14 '#777E85'))
+    Ref-Value $Widgets 'single-battery-soc' 1569 707 748 66 28 '%' 18
+    foreach($field in $Widgets|Where-Object {$_.widgetId-like'single-*'-and$_.type-eq'qtValue'}){$field.properties.qtFontWeight='Normal'}
+}
 function Build-RefTopology($Single=$false) {
     $id=if($Single){'Topology-Single'}else{'Topology'};$w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w $id 'Topology'
     Ref-Tabs $w @(@{Id='Parallel';T='并机拓扑';Target='Topology'},@{Id='Single';T='单机拓扑';Target='Topology-Single'}) $(if($Single){'Single'}else{'Parallel'}) 562 80 308
-    if($Single){return New-RefScreen $id $w}
+    if($Single){Build-RefSingleTopology $w;return New-RefScreen $id $w}
     Ref-TopologyCard $w 'topology-transformer' '变压器 - 防逆流表' 'Output' 'meter.png' 120 141
     Ref-TopologyCard $w 'topology-grid' '并网点' 'Input' 'meter.png' 540 141
     Ref-TopologyCard $w 'topology-diesel' '柴油发电机' $null 'diesel.png' 120 497

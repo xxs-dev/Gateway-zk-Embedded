@@ -16,6 +16,7 @@
 #include <QMenu>
 #include <QLabel>
 #include <QGraphicsPathItem>
+#include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
 #include <QGraphicsProxyWidget>
 #include <QGraphicsRectItem>
@@ -258,11 +259,21 @@ int main(int argc, char** argv) {
         ParallelTopology topology(runtime, argc > 1 ? argv[1] : ".");
         topology.setFixedSize(1230, 653);
         topology.refresh(10000);
-        require(!topology.fresh() && topology.vehicleCount() == 0, "missing membership became an invented vehicle");
+        require(!topology.fresh() && topology.usingLocalFallback() && topology.vehicleCount() == 1,
+                "missing membership must display one local vehicle");
+        require(topology.vehicleId(0) == QString::fromStdString(runtime.nodeId()), "default vehicle is not the configured local node");
+        for (const QString& key : {"p", "q", "pa", "pb", "pc", "soc", "frequency", "factor"})
+            require(topology.valueText(0, key) == "--", "local fallback invented telemetry");
+        require(topology.page() == 0 && topology.pageCount() == 1 &&
+                topology.findChild<QPushButton*>("topologyNext")->isHidden(), "default vehicle must not paginate");
+        runtime.cluster = "{"; topology.refresh(10000);
+        require(topology.usingLocalFallback() && topology.vehicleCount() == 1 && !topology.fresh(),
+                "malformed first snapshot removed the default local vehicle");
         for (int count : {0, 1, 2, 3, 4, 5, 10}) {
             runtime.cluster = clusterFixture(count, 0, 10000);
             topology.refresh(10000);
-            require(topology.fresh() && topology.vehicleCount() == count, "vehicle count differs from membership");
+            require(topology.fresh() && topology.vehicleCount() == std::max(1, count), "vehicle count differs from membership/default");
+            require(topology.usingLocalFallback() == (count == 0), "local fallback was appended to real membership");
             require(topology.pageCount() == std::max(1, (count + 2) / 3), "wrong vehicle pagination");
         }
         topology.findChild<QPushButton*>("topologyNext")->click();
@@ -288,7 +299,10 @@ int main(int argc, char** argv) {
         runtime.cluster = QJsonDocument(duplicate).toJson().toStdString(); topology.refresh(16006);
         require(!topology.fresh() && topology.vehicleCount() == 2, "duplicate node identity accepted");
         runtime.cluster = clusterFixture(0, 0, 16007); topology.refresh(16007);
-        require(topology.fresh() && topology.vehicleCount() == 0, "valid zero membership not cleared");
+        require(topology.fresh() && topology.vehicleCount() == 1 && topology.usingLocalFallback() &&
+                topology.vehicleId(0) == QString::fromStdString(runtime.nodeId()), "empty membership did not restore the local default");
+        require(topology.valueText(0, "p") == "--" && topology.valueText(0, "soc") == "--",
+                "empty membership retained peer telemetry in the local default");
         for (const QString& field : {QString("capabilityFresh"), QString("compatible"), QString("duplicateIdentity")}) {
             auto object = QJsonDocument::fromJson(QByteArray::fromStdString(clusterFixture(1, 0, 16008))).object();
             auto list = object["members"].toArray(); auto member = list[0].toObject();
@@ -479,10 +493,84 @@ int main(int argc, char** argv) {
             const auto& project = window.project();
             const auto topologyScreen = std::find_if(project.screens.begin(), project.screens.end(), [](const auto& s) { return s.screenId == "Topology"; });
             require(topologyScreen != project.screens.end(), "topology route missing");
+            const auto singleScreen = std::find_if(project.screens.begin(), project.screens.end(), [](const auto& s) { return s.screenId == "Topology-Single"; });
+            require(singleScreen != project.screens.end(), "single topology route missing");
+            FixtureRuntime singleRuntime;
+            for (const auto& mapping : project.runtimeMappings) {
+                ScadaSceneResolvedTag tag; tag.mapping = mapping;
+                for (const auto& candidate : project.tags) if (candidate.tagId == mapping.tagId) tag.tag = candidate;
+                singleRuntime.projectTags[mapping.tagId] = tag;
+            }
+            ScadaSceneView singleView(*singleScreen, argv[1], project.alarms, project.trends, singleRuntime, [](const std::string&) {});
+            singleView.setWindowFlag(Qt::FramelessWindowHint);
+            singleView.resize(1920, 1080); singleView.show(); app.processEvents();
+            int images = 0;
+            for (auto* item : singleView.scene()->items()) if (auto* bitmap = dynamic_cast<QGraphicsPixmapItem*>(item)) {
+                ++images;
+                require(!bitmap->pixmap().isNull() && bitmap->transformationMode() == Qt::SmoothTransformation,
+                        "single topology artwork missing or enlarged without smoothing");
+            }
+            require(images >= 5, "single topology device artwork missing");
+            for (int scenario = 0; scenario < 6; ++scenario) {
+                singleRuntime.values.clear();
+                if (scenario != 4) for (const auto& mapping : project.runtimeMappings) singleRuntime.put(mapping.index, 25.8);
+                for (auto index : {997u, 998u, 999u}) if (scenario != 4)
+                    singleRuntime.put(index, scenario == 1 ? 0 : scenario == 5 ? 2 : 1, scenario == 3, scenario == 2 ? 0 : 1);
+                singleRuntime.put(1216, 1); singleRuntime.put(1217, 0); singleRuntime.put(1569, 75);
+                singleView.refresh(now); app.processEvents();
+                int breakers = 0;
+                for (const auto& item : ScadaSceneViewTestAccess::widgets(singleView)) {
+                    if (!item.valueText) continue;
+                    const auto id = item.valueText->data(0).toString();
+                    if (id == "single-load-breaker" || id == "single-grid-breaker" || id == "single-pcs-breaker") {
+                        ++breakers;
+                        const auto expected = scenario == 0 ? QColor("#F52D59") : scenario == 1 ? QColor("#18C773")
+                            : scenario == 5 ? QColor("#90979F") : QColor("#71808A");
+                        require(item.panel->brush().color() == expected, "single topology breaker quality/state incorrect");
+                    }
+                    if (id == "single-bus-0") require(item.valueText->toPlainText() == "--", "reserved bus borrowed PCS telemetry");
+                }
+                require(breakers == 3, "single topology DI feedback missing");
+                if (argc > 2) {
+                    QDir().mkpath(argv[2]);
+                    require(singleView.grab().save(QString::fromLocal8Bit(argv[2]) + QString("/Topology-Single-state-%1.png").arg(scenario)), "single topology screenshot failed");
+                }
+            }
+            for (int scenario = 0; scenario < 12; ++scenario) {
+                singleRuntime.put(1216, scenario == 1 || scenario == 2 ? 0 : 1);
+                singleRuntime.put(1217, scenario == 1 || scenario == 3 ? 1 : 0);
+                if (scenario == 4) singleRuntime.put(1217, 2);
+                if (scenario == 5) singleRuntime.put(1216, 2);
+                if (scenario == 6) singleRuntime.values.erase(1217);
+                if (scenario == 7) singleRuntime.values.erase(1216);
+                if (scenario == 8) singleRuntime.put(1217, 0, true);
+                if (scenario == 9) singleRuntime.put(1216, 1, true);
+                if (scenario == 10) singleRuntime.put(1217, 0, false, 0);
+                if (scenario == 11) singleRuntime.put(1216, 1, false, 0);
+                singleView.refresh(now);
+                bool found = false;
+                for (const auto& item : ScadaSceneViewTestAccess::widgets(singleView)) {
+                    if (!item.valueText || item.valueText->data(0).toString() != "single-pcs-grid-state") continue;
+                    found = true;
+                    const auto expected = scenario == 0 ? QColor("#18C773") : scenario == 1 ? QColor("#F52D59")
+                        : scenario < 6 ? QColor("#90979F") : QColor("#71808A");
+                    require(item.panel->brush().color() == expected, "single topology mode pair accepted invalid feedback");
+                    if (scenario >= 2) require(item.valueText->toPlainText() == "--", "invalid mode pair claims a mode");
+                }
+                require(found, "single topology mode indicator missing");
+            }
+            require(singleRuntime.writeCalls == 0 && singleRuntime.groupWriteCalls == 0, "single topology issued a write");
+            singleView.close();
             FixtureRuntime topologyRuntime;
             ScadaSceneView topologyView(*topologyScreen, argv[1], project.alarms, project.trends, topologyRuntime, [](const std::string&) {});
             topologyView.setWindowFlag(Qt::FramelessWindowHint);
             topologyView.resize(1440, 810); topologyView.show(); app.processEvents();
+            topologyView.refresh(QDateTime::currentMSecsSinceEpoch()); app.processEvents();
+            if (argc > 2) {
+                QDir().mkpath(argv[2]);
+                require(topologyView.grab().save(QString::fromLocal8Bit(argv[2]) + "/Topology-local-default.png"),
+                        "default local topology screenshot failed");
+            }
             for (const auto& scenario : std::vector<std::pair<int, int>>{{0,0},{1,0},{2,0},{3,0},{3,1},{3,2},{3,3},{5,0}}) {
                 const auto now = QDateTime::currentMSecsSinceEpoch();
                 topologyRuntime.cluster = clusterFixture(scenario.first, scenario.second, now);
@@ -501,6 +589,7 @@ int main(int argc, char** argv) {
             if (argc > 2) require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Topology-5-page2.png"), "page2 screenshot failed");
             topologyRuntime.cluster.clear(); topologyView.refresh(QDateTime::currentMSecsSinceEpoch()); app.processEvents();
             if (argc > 2) require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Topology-stale.png"), "stale screenshot failed");
+            require(topologyRuntime.writeCalls == 0 && topologyRuntime.groupWriteCalls == 0, "parallel topology issued a write");
             topologyView.close();
             window.setWindowFlag(Qt::FramelessWindowHint);
             window.resize(1440, 810); window.show(); app.processEvents();

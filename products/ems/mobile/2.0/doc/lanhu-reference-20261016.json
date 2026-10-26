@@ -1,0 +1,321 @@
+{
+  "date": "2026-10-16",
+  "timezone": "America/Los_Angeles",
+  "projectId": "be19aa1e-6480-4ca0-95a1-5ec773b5bd3e",
+  "sourceCommit": "aac6e5e1636f82df3a98b084653ffc977af7f25c",
+  "loginSelection": "User selected storage vehicle plus data dashboard background.",
+  "boards": [
+    {
+      "board": 1,
+      "route": "Topology-Single",
+      "name": "单机拓扑",
+      "previousBoard": null,
+      "assetDigest": "baf4a047eb263786ab18dcae50f3f49b",
+      "imageId": "6eeb805a-0e12-4b2d-94be-58c1b4318987"
+    },
+    {
+      "board": 2,
+      "route": "Topology",
+      "name": "并机全部连接",
+      "previousBoard": 27,
+      "assetDigest": "d4c7c6d6f035bc7c1c587491d4e56360",
+      "imageId": "ddd0e0e3-4401-4129-8a25-59f7d51b9ffc"
+    },
+    {
+      "board": 3,
+      "route": "Topology",
+      "name": "并机1台离线",
+      "previousBoard": 31,
+      "assetDigest": "5e566cef838cc9e369716572f92d8133",
+      "imageId": "0e20c989-cb3b-4b60-9255-7f92385e4655"
+    },
+    {
+      "board": 4,
+      "route": "Topology",
+      "name": "并机2台离线",
+      "previousBoard": 35,
+      "assetDigest": "ce9aab8ff451d641d6ce5e1a01926396",
+      "imageId": "d09f59e9-b748-4bc4-97d8-f68e7a0eb6ea"
+    },
+    {
+      "board": 5,
+      "route": "Topology",
+      "name": "并机3台离线",
+      "previousBoard": 34,
+      "assetDigest": "38dccb25a8f0b3b0a52ca67e0214fc11",
+      "imageId": "3e4518ed-f6ad-4a56-8ee9-8c5460728f8c"
+    },
+    {
+      "board": 6,
+      "route": "Devices-Emu",
+      "name": "EMU监测",
+      "previousBoard": 6,
+      "assetDigest": "d52851a46be920dbfe5d3bcce63482d8",
+      "imageId": "fc8bf068-92f0-4201-b732-b4752aa19758"
+    },
+    {
+      "board": 7,
+      "route": "Control-LoggedOut",
+      "name": "控制未登录",
+      "previousBoard": 5,
+      "assetDigest": "7ff44dde72b6ed9b9fd692f7d5e0e959",
+      "imageId": "6f74d8c4-e6ea-4446-ae98-35fb600872f6"
+    },
+    {
+      "board": 8,
+      "route": "Devices-Thermal",
+      "name": "TMS监测",
+      "previousBoard": 8,
+      "assetDigest": "180617f131bb0b17a7f7079f6b0845c8",
+      "imageId": "2ecbeb9f-ceba-4669-ae07-f713bd6264ad"
+    },
+    {
+      "board": 9,
+      "route": "Devices-Diesel",
+      "name": "柴油机监测",
+      "previousBoard": 2,
+      "assetDigest": "6ad19dfc1e09a59690b8358ffadbab94",
+      "imageId": "ef848d20-6aaf-451b-8e43-a5914d3ce7e2"
+    },
+    {
+      "board": 10,
+      "route": "Login-Alternative",
+      "name": "登录备选（太阳能板）",
+      "previousBoard": 7,
+      "assetDigest": "a0d5378772cb68eb55d2e9cb2ccd6dcf",
+      "imageId": "4291dc7d-b76c-4fc9-a359-61d6c9c1271e"
+    },
+    {
+      "board": 11,
+      "route": "Devices-Cells",
+      "name": "单体明细",
+      "previousBoard": 10,
+      "assetDigest": "2f5cd69e26e5116a17eb2fcb75b4889a",
+      "imageId": "a63a65a8-4517-4aab-adea-a5006bc9b8c0"
+    },
+    {
+      "board": 12,
+      "route": "Monitor-Strategy",
+      "name": "策略监测",
+      "previousBoard": 1,
+      "assetDigest": "3fd7107bf153eec6f6385326db0c9b83",
+      "imageId": "0c61ff74-e615-47b1-ab83-57d0c14b5477"
+    },
+    {
+      "board": 13,
+      "route": "Devices-Meters",
+      "name": "电表监测",
+      "previousBoard": 3,
+      "assetDigest": "581a307a4d7ea15f9f4627426e9e18fa",
+      "imageId": "2f8d8cf4-3021-4760-83ac-82e2ed2175e3"
+    },
+    {
+      "board": 14,
+      "route": "Devices-Bms",
+      "name": "BMS监测",
+      "previousBoard": 11,
+      "assetDigest": "78d28ffd0248549a241eb7be8c66fdaf",
+      "imageId": "de603af2-a222-4775-8329-a5072597c90c"
+    },
+    {
+      "board": 15,
+      "route": "Devices-Mccb",
+      "name": "MCCB监测",
+      "previousBoard": 4,
+      "assetDigest": "b24b423c1a07ed69363dc39663503b32",
+      "imageId": "49098ace-1523-4484-ab16-cb215a045694"
+    },
+    {
+      "board": 16,
+      "route": "Info-Alarms",
+      "name": "告警",
+      "previousBoard": 9,
+      "assetDigest": "7e79adeb21b9d2bfba4a99d0737a1f3c",
+      "imageId": "bf8b6d7f-f280-4b8f-8243-1aec65b2d74a"
+    },
+    {
+      "board": 17,
+      "route": "Meters-Overview",
+      "name": "仪表",
+      "previousBoard": 29,
+      "assetDigest": "879c4d8c9f29cb65e340fecabf33df8f",
+      "imageId": "296ce967-c119-4a2a-9a5a-dae671d4bf76"
+    },
+    {
+      "board": 18,
+      "route": "Monitor-Network",
+      "name": "网络监测",
+      "previousBoard": 12,
+      "assetDigest": "b23c96f88515f7a771ff2a682d2ef043",
+      "imageId": "8ce360f8-4c91-4940-857a-acd1384a9eb1"
+    },
+    {
+      "board": 19,
+      "route": "Devices-Pcs",
+      "name": "PCS监测（画板误名EMU）",
+      "previousBoard": 13,
+      "assetDigest": "6b62261b476c0ff42d5baab89d46a1d2",
+      "imageId": "b4c615b0-7ec3-4c08-a77c-589b5cdcf4e8"
+    },
+    {
+      "board": 20,
+      "route": null,
+      "name": "Frame 64",
+      "previousBoard": 33,
+      "assetDigest": "897571c21cbc062806a66bd002b408b1",
+      "imageId": "496a0b54-abb4-45c5-ace7-302d00dfbdde"
+    },
+    {
+      "board": 21,
+      "route": "Trends-Custom",
+      "name": "自定义曲线",
+      "previousBoard": 14,
+      "assetDigest": "39b6ae18e7034bdc5a81a832cc41f476",
+      "imageId": "b3246eb1-9aa6-4bd7-b1e7-448ecfbf2db5"
+    },
+    {
+      "board": 22,
+      "route": "Guide-Deploy",
+      "name": "部署正常",
+      "previousBoard": 30,
+      "assetDigest": "b38f422792bb486181d3ee4e088077d4",
+      "imageId": "e7241ffd-d15c-4a9b-b1b5-0efd5008d71b"
+    },
+    {
+      "board": 23,
+      "route": "Guide-Deploy",
+      "name": "部署异常",
+      "previousBoard": 32,
+      "assetDigest": "2ec2ff380cf0c9e26449afaefe306105",
+      "imageId": "110d94f4-9481-41f4-8ff2-edcd7b0a2a04"
+    },
+    {
+      "board": 24,
+      "route": "Guide-Setup",
+      "name": "自检",
+      "previousBoard": 28,
+      "assetDigest": "b82f74f60ba7f38c906e32181c31e0ae",
+      "imageId": "a16b7e80-c132-4f89-b5a7-9f1cada5e5a2"
+    },
+    {
+      "board": 25,
+      "route": "Trends-Cell",
+      "name": "电芯曲线",
+      "previousBoard": 15,
+      "assetDigest": "5623ed2fae1aa3a63d72829726fecaac",
+      "imageId": "8fc13c73-fb93-4e7d-8d46-9f89ee041d9b"
+    },
+    {
+      "board": 26,
+      "route": "Control-Pcs",
+      "name": "PCS控制",
+      "previousBoard": 16,
+      "assetDigest": "5f0b6c4247cb4fcd509b1655c100b583",
+      "imageId": "fc22c5ef-e9f1-4e8b-b2a6-ebdeaeefc630"
+    },
+    {
+      "board": 27,
+      "route": "Control-Mccb",
+      "name": "MCCB控制",
+      "previousBoard": 17,
+      "assetDigest": "d97c4ae86c20ae69b46bafe564fb6700",
+      "imageId": "96847ce1-c168-47be-aa48-da7ed1b99e6a"
+    },
+    {
+      "board": 28,
+      "route": "Strategy-Overview",
+      "name": "策略控制",
+      "previousBoard": 18,
+      "assetDigest": "03d4e5d4f052fa7c1ac0b8aa84512e10",
+      "imageId": "2a25bc5b-c5c8-4653-8494-f0172276995b"
+    },
+    {
+      "board": 29,
+      "route": "Control-Diesel",
+      "name": "柴油机控制",
+      "previousBoard": 19,
+      "assetDigest": "4c0c8d5276154332a60fe0c95cb44120",
+      "imageId": "63a04db7-2fe3-4aa1-8221-99eab930834a"
+    },
+    {
+      "board": 30,
+      "route": null,
+      "name": "Frame 67",
+      "previousBoard": 20,
+      "assetDigest": "661358f4e6e898a5b4935c2ba1f12458",
+      "imageId": "66154e55-0e62-4518-9748-fdb054996cf0"
+    },
+    {
+      "board": 31,
+      "route": null,
+      "name": "Frame 66",
+      "previousBoard": 21,
+      "assetDigest": "d15b8dcd6aa6d6fd0660dd1759324dbd",
+      "imageId": "8b07e2e4-250f-448b-99f7-e12bf7e63e5f"
+    },
+    {
+      "board": 32,
+      "route": null,
+      "name": "Frame 65",
+      "previousBoard": 36,
+      "assetDigest": "164ce0a74dbbb299b3d32c38c3037da4",
+      "imageId": "b0b21d06-5bb1-4179-8992-4d47f364bec5"
+    },
+    {
+      "board": 33,
+      "route": "Control-Thermal",
+      "name": "TMS控制",
+      "previousBoard": 22,
+      "assetDigest": "be6b6712de425aaaa1b65dcda3916f22",
+      "imageId": "ba645f1a-7939-4089-bfdf-094e42b285f2"
+    },
+    {
+      "board": 34,
+      "route": "Control-Bms",
+      "name": "BMS控制",
+      "previousBoard": 23,
+      "assetDigest": "62681d32691aed9edcf5c05ad86832f4",
+      "imageId": "10a9182a-e73e-47d2-b6f5-b479840db3fe"
+    },
+    {
+      "board": 35,
+      "route": null,
+      "name": "Frame 68",
+      "previousBoard": 24,
+      "assetDigest": "0929c3cc22598f986d5dfbfbcc90f5b8",
+      "imageId": "1e145aee-9487-41a5-852d-db4c6aa6e7f9"
+    },
+    {
+      "board": 36,
+      "route": null,
+      "name": "Frame 70",
+      "previousBoard": 25,
+      "assetDigest": "28df7f6fc31e4d335bf59b567af2b5c1",
+      "imageId": "e72f2fc2-db7b-42d6-8e25-9daaebbdd70f"
+    },
+    {
+      "board": 37,
+      "route": null,
+      "name": "Frame 71",
+      "previousBoard": 26,
+      "assetDigest": "ce2bb5a7a6df7a1f4eae81dd96de6ec3",
+      "imageId": "95b46740-31b7-43dc-b1ed-46bc67d92332"
+    },
+    {
+      "board": 38,
+      "route": "Login",
+      "name": "登录采用稿（数据大屏）",
+      "previousBoard": 7,
+      "assetDigest": "a14f4da15dcfc2c2a5082d8e2062eb85",
+      "imageId": "b759edf3-298a-4049-98cd-701df2e79b59"
+    },
+    {
+      "board": 39,
+      "route": null,
+      "name": "Frame 61",
+      "previousBoard": 37,
+      "assetDigest": "c06b7a6c1a9a5943d64d1a10b42ec86f",
+      "imageId": "3e8b19c2-5cb2-49db-acf8-1959a65eb6c3"
+    }
+  ]
+}

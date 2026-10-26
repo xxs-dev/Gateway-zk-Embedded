@@ -433,6 +433,12 @@ edge_gateway::ScadaScreen makeLanhuAccessGate(const edge_gateway::ScadaScreen& p
     body.geometry = {132, 155, 1271, 614};
     body.properties = {{"qtBackgroundColor", "#FFFFFF"}, {"qtCornerRadius", "8"}};
     gate.widgets.push_back(body);
+    edge_gateway::ScadaWidget icon;
+    icon.widgetId = "access-gate-icon"; icon.type = "qtImage"; icon.visible = true;
+    icon.geometry = {674, 295, 169, 131}; icon.zIndex = 4;
+    icon.properties = {{"qtImageFile", "assets/lanhu-assets/access-lock.png"},
+        {"qtImageFit", "contain"}, {"qtBackgroundColor", "transparent"}};
+    gate.widgets.push_back(icon);
     edge_gateway::ScadaWidget label;
     label.widgetId = "access-gate-label"; label.type = "qtLabel"; label.visible = true;
     label.geometry = {568, 470, 399, 26}; label.zIndex = 5;

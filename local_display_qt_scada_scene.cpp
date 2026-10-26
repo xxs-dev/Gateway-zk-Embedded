@@ -333,6 +333,7 @@ void ScadaSceneView::buildScene() {
                     contain ? Qt::KeepAspectRatio : Qt::IgnoreAspectRatio,
                     Qt::SmoothTransformation
                 ));
+                image->setTransformationMode(Qt::SmoothTransformation);
                 image->setPos(geometry.x() + (contain ? (geometry.width() - image->boundingRect().width()) / 2 : 0),
                               geometry.y() + (contain ? (geometry.height() - image->boundingRect().height()) / 2 : 0));
                 image->setZValue(widget.zIndex);
