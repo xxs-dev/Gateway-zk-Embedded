@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <map>
@@ -29,6 +30,8 @@ class FakeModbusClient : public edge_gateway::IModbusClient {
 public:
     std::int64_t clockMs = 0;
     int readDelayMs = 0;
+    int minimumRequestGapMs = 0;
+    std::int64_t lastRequestStartMs = -1;
     std::vector<std::pair<int, std::int64_t>> completedReads;
     std::vector<std::uint16_t> readCoils(int slave, int start, int count) override {
         return readRange(slave, start, count);
@@ -99,6 +102,10 @@ private:
     std::vector<std::uint16_t> readRange(int slave, int start, int count) {
         require(slave == 1, "unexpected slave");
         ++readCounts_[start];
+        if (lastRequestStartMs >= 0) {
+            clockMs = std::max(clockMs, lastRequestStartMs + minimumRequestGapMs);
+        }
+        lastRequestStartMs = clockMs;
         clockMs += readDelayMs;
         completedReads.emplace_back(start, clockMs);
         const auto key = std::make_pair(start, count);
@@ -1575,6 +1582,66 @@ void verifyMergedBackgroundAccountingAndReservation() {
     }
 }
 
+void verifyFastBlockWithSafetyAndSlowCoverage(bool focused) {
+    const std::string name = "gateway_fast_block_profile_test";
+    cleanupStore(name);
+    {
+        auto config = buildConfig(name);
+        config.points = {onlinePoint()};
+        config.collect.maxBatchRegisters = 32;
+        config.collect.maxTasksPerMeterPerCycle = 1;
+        config.collect.realtimeMaxTasksPerMeterPerCycle = 1;
+        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
+        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 1;
+        config.collect.backgroundTaskIntervalMs = 0;
+        for (int i = 0; i < 26; ++i) {
+            auto point = registerPoint(500001 + i, "fast_" + std::to_string(i), 201 + i);
+            point.read.function = 4;
+            point.read.intervalMs = 20;
+            config.points.push_back(point);
+        }
+        for (int i = 0; i < 68; ++i) {
+            auto point = registerPoint(500100 + i, "other_" + std::to_string(i), 1000 + i * 2);
+            point.collectPriority = i < 2 ? 1 : i < 19 ? 2 : 3;
+            point.read.intervalMs = i < 2 ? 1000 : i < 19 ? 5000 : 60000;
+            config.points.push_back(point);
+        }
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 1;
+        client->minimumRequestGapMs = 20;
+        TestCollector collector(config, store, client);
+        while (client->clockMs < 70000) {
+            const auto result = collector.collectOnce(1000 + client->clockMs, focused);
+            for (const auto& task : result.executedTasks) {
+                if (task.function == 4) require(task.start == 201 && task.count == 26,
+                    "fast electrical group was split across requests");
+            }
+            client->clockMs += result.workDeferred ? 1 : result.nextDelayMs > 0
+                ? std::min(20, result.nextDelayMs) : 20;
+        }
+        std::map<int, std::int64_t> last;
+        std::vector<std::int64_t> fastGaps;
+        std::int64_t safetyGap = 0;
+        for (const auto& read : client->completedReads) {
+            if (last.count(read.first)) {
+                const auto gap = read.second - last.at(read.first);
+                if (read.first == 201) fastGaps.push_back(gap);
+                else if (read.first < 1004) safetyGap = std::max(safetyGap, gap);
+            }
+            last[read.first] = read.second;
+        }
+        std::sort(fastGaps.begin(), fastGaps.end());
+        require(fastGaps.size() > 1500 && fastGaps.back() <= 65, "fast block delayed behind slower reads");
+        require(fastGaps[fastGaps.size()/2] <= 25, "fast block median not near requested interval");
+        require(safetyGap > 0 && safetyGap < 2000, "safety group freshness lost");
+        for (int i = 0; i < 68; ++i) require(client->readCount(1000 + i * 2) >= 2, "slower group starved");
+        std::cout << "fast-group profile: focused=" << focused << " median=" << fastGaps[fastGaps.size()/2]
+                  << "ms max=" << fastGaps.back() << "ms safetyMax=" << safetyGap << "ms\n";
+    }
+    cleanupStore(name);
+}
+
 void verifyNonFiniteFloatDecodeRejected() {
     auto point = registerPoint(500100, "non_finite_float", 0);
     point.read.dataType = "float32";
@@ -1594,6 +1661,8 @@ void verifyNonFiniteFloatDecodeRejected() {
 
 int main() {
     try {
+        verifyFastBlockWithSafetyAndSlowCoverage(false);
+        verifyFastBlockWithSafetyAndSlowCoverage(true);
         verifySelectedAdjacentTasksShareRead(false);
         verifySelectedAdjacentTasksShareRead(true);
         verifyMergeBoundariesAndFailureIsolation();
