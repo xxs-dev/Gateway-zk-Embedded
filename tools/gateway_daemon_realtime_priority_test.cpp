@@ -183,6 +183,95 @@ void verifyCollectLoopUsesActualPointIntervals() {
     );
 }
 
+void verifyDeferredCollectionResumesAndHonorsControlLease() {
+    class DeferredCollector final : public edge_gateway::ICollector {
+    public:
+        DeferredCollector(std::atomic<int>& calls, edge_gateway::PriorityControlLease* lease)
+            : calls_(calls), lease_(lease) {}
+        edge_gateway::CollectCycleResult collectOnce(std::int64_t now, bool) override {
+            const auto count = ++calls_;
+            if (lease_) lease_->acquire("test-deferred", "METER_1", 1001, now, 30000);
+            edge_gateway::CollectCycleResult result;
+            result.workDeferred = count < 3;
+            return result;
+        }
+        void publishDeviceOnlineStatus(bool, std::int64_t) const override {}
+    private:
+        std::atomic<int>& calls_;
+        edge_gateway::PriorityControlLease* lease_;
+    };
+    for (bool block : {false, true}) {
+        const auto name = uniqueStoreName("gateway_deferred_collection");
+        const auto leasePath = "/tmp/" + name + ".json";
+        {
+            auto cfg = config(name);
+            cfg.meters.resize(1);
+            cfg.meters[0].points[0].read.intervalMs = 5000;
+            cfg.mqttDriver.priorityControlLeaseFile = leasePath;
+            edge_gateway::MemoryPointStore store(cfg.memoryStore);
+            edge_gateway::PriorityControlLease lease(leasePath, "test-owner");
+            std::atomic<int> calls{0};
+            edge_gateway::GatewayDaemon daemon(cfg, store,
+                [&](const edge_gateway::DeviceConfig&, edge_gateway::MemoryPointStore&) {
+                    return std::unique_ptr<edge_gateway::ICollector>(new DeferredCollector(calls, block ? &lease : nullptr));
+                },
+                [](const edge_gateway::DeviceConfig& device, edge_gateway::MemoryPointStore&) {
+                    return std::unique_ptr<edge_gateway::ICommandExecutor>(new edge_gateway::UnsupportedCommandExecutor(device));
+                }, {});
+            daemon.start();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+            while (calls.load() < (block ? 1 : 3) && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            daemon.stop();
+            require(calls.load() == (block ? 1 : 3),
+                    "deferred work slept a full interval, spun after completion, or bypassed a control lease");
+        }
+        std::remove(leasePath.c_str());
+        std::remove((leasePath + ".lock").c_str());
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(name);
+    }
+}
+
+void verifyCompletionDeadlineWakesBetweenFixedTicks() {
+    class DeadlineCollector final : public edge_gateway::ICollector {
+    public:
+        explicit DeadlineCollector(std::atomic<int>& calls) : calls_(calls) {}
+        edge_gateway::CollectCycleResult collectOnce(std::int64_t, bool) override {
+            const auto count = ++calls_;
+            edge_gateway::CollectCycleResult result;
+            result.nextDelayMs = count < 3 ? 20 : 0;
+            return result;
+        }
+        void publishDeviceOnlineStatus(bool, std::int64_t) const override {}
+    private:
+        std::atomic<int>& calls_;
+    };
+    const auto name = uniqueStoreName("gateway_collection_deadline");
+    {
+        auto cfg = config(name);
+        cfg.meters.resize(1);
+        cfg.meters[0].points[0].read.intervalMs = 500;
+        cfg.mqttDriver.priorityControlLeaseFile = "/tmp/" + name + ".json";
+        edge_gateway::MemoryPointStore store(cfg.memoryStore);
+        std::atomic<int> calls{0};
+        edge_gateway::GatewayDaemon daemon(cfg, store,
+            [&](const edge_gateway::DeviceConfig&, edge_gateway::MemoryPointStore&) {
+                return std::unique_ptr<edge_gateway::ICollector>(new DeadlineCollector(calls));
+            },
+            [](const edge_gateway::DeviceConfig& device, edge_gateway::MemoryPointStore&) {
+                return std::unique_ptr<edge_gateway::ICommandExecutor>(new edge_gateway::UnsupportedCommandExecutor(device));
+            }, {});
+        daemon.start();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+        while (calls.load() < 4 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        daemon.stop();
+        require(calls.load() == 4, "early deadlines waited for fixed ticks or delayed the later normal cadence");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(name);
+}
+
 void verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop() {
     const std::string storeName = uniqueStoreName("gateway_daemon_alarm_flush_test");
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -485,6 +574,8 @@ int main() {
 
     try {
         verifyCollectLoopUsesActualPointIntervals();
+        verifyDeferredCollectionResumesAndHonorsControlLease();
+        verifyCompletionDeadlineWakesBetweenFixedTicks();
         verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop();
         verifyStaleControlGenerationIsRejectedBeforeDeviceWrite();
         verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite();

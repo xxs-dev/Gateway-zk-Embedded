@@ -63,16 +63,43 @@ Collector::Collector(
     DeviceConfig config,
     MemoryPointStore& store,
     std::shared_ptr<IModbusClient> modbusClient,
-    std::shared_ptr<IMqttPublisher> mqttPublisher
+    std::shared_ptr<IMqttPublisher> mqttPublisher,
+    std::function<std::int64_t()> monotonicClockMs
 ) : CollectorBase(std::move(config), store, std::move(mqttPublisher)),
-    modbusClient_(std::move(modbusClient)) {
+    modbusClient_(std::move(modbusClient)),
+    monotonicClockMs_(std::move(monotonicClockMs)) {
     if (!modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
+    }
+    if (!monotonicClockMs_) {
+        monotonicClockMs_ = [] {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        };
+    }
+    for (const auto& point : config_.points) {
+        if (point.enabled && point.read.enable && point.read.dataType != "device_online") {
+            timeSliceMs_ = std::min(timeSliceMs_, effectiveIntervalMs(point));
+        }
     }
 }
 
 CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     CollectCycleResult result;
+    const auto startedMs = monotonicClockMs_();
+    const auto schedulingNowMs = [&] {
+        return nowMs + std::max<std::int64_t>(0, monotonicClockMs_() - startedMs);
+    };
+    const auto realtimeBecameDue = [&](std::int64_t currentMs) {
+        for (const auto& point : config_.points) {
+            if (!point.enabled || !point.read.enable || point.read.dataType == "device_online" || pointPriority(point) != 0) continue;
+            const auto last = lastReadMs_.find(point.index);
+            if (last == lastReadMs_.end()) continue;
+            const auto dueMs = last->second + effectiveIntervalMs(point);
+            if (dueMs > nowMs && dueMs <= currentMs) return true;
+        }
+        return false;
+    };
     ++collectCycle_;
     if (shouldSkipForBackoff(nowMs)) {
         return result;
@@ -109,15 +136,16 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     bool hasSuccessfulRead = false;
     std::string firstFailureMessage;
     const auto recordFailure = [&](const PointDefinition& point, const std::string& message) {
+        const auto completedMs = schedulingNowMs();
         if (firstFailureMessage.empty()) {
             firstFailureMessage = message;
         }
-        auto value = buildFailedPointValue(point, message, nowMs);
-        lastReadMs_[point.index] = nowMs;
+        auto value = buildFailedPointValue(point, message, completedMs);
+        lastReadMs_[point.index] = completedMs;
         const auto failureCount = ++pointFailureCounts_[point.index];
         bool valueUpdated = !point.read.cachePolicy.storeLatest;
         if (point.read.cachePolicy.storeLatest) {
-            const auto previous = store_.getLatestByIndex(point.index, nowMs);
+            const auto previous = store_.getLatestByIndex(point.index, completedMs);
             const auto lastUpdate = lastValueUpdateMs_.find(point.index);
             const auto previousUpdateMs = lastUpdate == lastValueUpdateMs_.end()
                 ? previous ? previous->ts : 0
@@ -126,7 +154,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             const auto badQualityThreshold = std::max(1, config_.collect.failureBadQualityThreshold);
             const bool keepGoodValue = previous && previous->quality == 1 && !previous->stale &&
                 (failureCount < badQualityThreshold ||
-                 (graceMs > 0 && nowMs - previousUpdateMs < graceMs));
+                 (graceMs > 0 && completedMs - previousUpdateMs < graceMs));
             if (previous) {
                 value.value = previous->value;
                 value.expireAt = std::max(previous->expireAt, value.expireAt);
@@ -138,12 +166,13 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             }
         }
         if (valueUpdated) {
-            lastValueUpdateMs_[point.index] = nowMs;
+            lastValueUpdateMs_[point.index] = completedMs;
             result.values.push_back(std::move(value));
         }
     };
 
     std::vector<ReadTask> plannedTasks;
+    bool backgroundSelected = false;
     const bool offlineProbeMode = config_.collect.offlineProbeOnly && !online_ && consecutiveFailures_ > 0 &&
         static_cast<int>(candidateTasks.size()) > config_.collect.offlineProbeTaskCount;
     if (offlineProbeMode) {
@@ -197,7 +226,12 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
                 realtimeFocused
             );
             if (!selectedBackgroundTasks.empty()) {
-                lastBackgroundTaskMs_ = nowMs;
+                backgroundSelected = true;
+                // Reserve one overdue background request after a slice deferred it.
+                if (backgroundDeferred_) {
+                    plannedTasks.insert(plannedTasks.begin(), selectedBackgroundTasks.front());
+                    selectedBackgroundTasks.erase(selectedBackgroundTasks.begin());
+                }
                 plannedTasks.insert(
                     plannedTasks.end(),
                     selectedBackgroundTasks.begin(),
@@ -223,6 +257,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     };
     const auto decodeSuccessfulBlock = [&](const ReadTask& task, const std::vector<std::uint16_t>& block) {
         const auto taskNowMs = currentTimeMs();
+        const auto completedMs = schedulingNowMs();
         for (const auto& taskPoint : task.points) {
             const auto& point = taskPoint.definition;
             const auto begin = block.begin() + taskPoint.offset;
@@ -232,8 +267,8 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             try {
                 const auto decoded = ModbusCodec::decodeReadValue(slice, point);
                 auto value = buildPointValue(point, decoded, taskNowMs);
-                lastReadMs_[point.index] = nowMs;
-                lastValueUpdateMs_[point.index] = nowMs;
+                lastReadMs_[point.index] = completedMs;
+                lastValueUpdateMs_[point.index] = completedMs;
                 if (point.read.cachePolicy.storeLatest) {
                     store_.putLatest(value);
                 }
@@ -270,6 +305,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             ? config_.collect.realtimeAdaptiveSplitLeafProbeBudget
             : config_.collect.adaptiveSplitLeafProbeBudget
     );
+    bool backgroundAttempted = false;
     std::function<bool(const ReadTask&, bool, int)> executeAdaptiveTask;
     executeAdaptiveTask = [&](const ReadTask& task, bool recordPointFailures, int depth) {
         if (shouldSkipTaskForBackoff(task, nowMs, realtimeFocused)) {
@@ -293,6 +329,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
                         );
                         for (const auto& splitTask : splitTasks) {
                             executeAdaptiveTask(splitTask, recordPointFailures, depth + 1);
+                            if (result.workDeferred) break;
                         }
                         return true;
                     }
@@ -302,19 +339,30 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             (void)recordPointFailures;
             return false;
         }
+        // Yield only between eligible requests, including probes. Never interrupt I/O.
+        const auto requestNowMs = schedulingNowMs();
+        const bool backgroundPreempted = taskPriority(task) > 0 && backgroundAttempted && realtimeBecameDue(requestNowMs);
+        if (!result.executedTasks.empty() &&
+            (requestNowMs - nowMs >= timeSliceMs_ || backgroundPreempted)) {
+            result.workDeferred = true;
+            return false;
+        }
         result.executedTasks.push_back(task);
+        if (taskPriority(task) > 0) backgroundAttempted = true;
         std::vector<std::uint16_t> block;
         try {
             block = executeReadTask(task);
+            if (taskPriority(task) > 0) lastBackgroundTaskMs_ = schedulingNowMs();
             if (block.size() < static_cast<std::size_t>(task.count)) {
                 throw std::runtime_error("modbus block length is shorter than planned task");
             }
             noteTaskReadSuccess(task);
             decodeSuccessfulBlock(task, block);
         } catch (const std::exception& ex) {
+            if (taskPriority(task) > 0) lastBackgroundTaskMs_ = schedulingNowMs();
             const auto messageText = std::string(ex.what());
             const auto failureKind = classifyModbusFailure(ex);
-            noteTaskReadFailure(task, nowMs, realtimeFocused, messageText, failureKind);
+            noteTaskReadFailure(task, schedulingNowMs(), realtimeFocused, messageText, failureKind);
             if (canAdaptiveSplitFailure(failureKind) && canAdaptiveSplitTask(task) &&
                 depth < config_.collect.adaptiveSplitMaxDepth) {
                 if (config_.collect.logAdaptiveSplitParentFailures) {
@@ -335,6 +383,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
                     );
                     for (const auto& splitTask : splitTasks) {
                         executeAdaptiveTask(splitTask, recordPointFailures, depth + 1);
+                        if (result.workDeferred) break;
                     }
                     return true;
                 }
@@ -353,6 +402,21 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
 
     for (const auto& task : plannedTasks) {
         executeAdaptiveTask(task, true, 0);
+        if (result.workDeferred) break;
+    }
+    backgroundDeferred_ = backgroundSelected && !backgroundAttempted && result.workDeferred;
+
+    // A completion-based interval can fall between the daemon's fixed ticks.
+    const auto completedMs = schedulingNowMs();
+    for (const auto& point : config_.points) {
+        if (!point.enabled || !point.read.enable || point.read.dataType == "device_online") continue;
+        const auto last = lastReadMs_.find(point.index);
+        if (last == lastReadMs_.end()) continue;
+        const auto delay = last->second + effectiveIntervalMs(point) - completedMs;
+        if (delay > 0 && delay <= std::numeric_limits<int>::max()) {
+            result.nextDelayMs = result.nextDelayMs > 0
+                ? std::min(result.nextDelayMs, static_cast<int>(delay)) : static_cast<int>(delay);
+        }
     }
 
     if (result.executedTasks.empty() && skippedTasks > 0) {
@@ -361,15 +425,15 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
 
     if (!result.executedTasks.empty()) {
         if (hasSuccessfulRead) {
-            noteReadSuccess(nowMs);
+            noteReadSuccess(schedulingNowMs());
         } else {
-            noteReadFailure(nowMs);
+            noteReadFailure(schedulingNowMs());
         }
-        publishDeviceOnlineStatus(currentOnline(), nowMs);
+        publishDeviceOnlineStatus(currentOnline(), schedulingNowMs());
     }
 
     publishTelemetryBestEffort(result.values);
-    if (!result.executedTasks.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
+    if (!result.workDeferred && !result.executedTasks.empty() && !hasSuccessfulRead && !firstFailureMessage.empty()) {
         throw std::runtime_error(firstFailureMessage);
     }
     return result;
@@ -735,10 +799,6 @@ std::vector<ReadTask> Collector::limitToMeterTaskBudget(
         static_cast<std::size_t>(maxTasksPerCycle),
         tasks.size()
     );
-    if (budget >= tasks.size()) {
-        return tasks;
-    }
-
     std::vector<std::size_t> order(tasks.size());
     std::iota(order.begin(), order.end(), 0);
     std::stable_sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs) {

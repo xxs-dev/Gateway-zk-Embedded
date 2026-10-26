@@ -27,6 +27,9 @@ void require(bool condition, const std::string& message) {
 
 class FakeModbusClient : public edge_gateway::IModbusClient {
 public:
+    std::int64_t clockMs = 0;
+    int readDelayMs = 0;
+    std::vector<std::pair<int, std::int64_t>> completedReads;
     std::vector<std::uint16_t> readCoils(int slave, int start, int count) override {
         return readRange(slave, start, count);
     }
@@ -96,6 +99,8 @@ private:
     std::vector<std::uint16_t> readRange(int slave, int start, int count) {
         require(slave == 1, "unexpected slave");
         ++readCounts_[start];
+        clockMs += readDelayMs;
+        completedReads.emplace_back(start, clockMs);
         const auto key = std::make_pair(start, count);
         if (failedRanges_.find(key) != failedRanges_.end()) {
             const auto message = failedRangeMessages_.find(key);
@@ -123,6 +128,15 @@ private:
     std::unordered_set<int> failedStarts_;
     std::set<std::pair<int, int>> failedRanges_;
     std::map<std::pair<int, int>, std::string> failedRangeMessages_;
+};
+
+class TestCollector : public edge_gateway::Collector {
+public:
+    TestCollector(edge_gateway::DeviceConfig config, edge_gateway::MemoryPointStore& store,
+                  const std::shared_ptr<FakeModbusClient>& client,
+                  std::shared_ptr<edge_gateway::IMqttPublisher> publisher = nullptr)
+        : Collector(std::move(config), store, client, std::move(publisher),
+                    [client] { return client->clockMs; }) {}
 };
 
 class ThrowingMqttPublisher : public edge_gateway::IMqttPublisher {
@@ -232,7 +246,7 @@ void verifyPartialFailureStillOnline() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         const auto collected = collector.collectOnce(1000);
         require(collected.executedTasks.size() == 2, "expected two planned read tasks");
         require(collected.values.size() == 1, "transient failed point without cache should not publish q0 immediately");
@@ -264,7 +278,7 @@ void verifyAllFailuresGoOfflineAndThrow() {
         client->failStart(0);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         bool threw = false;
         try {
             (void)collector.collectOnce(2000);
@@ -290,7 +304,7 @@ void verifyTransientFailureKeepsLastGoodValueByDefault() {
         client->setRegister(0, 123);
         client->setRegister(10, 456);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         (void)collector.collectOnce(3000);
 
         auto failing = store.getLatestByIndex(500002, 3000);
@@ -322,7 +336,7 @@ void verifyFailureCanKeepLastGoodValueWithGrace() {
         client->setRegister(0, 123);
         client->setRegister(10, 456);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         (void)collector.collectOnce(3000);
 
         auto failing = store.getLatestByIndex(500002, 3000);
@@ -353,7 +367,7 @@ void verifyFailureMarksOldGoodValueBadAfterThreshold() {
         client->setRegister(0, 123);
         client->setRegister(10, 456);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         (void)collector.collectOnce(3300);
 
         client->failStart(10);
@@ -386,7 +400,7 @@ void verifyRepeatedFailureRefreshesBadQualityTimestamp() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         (void)collector.collectOnce(3100);
         auto failed = store.getLatestByIndex(500002, 3100);
         require(static_cast<bool>(failed), "initial failed point missing");
@@ -425,7 +439,7 @@ void verifyBackedOffBadPointRefreshesBeforeBudget() {
         client->setRegister(20, 789);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         (void)collector.collectOnce(7000);
         try {
             (void)collector.collectOnce(7100);
@@ -462,7 +476,7 @@ void verifyFailedTaskBackoffDoesNotSkipHealthyTask() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(1000);
         require(collected.executedTasks.size() == 2, "first cycle should execute both tasks");
 
@@ -495,7 +509,7 @@ void verifyFailedTaskCanBackoffAfterOneFailure() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(2300);
         require(collected.executedTasks.size() == 2, "first one-failure cycle should execute both tasks");
         require(client->readCount(10) == 1, "failed task should be tried once");
@@ -533,7 +547,7 @@ void verifyFailedBatchCanSplitAndKeepGoodSubPoints() {
         client->setRegister(2, 300);
         client->failRange(0, 3);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(5000);
         require(collected.executedTasks.size() == 4, "failed batch should be followed by three split reads");
         require(client->readCount(0) == 2, "start 0 should be read once as batch and once as split");
@@ -582,7 +596,7 @@ void verifyFailedSplitCanFallBackToSinglePointReads() {
         client->failRange(0, 8);
         client->failRange(0, 4);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(5100);
         require(collected.executedTasks.size() == 7, "failed split block should recurse to single-point reads");
         require(client->readCount(0) == 3, "start 0 should be tried as batch, split range, and single point");
@@ -626,7 +640,7 @@ void verifyLeafSplitProbeBudgetRotates() {
         }
         client->failRange(0, 4);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(5200);
         require(collected.executedTasks.size() == 3, "first leaf budget cycle should run parent and two leaves");
         require(client->readCount(0) == 2, "first leaf budget cycle should probe start 0 as leaf");
@@ -664,7 +678,7 @@ void verifyMeterTaskBudgetPrioritizesOldestTasks() {
             client->setRegister(i, static_cast<std::uint16_t>(i + 10));
         }
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(5400);
         require(collected.executedTasks.size() == 2, "first task-budget cycle should execute two tasks");
         require(collected.executedTasks[0].start == 0, "first task-budget cycle should start at task 0");
@@ -705,7 +719,7 @@ void verifyMeterTaskBudgetDefersBackedOffTasks() {
         client->setRegister(0, 10);
         client->setRegister(1, 20);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(5700);
         require(collected.executedTasks.size() == 1, "first backoff-budget cycle should execute one task");
         require(collected.executedTasks[0].start == 0, "first backoff-budget cycle should start with task 0");
@@ -755,7 +769,7 @@ void verifyBackedOffParentTaskSplitsBeforeBudget() {
         }
         client->failRange(0, 4);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(6100);
         require(collected.executedTasks.size() == 2, "first parent-split cycle should run parent and one leaf");
         require(collected.executedTasks[0].start == 0 && collected.executedTasks[0].count == 4,
@@ -803,7 +817,7 @@ void verifyNoResponseParentTaskDoesNotSplitBeforeBudget() {
         }
         client->failRangeWithMessage(0, 4, "modbus response timeout");
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         try {
             (void)collector.collectOnce(6300);
         } catch (const std::exception&) {
@@ -846,7 +860,7 @@ void verifyMeterTaskBudgetPrioritizesDefaultPriorityPointsOverLowPriority() {
             client->setRegister(i, static_cast<std::uint16_t>(i + 10));
         }
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(6400);
         require(collected.executedTasks.size() == 1, "priority cycle should execute one realtime task");
         require(collected.executedTasks[0].start == 0,
@@ -881,7 +895,7 @@ void verifyLowPriorityTasksGetPeriodicBudgetSlot() {
             client->setRegister(i, static_cast<std::uint16_t>(i + 10));
         }
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         for (int i = 0; i < 4; ++i) {
             (void)collector.collectOnce(6500 + i * 100);
         }
@@ -919,7 +933,7 @@ void verifyRealtimeFocusedRaisesTaskBudgetAndBackgroundSlot() {
             client->setRegister(i, static_cast<std::uint16_t>(i + 10));
         }
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(10000, false);
         require(collected.executedTasks.size() == 1,
             "normal collection should keep the conservative per-meter task budget");
@@ -960,7 +974,7 @@ void verifyRealtimeFocusedRespectsSlowIntervalPoints() {
         client->setRegister(0, 111);
         client->setRegister(1, 222);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(11000, false);
         require(collected.executedTasks.size() == 2, "initial normal cycle should read both points");
         require(client->readCount(1) == 1, "slow point should be read initially");
@@ -1000,7 +1014,7 @@ void verifyFailedTaskBackoffExtendsAfterRepeatedFailures() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(6000);
         require(collected.executedTasks.size() == 2, "first extend cycle should execute both tasks");
         require(client->readCount(10) == 1, "failed task should be tried once initially");
@@ -1037,7 +1051,7 @@ void verifyRealtimeFocusedUsesShortTaskBackoff() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(10000, true);
         require(collected.executedTasks.size() == 2, "focused first cycle should try both tasks");
         require(client->readCount(10) == 1, "focused failed task should be attempted once");
@@ -1076,7 +1090,7 @@ void verifyMqttFailureDoesNotChangeFieldOperationResult() {
         client->setRegister(0, 123);
         auto publisher = std::make_shared<ThrowingMqttPublisher>();
 
-        edge_gateway::Collector collector(config, store, client, publisher);
+        TestCollector collector(config, store, client, publisher);
         const auto collected = collector.collectOnce(1000);
         require(collected.values.size() == 1, "MQTT failure must not discard collected field data");
         const auto online = store.getLatestByIndex(500000, 1000);
@@ -1105,7 +1119,7 @@ void verifyCycleBackoffSkipsConfiguredTaskCycles() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(2500);
         require(collected.executedTasks.size() == 2, "first cycle should execute both tasks");
         require(client->readCount(10) == 1, "failed task should be attempted on the first cycle");
@@ -1152,7 +1166,7 @@ void verifyCycleBackoffKeepsHealthyAdaptiveSplitLeavesRunning() {
         client->failRange(0, 3);
         client->failStart(1);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(3000);
         require(collected.executedTasks.size() == 4, "first cycle should run parent and all split leaves");
         require(client->readCount(0) == 2, "healthy start 0 should run as parent and leaf");
@@ -1186,7 +1200,7 @@ void verifyTransportFailureDoesNotTriggerAdaptiveSplit() {
         edge_gateway::MemoryPointStore store(config.memoryStore);
         auto client = std::make_shared<FakeModbusClient>();
         client->failRangeWithMessage(0, 3, "modbus tcp recv failed");
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
 
         bool threw = false;
         try {
@@ -1218,7 +1232,7 @@ void verifyRealtimeFocusedOverridesPreviousLongTaskBackoff() {
         client->setRegister(0, 123);
         client->failStart(10);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(12000, false);
         require(collected.executedTasks.size() == 2, "normal cycle should try both tasks");
         require(client->readCount(10) == 1, "normal cycle should record first failed read");
@@ -1255,7 +1269,7 @@ void verifyOfflineProbeOnlyRotatesTasks() {
         client->failStart(10);
         client->failStart(20);
 
-        edge_gateway::Collector collector(config, store, client);
+        TestCollector collector(config, store, client);
         bool threw = false;
         try {
             (void)collector.collectOnce(4000);
@@ -1289,6 +1303,160 @@ void verifyOfflineProbeOnlyRotatesTasks() {
     cleanupStore(storeName);
 }
 
+void verifySlowRequestsYieldAndRotateWithoutStarvation(bool focused) {
+    const std::string storeName = "gateway_collector_sliced_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.points = {onlinePoint()};
+        config.collect.maxTasksPerMeterPerCycle = 32;
+        config.collect.realtimeMaxTasksPerMeterPerCycle = 32;
+        config.collect.maxBackgroundTasksPerMeterPerCycle = 32;
+        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 32;
+        config.collect.backgroundTaskIntervalMs = 0;
+        config.memoryStore.maxLatestPoints = 512;
+        for (int i = 0; i < 253; ++i) {
+            auto point = registerPoint(500001 + i, "slow_" + std::to_string(i), i);
+            point.read.intervalMs = 1000;
+            point.collectPriority = i < 20 ? 0 : 1;
+            config.points.push_back(point);
+        }
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 100;
+        TestCollector collector(config, store, client);
+        for (int cycle = 0; cycle < 500; ++cycle) {
+            const auto started = client->clockMs;
+            const auto result = collector.collectOnce(1000 + started, focused);
+            require(client->clockMs - started <= 1000, "slow batch monopolized the collector beyond one slice");
+            require(!result.executedTasks.empty(), "overloaded collector made no progress");
+            require(result.workDeferred, "unfinished slow batch must request prompt continuation");
+            for (const auto& value : result.values) require(value.quality == 1, "deferred read was marked failed");
+            ++client->clockMs;
+        }
+        std::map<int, std::int64_t> previous;
+        std::int64_t longestGap = 0;
+        for (const auto& read : client->completedReads) {
+            if (read.first < 20 && previous.count(read.first)) {
+                longestGap = std::max(longestGap, read.second - previous.at(read.first));
+            }
+            previous[read.first] = read.second;
+        }
+        require(longestGap < 3000, "32 background tasks delayed critical feedback past three seconds");
+        for (int i = 0; i < 253; ++i) require(client->readCount(i) > 0, "time slicing starved a point");
+        const auto online = store.getLatestByIndex(500000, 1000 + client->clockMs);
+        require(online && online->value == 1, "yield was treated as an offline failure");
+        std::cout << "slow-request regression: focused=" << focused << "; max critical gap=" << longestGap
+                  << "ms; all 20 critical / 233 background tasks refreshed\n";
+    }
+    cleanupStore(storeName);
+}
+
+void verifyBackgroundYieldsWhenRealtimeBecomesDue() {
+    const std::string storeName = "gateway_collector_mid_batch_due_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.points.clear();
+        config.collect.maxBackgroundTasksPerMeterPerCycle = 32;
+        config.collect.backgroundTaskIntervalMs = 0;
+        for (int i = 0; i < 33; ++i) {
+            auto point = registerPoint(500001 + i, "mid_batch_" + std::to_string(i), i);
+            point.read.intervalMs = 1000;
+            point.collectPriority = i == 0 ? 0 : 1;
+            config.points.push_back(point);
+        }
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 100;
+        TestCollector collector(config, store, client);
+        require(collector.collectOnce(1000).workDeferred, "first background slice did not yield");
+        ++client->clockMs;
+        const auto next = collector.collectOnce(1000 + client->clockMs);
+        require(next.workDeferred && next.executedTasks.size() == 1,
+                "background batch ignored a realtime point becoming due between requests");
+        ++client->clockMs;
+        const auto resumed = collector.collectOnce(1000 + client->clockMs);
+        require(resumed.executedTasks.front().start == 0, "newly due realtime point did not preempt background");
+        require(client->completedReads[11].first == 0 && client->completedReads[11].second <= 1300,
+                "realtime deadline waited an extra slice");
+    }
+    cleanupStore(storeName);
+}
+
+void verifyIntervalsStartAtRequestCompletion() {
+    const std::string storeName = "gateway_collector_completion_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.points = {registerPoint(500001, "completion", 0)};
+        config.points[0].read.intervalMs = 1000;
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 100;
+        TestCollector collector(config, store, client);
+        collector.collectOnce(1000);
+        const auto waiting = collector.collectOnce(2000);
+        require(waiting.executedTasks.empty(), "interval started before request completion");
+        require(waiting.nextDelayMs == 100, "completion deadline was lost between daemon ticks");
+        require(collector.collectOnce(2100).executedTasks.size() == 1, "completed request did not become due");
+    }
+    cleanupStore(storeName);
+}
+
+void verifyDeferredFailureDoesNotDeclareWholeMeterFailed() {
+    const std::string storeName = "gateway_collector_deferred_failure_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.offlineProbeOnly = false;
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        TestCollector collector(config, store, client);
+        collector.collectOnce(1000);
+        client->readDelayMs = 100;
+        client->failStart(0);
+        const auto deferred = collector.collectOnce(1100);
+        require(deferred.workDeferred && deferred.executedTasks.size() == 1, "failed slow request did not yield");
+        const auto online = store.getLatestByIndex(500000, 1200);
+        require(online && online->value == 1, "one failed slice bypassed the offline failure threshold");
+        const auto resumed = collector.collectOnce(1201);
+        require(!resumed.values.empty() && resumed.values.front().quality == 1, "healthy deferred read did not resume");
+    }
+    cleanupStore(storeName);
+}
+
+void verifySlowAdaptiveSplitYieldsWithoutInventingFailures() {
+    const std::string storeName = "gateway_collector_split_slice_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.maxBatchRegisters = 4;
+        config.collect.adaptiveSplitMaxRegisters = 1;
+        config.collect.adaptiveSplitLeafProbeBudget = 4;
+        config.collect.offlineProbeOnly = false;
+        config.points.clear();
+        for (int i = 0; i < 4; ++i) config.points.push_back(registerPoint(500001 + i, "split_" + std::to_string(i), i));
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 100;
+        client->failRangeWithMessage(0, 4, "modbus exception code=2 illegal data address");
+        TestCollector collector(config, store, client);
+        const auto result = collector.collectOnce(1000);
+        require(result.workDeferred && result.executedTasks.size() == 1, "adaptive probes bypassed slice boundary");
+        require(result.values.empty(), "unattempted adaptive leaves were marked failed");
+        for (int i = 0; i < 12; ++i) {
+            collector.collectOnce(1000 + client->clockMs);
+            ++client->clockMs;
+        }
+        for (int i = 0; i < 4; ++i) {
+            const auto value = store.getLatestByIndex(500001 + i, 1000 + client->clockMs);
+            require(value && value->quality == 1, "deferred adaptive leaf never recovered");
+        }
+    }
+    cleanupStore(storeName);
+}
+
 void verifyNonFiniteFloatDecodeRejected() {
     auto point = registerPoint(500100, "non_finite_float", 0);
     point.read.dataType = "float32";
@@ -1308,6 +1476,12 @@ void verifyNonFiniteFloatDecodeRejected() {
 
 int main() {
     try {
+        verifySlowRequestsYieldAndRotateWithoutStarvation(false);
+        verifySlowRequestsYieldAndRotateWithoutStarvation(true);
+        verifyBackgroundYieldsWhenRealtimeBecomesDue();
+        verifyIntervalsStartAtRequestCompletion();
+        verifyDeferredFailureDoesNotDeclareWholeMeterFailed();
+        verifySlowAdaptiveSplitYieldsWithoutInventingFailures();
         verifyPartialFailureStillOnline();
         verifyMqttFailureDoesNotChangeFieldOperationResult();
         verifyAllFailuresGoOfflineAndThrow();

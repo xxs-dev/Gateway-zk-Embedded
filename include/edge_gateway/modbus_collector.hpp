@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -19,7 +20,8 @@ public:
         DeviceConfig config,
         MemoryPointStore& store,
         std::shared_ptr<IModbusClient> modbusClient,
-        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
+        std::function<std::int64_t()> monotonicClockMs = {}
     );
 
     CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
@@ -71,6 +73,10 @@ private:
     int taskFailureBackoffCycles(int consecutiveFailures, bool realtimeFocused) const;
 
     std::shared_ptr<IModbusClient> modbusClient_;
+    std::function<std::int64_t()> monotonicClockMs_;
+    // Shortened to the fastest point interval; a single in-flight request may overrun.
+    int timeSliceMs_ = 1000;
+    bool backgroundDeferred_ = false;
     std::unordered_map<std::uint32_t, int> pointFailureCounts_;
     int consecutiveSuccesses_ = 0;
     int consecutiveFailures_ = 0;

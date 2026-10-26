@@ -15,6 +15,10 @@ namespace edge_gateway {
 struct CollectCycleResult {
     std::vector<ReadTask> executedTasks;
     std::vector<PointValue> values;
+    // Replan promptly after a time slice, still honoring the daemon's control lease.
+    bool workDeferred = false;
+    // Positive values bound the wait until the next completion-based due time.
+    int nextDelayMs = 0;
 };
 
 class ICollector {
