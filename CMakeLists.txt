@@ -760,6 +760,14 @@ target_link_options(system_monitor_direct_maintenance_owner_test PRIVATE
     "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/system_monitor_direct_maintenance_owner.map")
 
 if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME storage_budget_entrypoint_audit
+            COMMAND Python3::Interpreter
+                "${CMAKE_SOURCE_DIR}/tools/storage_budget_entrypoint_audit.py"
+        )
+    endif()
     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
     add_test(NAME mqtt_forwarder_service COMMAND mqtt_forwarder_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
