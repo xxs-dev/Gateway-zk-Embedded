@@ -31,6 +31,15 @@ void completeWritebackResult(
     bool verifyPassed = false
 );
 
+// Receipt of an executed command, by cause (see writeback_outcome.hpp); the executor message is kept
+// verbatim. expiredBeforeSend: the age check stopped the write before the physical send.
+void completeWritebackFromCommand(
+    WritebackResultRecord& receipt,
+    const CommandResult& result,
+    bool expiredBeforeSend,
+    std::int64_t completedAt
+);
+
 class WritebackService {
 public:
     WritebackService(MemoryPointStore& store, CommandExecutor& executor);

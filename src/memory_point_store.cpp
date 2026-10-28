@@ -1,4 +1,5 @@
 #include "edge_gateway/memory_point_store.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 #include "memory_point_store_layout.hpp"
 
@@ -624,7 +625,10 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
     return result;
 }
 
-void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord& result) {
+void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord& record) {
+    // Stage and flags must agree for every reader (see writeback_outcome.hpp).
+    auto result = record;
+    normalizeWritebackOutcome(result);
     auto& slot = layout->writebackResults[layout->header.writebackResultTail];
     slot = SharedWritebackResultSlot{};
     slot.sequence = ++layout->header.writebackResultSequence;
@@ -641,11 +645,14 @@ void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord&
     copyString(slot.cmdId, kCmdIdSize, result.cmdId);
     copyString(slot.message, kWritebackMessageSize, result.message);
     copyString(slot.stage, kWritebackStageSize, result.stage);
-    // success byte bits: 0x01 success, 0x02 highPriority, 0x04 outcomeUnknown.
+    // success byte bits: 0x01 success, 0x02 highPriority, 0x04 outcome unknown (incl. feedback
+    // mismatch, so a reader that predates 0x08 still never reports a mismatch as a failure),
+    // 0x08 feedback mismatch. Readers ignore bits they do not know; the stage string carries the cause.
     slot.success = static_cast<std::uint8_t>(
         (result.success ? 0x01U : 0x00U) |
         (result.highPriority ? 0x02U : 0x00U) |
-        (!result.success && result.outcomeUnknown ? 0x04U : 0x00U)
+        (result.outcomeUnknown ? 0x04U : 0x00U) |
+        (result.feedbackMismatch ? 0x08U : 0x00U)
     );
     slot.verifyAttempted = result.verifyAttempted ? 1 : 0;
     slot.verifyPassed = result.verifyPassed ? 1 : 0;
@@ -693,6 +700,8 @@ Optional<WritebackResultRecord> findWritebackResult(
             result.verifyPassed = slot.verifyPassed != 0;
             result.highPriority = (slot.success & 0x02U) != 0;
             result.outcomeUnknown = (slot.success & 0x04U) != 0;
+            result.feedbackMismatch = (slot.success & 0x08U) != 0;
+            normalizeWritebackOutcome(result);
             found = result;
         }
         head = (head + 1) % kMaxWritebackResultSlots;
@@ -2095,6 +2104,7 @@ std::vector<WritebackResultRecord> MemoryPointStore::recentWritebackResults(
         r.success = (slot.success & 0x01U) != 0;
         r.highPriority = (slot.success & 0x02U) != 0;
         r.outcomeUnknown = (slot.success & 0x04U) != 0;
+        r.feedbackMismatch = (slot.success & 0x08U) != 0;
         r.message = readString(slot.message, kWritebackMessageSize);
         r.stage = readString(slot.stage, kWritebackStageSize);
         r.requestedAt = slot.requestedAt; r.acceptedAt = slot.acceptedAt;
@@ -2102,6 +2112,7 @@ std::vector<WritebackResultRecord> MemoryPointStore::recentWritebackResults(
         r.queueDelayMs = slot.queueDelayMs; r.deviceWriteMs = slot.deviceWriteMs;
         r.edgeElapsedMs = slot.edgeElapsedMs; r.totalElapsedMs = slot.totalElapsedMs;
         r.verifyAttempted = slot.verifyAttempted != 0; r.verifyPassed = slot.verifyPassed != 0;
+        normalizeWritebackOutcome(r);
         results.push_back(std::move(r));
     }
     return results;

@@ -357,9 +357,13 @@ struct WritebackResultRecord {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
-    // Copied from CommandResult.outcomeUnknown (success is then false): the device may have
-    // executed the write. Stage is "writeback-timeout" for such results.
+    // The outcome is not determined (success is then false): the device may have executed the write,
+    // so it is never retried automatically or under a new cmdId. Set for CommandResult.outcomeUnknown
+    // (stage writeback-timeout), CommandResult.feedbackMismatch (stage writeback-mismatch, together with
+    // feedbackMismatch below) and a dispatch whose result was never recorded (writeback-unconfirmed).
     bool outcomeUnknown = false;
+    // The device accepted the write but its read-back/feedback shows another value.
+    bool feedbackMismatch = false;
 };
 
 struct MqttCommandRequest {

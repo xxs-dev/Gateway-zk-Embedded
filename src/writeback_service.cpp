@@ -1,4 +1,5 @@
 #include "edge_gateway/writeback_service.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <algorithm>
 
@@ -63,6 +64,35 @@ void completeWritebackResult(
     result.totalElapsedMs = std::max(result.edgeElapsedMs, result.queueDelayMs + result.deviceWriteMs);
     result.verifyAttempted = verifyAttempted;
     result.verifyPassed = verifyPassed;
+}
+
+void completeWritebackFromCommand(
+    WritebackResultRecord& receipt,
+    const CommandResult& result,
+    bool expiredBeforeSend,
+    std::int64_t completedAt
+) {
+    const char* stage = kWritebackFailedStage;
+    if (result.success) {
+        stage = kWritebackSucceededStage;
+    } else if (expiredBeforeSend) {
+        stage = kWritebackExpiredStage;
+    } else if (result.feedbackMismatch) {
+        stage = kWritebackMismatchStage;
+    } else if (result.outcomeUnknown) {
+        stage = kWritebackTimeoutStage;
+    }
+    completeWritebackResult(
+        receipt,
+        result.success,
+        result.message.empty() ? (result.success ? "ok" : "writeback failed") : result.message,
+        stage,
+        completedAt,
+        result.verifyAttempted,
+        result.verifyPassed
+    );
+    receipt.feedbackMismatch = !result.success && !expiredBeforeSend && result.feedbackMismatch;
+    receipt.outcomeUnknown = !result.success && !expiredBeforeSend && (result.outcomeUnknown || result.feedbackMismatch);
 }
 
 WritebackService::WritebackService(MemoryPointStore& store, CommandExecutor& executor)

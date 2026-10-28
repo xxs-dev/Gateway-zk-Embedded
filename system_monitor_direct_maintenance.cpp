@@ -43,6 +43,7 @@
 #include "edge_gateway/scada_control_lease.hpp"
 #include "edge_gateway/scada_upper_computer_safety.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "edge_gateway/system_monitor_service.hpp"
 #include "edge_gateway/json_value.hpp"
 #include "edge_gateway/ota_request_json.hpp"
@@ -676,10 +677,11 @@ void appendControlTimingJson(
     std::ostringstream& out,
     const edge_gateway::WritebackResultRecord& result
 ) {
-    // outcome: succeeded / failed (definite) / unknown (the write may have reached the device:
-    // read back before deciding, never resend under a new cmdId).
+    // outcome: succeeded / failed (definite) / unknown (the write may have reached the device: feedback
+    // mismatch, no conclusive reply, or an unconfirmed dispatch; read back before deciding, never resend
+    // automatically or under a new cmdId). stage keeps the cause, message the executor's own text.
     out << ",\"stage\":\"" << jsonEscape(result.stage) << "\""
-        << ",\"outcome\":\"" << (result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed")) << "\""
+        << ",\"outcome\":\"" << edge_gateway::writebackOutcome(result) << "\""
         << ",\"requestedAt\":" << result.requestedAt
         << ",\"acceptedAt\":" << result.acceptedAt
         << ",\"writeStartedAt\":" << result.startedAt
@@ -2707,13 +2709,21 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
                 }
 
                 route = submitResult.route;
-                writeback = submitResult.writeback ? submitResult.writeback : waitForWritebackResult(
-                    context->router,
-                    *route,
-                    item.cmdId,
-                    acceptedAt,
-                    edge_gateway::effectiveControlResultWaitMs(context->appConfig.mqttDriver, context->deviceConfigs)
-                );
+                writeback = submitResult.writeback;
+                if (!writeback || edge_gateway::isUnconfirmedWriteback(*writeback)) {
+                    // A replay of a dispatch reserved without a recorded result waits for that result
+                    // like a fresh command; it is never dispatched again.
+                    const auto recorded = waitForWritebackResult(
+                        context->router,
+                        *route,
+                        item.cmdId,
+                        acceptedAt,
+                        edge_gateway::effectiveControlResultWaitMs(context->appConfig.mqttDriver, context->deviceConfigs)
+                    );
+                    if (recorded) {
+                        writeback = recorded;
+                    }
+                }
                 if (submitResult.writeback && item.highPriority) priorityLease.release(item.cmdId);
                 if (writeback) {
                     success = writeback->success;

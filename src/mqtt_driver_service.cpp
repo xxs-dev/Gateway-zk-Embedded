@@ -1,6 +1,7 @@
 #include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/ems_control_mode.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -120,8 +121,10 @@ void applyWritebackResultToReply(
     reply.verifyAttempted = result.verifyAttempted;
     reply.verifyPassed = result.verifyPassed;
     reply.highPriority = result.highPriority;
-    reply.outcome = result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed");
-    reply.isFinal = true;
+    reply.outcome = writebackOutcome(result);
+    // A ledger replay of a reserved dispatch without a recorded result can still be followed by the
+    // final result; every other receipt is final.
+    reply.isFinal = !isUnconfirmedWriteback(result);
     reply.ts = result.completedAt > 0 ? result.completedAt : reply.ts;
 }
 
@@ -2087,8 +2090,10 @@ void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
             reply.success = false;
             reply.outcome = "unknown";
             reply.isFinal = true;
+            if (reply.stage != kWritebackUnconfirmedStage) {
+                reply.stage = kWritebackTimeoutStage;
+            }
             reply.message = "no writeback result; outcome unknown (resend the same cmdId to query it)";
-            reply.stage = "writeback-timeout";
             reply.ts = nowMs;
             reply.edgeElapsedMs = std::max<std::int64_t>(0, nowMs - reply.acceptedAt);
             reply.totalElapsedMs = reply.edgeElapsedMs;
@@ -2473,6 +2478,19 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             applyWritebackResultToReply(reply, *submitResult.writeback, submitResult.route);
             if (request.highPriority) priorityControlLease_.release(request.cmdId);
             publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
+            if (!reply.isFinal && durableControl) {
+                // Reserved earlier (e.g. before this service restarted) without a recorded result: it is
+                // never dispatched again, but a final result may still be recorded. Keep watching it
+                // like a command past its result deadline.
+                PendingCommandReply pending;
+                pending.reply = reply;
+                pending.route = submitResult.route;
+                pending.durableControl = true;
+                pending.timeoutReported = true;
+                pending.deadlineMs = nowMs;
+                pending.horizonMs = nowMs + resultWaitMs_;
+                pendingCommandReplies_.push_back(std::move(pending));
+            }
             return;
         }
         std::cout << "mqtt command accepted"
