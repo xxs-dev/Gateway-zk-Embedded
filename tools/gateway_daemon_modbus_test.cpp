@@ -198,6 +198,41 @@ void verifySlavesInterleaveDuringFrameInterval() {
     require(total >= 32, "slaves did not interleave: " + std::to_string(total) + " requests in 3 s");
 }
 
+// Each meter reports how long until its slave may be polled again when its own turn ends; the
+// daemon must wake at that moment, not that long after the whole round (here: after the other
+// slave's 80 ms request), or every slave loses one request time per frame interval.
+void verifyDaemonWakesWhenTheFirstSlaveIsReady() {
+    Shm shm("gw_daemon_modbus_wake_" + std::to_string(getpid()));
+    auto cfg = baseConfig(shm.name);
+    cfg.protocol.transport.baudRate = 115200;
+    cfg.protocol.transport.frameIntervalMs = 200;
+    // 4 points x 200 ms per slave: every 500 ms point is always overdue, and the daemon tick is 500 ms.
+    for (int slave = 1; slave <= 2; ++slave) cfg.meters.push_back(meter(slave, static_cast<std::uint32_t>(slave * 100), 4, 500));
+    auto line = std::make_shared<virtual_rtu::VirtualLine>();
+    line->charMs = 10.0 / 115200 * 1000;
+    line->alive = {1, 2};
+    line->latency = [](int) { return 80; };
+    SerialPortOptions options;
+    options.device = "virtual";
+    options.baudRate = 115200;
+    options.timeoutMs = 300;
+    options.frameIntervalMs = 200;
+    options.readRetryCount = 0;
+    auto client = std::make_shared<ModbusRtuClient>(line, options);
+    MemoryPointStore store(cfg.memoryStore);
+    GatewayDaemon daemon(cfg, store, client);
+    daemon.start();
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    daemon.stop();
+    for (int slave = 1; slave <= 2; ++slave) {
+        // One request per 200 ms is 15 in 3 s; waking a round late (after the other slave's 80 ms
+        // request) gave 12.
+        const auto requests = line->requestsBySlave[slave];
+        require(requests >= 14, "slave " + std::to_string(slave) + " was polled late after its frame interval: " +
+                std::to_string(requests) + " requests in 3 s");
+    }
+}
+
 void verifyWallClockStepDoesNotFreezeCollection() {
     Shm shm("gw_daemon_modbus_clock_" + std::to_string(getpid()));
     auto cfg = baseConfig(shm.name);
@@ -224,6 +259,7 @@ int main() {
         verifyOneFailedCycleKeepsDeviceOnline();
         verifyRoundFinishesBeforeSleeping();
         verifySlavesInterleaveDuringFrameInterval();
+        verifyDaemonWakesWhenTheFirstSlaveIsReady();
         verifyWallClockStepDoesNotFreezeCollection();
     } catch (const std::exception& ex) {
         std::cerr << "gateway_daemon_modbus_test failed: " << ex.what() << std::endl;

@@ -1394,7 +1394,8 @@ void verifyBackgroundYieldsWhenRealtimeBecomesDue() {
         config.collect.backgroundTaskIntervalMs = 60000;
         for (int i = 0; i < 33; ++i) {
             auto point = registerPoint(500001 + i, "mid_batch_" + std::to_string(i), i);
-            point.read.intervalMs = 1000;
+            // The realtime point's next slot (1000 + 1050) falls inside the second background turn.
+            point.read.intervalMs = i == 0 ? 1050 : 1000;
             point.collectPriority = i == 0 ? 0 : 1;
             config.points.push_back(point);
         }
@@ -1416,22 +1417,50 @@ void verifyBackgroundYieldsWhenRealtimeBecomesDue() {
     cleanupStore(storeName);
 }
 
-void verifyIntervalsStartAtRequestCompletion() {
+// Round 2: reads keep fixed slots (due = previous slot + interval), so a 500 ms point is read every
+// 500 ms instead of every 500 ms + read time; a read more than one interval late skips the missed slots.
+void verifyReadsKeepTheirSlots() {
     const std::string storeName = "gateway_collector_completion_test";
     cleanupStore(storeName);
     {
         auto config = buildConfig(storeName);
-        config.points = {registerPoint(500001, "completion", 0)};
+        config.points = {registerPoint(500001, "slot", 0)};
         config.points[0].read.intervalMs = 1000;
         edge_gateway::MemoryPointStore store(config.memoryStore);
         auto client = std::make_shared<FakeModbusClient>();
         client->readDelayMs = 100;
         TestCollector collector(config, store, client);
-        collector.collectOnce(1000);
-        const auto waiting = collector.collectOnce(2000);
-        require(waiting.executedTasks.empty(), "interval started before request completion");
-        require(waiting.nextDelayMs == 100, "completion deadline was lost between daemon ticks");
-        require(collector.collectOnce(2100).executedTasks.size() == 1, "completed request did not become due");
+        collector.collectOnce(1000);  // completes at 1100
+        require(collector.collectOnce(2000).executedTasks.size() == 1,
+                "the next read is due one interval after the previous slot, not after its completion");
+        require(collector.collectOnce(2500).executedTasks.empty(), "a point is read once per slot");
+        // Late by 2.5 intervals (slots 3000, 4000 and 5000 missed): one read, then the next future slot.
+        require(collector.collectOnce(5500).executedTasks.size() == 1, "an overdue point is read");
+        const auto waiting = collector.collectOnce(5900);
+        require(waiting.executedTasks.empty(), "missed slots must not be read back in a burst");
+        require(waiting.nextDelayMs == 100, "the next read aligns to the next future slot (6000)");
+        require(collector.collectOnce(6000).executedTasks.size() == 1, "the aligned slot is read on time");
+        require(client->readCount(0) == 4, "exactly one read per served slot");
+        // Clock stepped back by 2 s: the slot moves with it (6000 -> 4000), the next read stays one
+        // interval later instead of waiting out the step or firing at once.
+        const auto stepped = collector.collectOnce(4000);
+        require(stepped.executedTasks.empty() && stepped.nextDelayMs == 1000,
+                "after a backward clock step the next slot keeps its distance");
+        require(collector.collectOnce(5000).executedTasks.size() == 1, "the shifted slot is read on time");
+        // Clock jumped forward by 15 s: one read, then the next future slot, no backlog.
+        require(collector.collectOnce(20000).executedTasks.size() == 1, "after a forward jump the point is read once");
+        const auto afterJump = collector.collectOnce(20500);
+        require(afterJump.executedTasks.empty() && afterJump.nextDelayMs == 500,
+                "after a forward jump the skipped slots are not read back");
+        require(collector.collectOnce(21000).executedTasks.size() == 1, "the next future slot is read on time");
+        require(client->readCount(0) == 7, "one read per served slot across clock steps");
+        // Late by less than one interval (slot 22000 read at 22950, done 23050): the 23000 slot is
+        // still served right away, and the schedule stays on its slots.
+        require(collector.collectOnce(22950).executedTasks.size() == 1, "a late point is read");
+        require(collector.collectOnce(23050).executedTasks.size() == 1, "the slot passed meanwhile is served at once");
+        const auto backOnSlots = collector.collectOnce(23500);
+        require(backOnSlots.executedTasks.empty() && backOnSlots.nextDelayMs == 500, "the next read is back on slot 24000");
+        require(client->readCount(0) == 9, "a slot is never served twice");
     }
     cleanupStore(storeName);
 }
@@ -2019,7 +2048,7 @@ int main() {
         verifySlowRequestsYieldAndRotateWithoutStarvation(false);
         verifySlowRequestsYieldAndRotateWithoutStarvation(true);
         verifyBackgroundYieldsWhenRealtimeBecomesDue();
-        verifyIntervalsStartAtRequestCompletion();
+        verifyReadsKeepTheirSlots();
         verifyDeferredFailureDoesNotDeclareWholeMeterFailed();
         verifySlowAdaptiveSplitYieldsWithoutInventingFailures();
         verifyPartialFailureStillOnline();

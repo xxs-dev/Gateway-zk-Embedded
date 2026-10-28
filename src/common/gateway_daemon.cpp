@@ -311,7 +311,7 @@ bool GatewayDaemon::isRunning() const {
 void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
     collectionWorkDeferred_ = false;
     if (roundVisited_ == 0) {
-        collectionNextDelayMs_ = 0;
+        collectionWakeAtMs_ = 0;
     }
     if (runtimeDevices_.empty()) {
         return;
@@ -333,8 +333,8 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
             const auto result = runtimeDevice.collector->collectOnce(nowMsValue, realtimeFocused);
             collectionWorkDeferred_ = collectionWorkDeferred_ || result.workDeferred;
             if (result.nextDelayMs > 0) {
-                collectionNextDelayMs_ = collectionNextDelayMs_ > 0
-                    ? std::min(collectionNextDelayMs_, result.nextDelayMs) : result.nextDelayMs;
+                const auto wakeAtMs = steadyMs() + result.nextDelayMs;
+                collectionWakeAtMs_ = collectionWakeAtMs_ > 0 ? std::min(collectionWakeAtMs_, wakeAtMs) : wakeAtMs;
             }
         } catch (const std::exception& ex) {
             // The collector applies its own failure thresholds; one failed cycle is not offline.
@@ -732,8 +732,9 @@ void GatewayDaemon::collectLoop() {
         }
         const auto afterCollection = steadyMs();
         auto remaining = static_cast<int>(std::max<std::int64_t>(0, nextDeadline - afterCollection));
-        if (collectionNextDelayMs_ > 0 && collectionNextDelayMs_ < remaining) {
-            remaining = collectionNextDelayMs_;
+        if (collectionWakeAtMs_ > 0) {
+            remaining = static_cast<int>(std::min<std::int64_t>(
+                remaining, std::max<std::int64_t>(0, collectionWakeAtMs_ - afterCollection)));
         }
         sleepInterruptibly(running_, std::min(kMaxCollectSleepMs, std::max(1, remaining)));
         const auto now = steadyMs();

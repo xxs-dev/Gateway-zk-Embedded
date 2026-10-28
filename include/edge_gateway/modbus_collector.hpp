@@ -18,21 +18,23 @@ namespace edge_gateway {
 // realtime points of every meter on the line, not only to its own.
 class ModbusLineSchedule {
 public:
-    // Earliest due time of the meter's realtime points; INT64_MAX when it has none or is not
-    // collecting (offline, backed off).
-    void update(const void* collector, int slave, std::int64_t realtimeDueMs);
+    // dueMs: earliest slot at which one of the meter's realtime points is due; urgencyMs: smallest
+    // "last read completed + interval" among them (how overdue its realtime work is). INT64_MAX when the
+    // meter has no realtime work it can read (offline, backed off).
+    void update(const void* collector, int slave, std::int64_t dueMs, std::int64_t urgencyMs);
     // True when another meter has realtime work due at nowMs whose slave can take a request now
     // (a slave waiting for its frameIntervalMs leaves the line free).
     bool realtimeWaitingElsewhere(const void* collector, std::int64_t nowMs, const IModbusClient& client) const;
-    // True when another meter has realtime work due before dueMs (and due at nowMs) whose slave can take a
-    // request now: earliest deadline first across the meters of the line.
-    bool earlierRealtimeElsewhere(const void* collector, std::int64_t dueMs, std::int64_t nowMs,
-                                  const IModbusClient& client) const;
+    // True when another meter's most urgent realtime work is due and more urgent than urgencyMs, and its
+    // slave can take a request now: earliest deadline first across the meters of the line.
+    bool moreUrgentRealtimeElsewhere(const void* collector, std::int64_t urgencyMs, std::int64_t nowMs,
+                                     const IModbusClient& client) const;
 
 private:
     struct Entry {
         int slave = 0;
-        std::int64_t realtimeDueMs = 0;
+        std::int64_t dueMs = 0;
+        std::int64_t urgencyMs = 0;
     };
     mutable std::mutex mutex_;
     std::unordered_map<const void*, Entry> entries_;
@@ -98,10 +100,13 @@ private:
         std::int64_t nowMs,
         bool realtimeFocused
     ) const;
-    // Earliest due time of the realtime points that can be read now (points of backed-off tasks excluded).
-    std::int64_t earliestRealtimeDueMs(const std::unordered_set<std::uint32_t>& heldPoints) const;
-    // Earliest due time of the task's points (lastRead + interval); minimum for never-read points.
-    std::int64_t taskDueMs(const ReadTask& task) const;
+    // Earliest due slot / urgency of the realtime points that can be read now (points of backed-off
+    // tasks excluded); INT64_MAX when there are none.
+    void realtimeDueAndUrgency(const std::unordered_set<std::uint32_t>& heldPoints,
+                               std::int64_t& dueMs, std::int64_t& urgencyMs) const;
+    // Ordering key under contention: last read completion + interval of the task's points (minimum
+    // for never-read points). Due-ness uses the fixed slots; this keeps overloaded points in turn.
+    std::int64_t taskUrgencyMs(const ReadTask& task) const;
     std::int64_t taskOldestValueUpdateMs(const ReadTask& task) const;
     int pointPriority(const PointDefinition& point) const;
     int taskPriority(const ReadTask& task) const;
@@ -137,6 +142,8 @@ private:
     mutable std::unordered_map<std::string, std::size_t> adaptiveSplitProbeCursors_;
     mutable std::size_t offlineProbeCursor_ = 0;
     std::int64_t lastBackgroundRequestMs_ = -1;
+    // Completion time of each point's last read attempt (lastReadMs_ holds its schedule slot).
+    std::unordered_map<std::uint32_t, std::int64_t> lastCompletedMs_;
 };
 
 }  // namespace edge_gateway
