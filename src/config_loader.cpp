@@ -419,6 +419,24 @@ CachePolicy parseCachePolicy(const JsonValue* value) {
     return policy;
 }
 
+// read.can.invalidRawValues entry: a non-negative integer or a "0x..." hex string (for 64-bit patterns).
+std::uint64_t parseCanRawValue(const JsonValue& item) {
+    if (item.isString()) {
+        const auto& text = item.asString();
+        std::size_t used = 0;
+        if (text.size() < 3 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X') ||
+            text.find_first_not_of("0123456789abcdefABCDEF", 2) != std::string::npos || text.size() > 18) {
+            throw std::invalid_argument("read.can.invalidRawValues entry must be an integer or 0x hex: " + text);
+        }
+        return std::stoull(text.substr(2), &used, 16);
+    }
+    const auto number = item.asNumber();
+    if (!(number >= 0.0) || number > 9007199254740992.0 || number != std::floor(number)) {
+        throw std::invalid_argument("read.can.invalidRawValues entry must be a non-negative integer");
+    }
+    return static_cast<std::uint64_t>(number);
+}
+
 CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     CanSignalSpec spec;
     if (value == nullptr || value->isNull()) {
@@ -436,6 +454,15 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     spec.endian = requireString(object, "endian", spec.endian);
     spec.receiveTimeoutMs = requireInt(object, "receiveTimeoutMs", spec.receiveTimeoutMs);
     spec.remoteRequest = requireBool(object, "remoteRequest", spec.remoteRequest);
+    spec.payloadTemplate = requireString(object, "payloadTemplate", spec.payloadTemplate);
+    spec.fd = requireBool(object, "fd", spec.fd);
+    if (const auto* invalid = value->find("invalidRawValues")) {
+        if (!invalid->isNull()) {
+            for (const auto& item : invalid->asArray().values) {
+                spec.invalidRawValues.push_back(parseCanRawValue(*item));
+            }
+        }
+    }
     return spec;
 }
 
@@ -976,7 +1003,6 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     can.listenOnly = requireBool(object, "listenOnly", can.listenOnly);
     can.loopback = requireBool(object, "loopback", can.loopback);
     can.fdEnabled = requireBool(object, "fdEnabled", can.fdEnabled);
-    can.preserveFrameSignals = requireBool(object, "preserveFrameSignals", can.preserveFrameSignals);
     can.dataBitrate = requireInt(object, "dataBitrate", can.dataBitrate);
     can.manageInterface = requireBool(object, "manageInterface", can.manageInterface);
     can.rxQueueSize = requireSize(object, "rxQueueSize", can.rxQueueSize);

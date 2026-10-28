@@ -17,6 +17,8 @@
 
 namespace edge_gateway {
 
+// Time arguments: wallMs (system clock) timestamps values; monoMs (steady clock) drives every
+// timeout (online, receive timeout, interface checks) so a wall-clock step cannot freeze or flip them.
 class CanDriverService {
 public:
     CanDriverService(
@@ -33,28 +35,51 @@ public:
     void stop();
     bool isRunning() const;
 
+    // Reads at most one frame (data or error frame) and applies it.
     std::size_t processReceiveOnce(int timeoutMs);
     std::size_t processWritebackOnce(std::int64_t nowMs);
     std::size_t flushPersistentOnce();
-    void updateOnlineStatus(std::int64_t nowMs);
+    void updateOnlineStatus(std::int64_t wallMs, std::int64_t monoMs);
+    // Polls the interface (up/running, socket) every collect.interfaceCheckIntervalMs and recovers it.
+    void checkInterfaceOnce(std::int64_t wallMs, std::int64_t monoMs);
+    bool interfaceOnline() const { return interfaceOnline_; }
+    static std::int64_t steadyNowMs();
 
 private:
     struct RuntimeDevice {
         DeviceConfig config;
-        std::int64_t lastSeenTs = 0;
+        std::int64_t lastSeenMono = 0;
         bool online = false;
         int onlineTimeoutMs = 5000;
-        std::int64_t lastOnlinePublishedTs = 0;
-        std::vector<std::string> onlineFrameIds;
+        std::int64_t lastOnlinePublishedMono = 0;
+        std::vector<std::uint32_t> onlineFrameIds;  // match any frame type
+        std::vector<std::uint64_t> signalFrameKeys;
     };
 
     struct RuntimePoint {
         std::size_t deviceIndex = 0;
         PointDefinition point;
-        std::int64_t lastSeenTs = 0;
+        bool readSignal = false;   // decoded from received frames
+        bool writeSignal = false;  // encoded into a transmit frame
+        std::uint64_t readKey = 0;
+        std::uint64_t writeKey = 0;
+        std::int64_t lastSeenMono = 0;
         bool stalePublished = false;
-        bool decodeErrorLogged = false;
+        std::int64_t lastErrorLogMono = 0;
+        std::size_t suppressedErrors = 0;
     };
+
+    // One transmitted frame: its layout and the last payload sent (mirror), so writing one signal
+    // keeps the other signals of the frame. Starts from write.can.payloadTemplate (or zeros).
+    struct TxFrame {
+        std::uint32_t frameId = 0;
+        bool extended = false;
+        bool fd = false;
+        bool remoteRequest = false;
+        std::vector<std::uint8_t> payload;
+    };
+
+    struct StagedWrite;
 
     void initializeRuntimeDevices();
     void configureInterface() const;
@@ -63,11 +88,20 @@ private:
     void closeSocket();
     void closeSocketLocked();
     int duplicateSocket() const;
-    bool isInterfaceReady() const;
-    void checkInterfaceOnce(std::int64_t nowMs);
+    enum class LinkState { Down, NoCarrier, Ready };
+    LinkState linkStateLocked() const;
+    void handleErrorFrame(std::uint32_t errorClass, const std::vector<std::uint8_t>& data, std::int64_t wallMs,
+                          std::int64_t monoMs);
+    void setInterfaceOnline(bool online, const std::string& reason, std::int64_t wallMs, std::int64_t monoMs);
+    void applyDataFrame(std::uint32_t frameId, bool extended, const std::vector<std::uint8_t>& payload,
+                        std::int64_t wallMs, std::int64_t monoMs, std::size_t& matched);
+    void markPointBad(RuntimePoint& runtimePoint, const std::string& message, bool stale, std::int64_t wallMs);
+    void logPointError(RuntimePoint& runtimePoint, const std::string& message, std::int64_t monoMs);
     void runStartupWrites();
-    bool sendCanWrite(const PointDefinition& point, double value,
-                      const BeforePhysicalWrite& beforeWrite = BeforePhysicalWrite());
+    void sendSingleWrite(const RuntimePoint& runtimePoint, double value);
+    void transmitLocked(const TxFrame& frame, const std::vector<std::uint8_t>& payload);
+    std::size_t flushStagedWrites(std::vector<StagedWrite>& group);
+    void finishWrite(StagedWrite& staged, std::size_t& processed);
     void receiveLoop();
     void writebackLoop();
     void persistLoop();
@@ -76,9 +110,9 @@ private:
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void publishPointValue(const RuntimeDevice& device, const PointDefinition& point, const DecodedValue& decoded, std::int64_t ts,
         int quality = 1, const std::string& qualityMsg = "ok");
-    void publishOnlinePoint(RuntimeDevice& device, bool online, std::int64_t ts);
-    void updatePointStaleness(std::int64_t nowMs);
-    bool frameBelongsToDevice(const RuntimeDevice& device, std::uint32_t frameId, bool extended) const;
+    void publishOnlinePoint(RuntimeDevice& device, bool online, std::int64_t wallMs, std::int64_t monoMs);
+    void publishInterfacePoints(std::int64_t wallMs, std::int64_t monoMs);
+    void updatePointStaleness(std::int64_t wallMs, std::int64_t monoMs);
     static std::int64_t nowMs();
 
     DeviceConfig config_;
@@ -90,15 +124,23 @@ private:
     std::vector<RuntimeDevice> runtimeDevices_;
     std::vector<RuntimePoint> runtimePoints_;
     std::unordered_map<std::uint32_t, std::size_t> indexToRuntimePoint_;
+    std::unordered_map<std::uint64_t, std::vector<std::size_t>> readPointsByFrame_;
+    std::vector<std::size_t> interfacePoints_;  // read.dataType == "interface_online"
     std::atomic<bool> running_{false};
     std::atomic<std::uint64_t> flushedImmediatePersistentGeneration_{0};
     std::mutex persistentFlushMutex_;
     mutable std::mutex socketMutex_;
-    // Last payload written per (frameId, extended) so a write of one signal
-    // does not zero the other signals sharing that frame. Guarded by socketMutex_.
-    std::unordered_map<std::uint64_t, std::vector<std::uint8_t>> writtenFramePayloads_;
+    std::unordered_map<std::uint64_t, TxFrame> txFrames_;  // guarded by socketMutex_
     int socketFd_ = -1;
-    std::int64_t lastInterfaceCheckMs_ = 0;
+    // Receive-thread state (also updated by tests calling the public methods from one thread).
+    bool interfaceOnline_ = false;
+    bool busOff_ = false;
+    bool errorPassive_ = false;
+    bool linkDownSeen_ = false;
+    std::int64_t carrierLostMono_ = 0;
+    std::int64_t lastBusActivityMono_ = 0;  // last data frame or controller restart
+    std::int64_t lastInterfaceCheckMono_ = 0;
+    std::int64_t lastInterfacePublishedMono_ = 0;
     std::thread receiveThread_;
     std::thread writebackThread_;
     std::thread persistThread_;
