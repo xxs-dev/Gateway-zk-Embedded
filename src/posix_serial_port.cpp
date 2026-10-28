@@ -12,6 +12,8 @@
 #include <system_error>
 
 #include <fcntl.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
@@ -37,8 +39,26 @@ void PosixSerialPort::open() {
 
     fd_ = ::open(options_.device.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd_ < 0) {
-        throw std::runtime_error("failed to open serial device: " + options_.device);
+        const auto err = errno;
+        if (err == EBUSY) {
+            throw std::runtime_error("serial device busy (opened exclusively by another process): " +
+                                     options_.device);
+        }
+        throw std::runtime_error("failed to open serial device: " + options_.device + ": " + std::strerror(err));
     }
+    // One owner per line: two configurations on the same port would overwrite each other's line
+    // settings and interleave frames. flock() covers every gateway process (also root); TIOCEXCL
+    // additionally refuses other unprivileged openers while we hold the port.
+    if (flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+        const auto err = errno;
+        ::close(fd_);
+        fd_ = -1;
+        if (err == EWOULDBLOCK) {
+            throw std::runtime_error("serial device busy (locked by another driver or tool): " + options_.device);
+        }
+        throw std::system_error(err, std::generic_category(), "serial device lock failed: " + options_.device);
+    }
+    (void)ioctl(fd_, TIOCEXCL);
 
     termios tty{};
     if (tcgetattr(fd_, &tty) != 0) {
@@ -62,10 +82,16 @@ void PosixSerialPort::open() {
     }
 
     tty.c_cflag &= ~(PARENB | PARODD);
+    tty.c_iflag &= ~(INPCK | IGNPAR | PARMRK);
     if (options_.parity == "E") {
         tty.c_cflag |= PARENB;
     } else if (options_.parity == "O") {
         tty.c_cflag |= PARENB | PARODD;
+    }
+    if (options_.parity == "E" || options_.parity == "O") {
+        // Check received parity and drop characters with parity/framing errors, so a corrupted byte
+        // shortens the frame (rejected by length/CRC) instead of passing on as data.
+        tty.c_iflag |= INPCK | IGNPAR;
     }
 
     tty.c_cc[VMIN] = 0;
@@ -82,6 +108,7 @@ void PosixSerialPort::open() {
 
 void PosixSerialPort::close() {
     if (fd_ >= 0) {
+        (void)ioctl(fd_, TIOCNXCL);
         ::close(fd_);
         fd_ = -1;
     }

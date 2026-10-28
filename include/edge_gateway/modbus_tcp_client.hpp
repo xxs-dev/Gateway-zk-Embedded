@@ -68,6 +68,9 @@ private:
         std::size_t size,
         std::chrono::steady_clock::time_point deadline
     );
+    // Waits for the first byte of a response header. False on a clean timeout (nothing received):
+    // the stream is still frame-aligned and the connection is kept.
+    bool waitForResponseStart(std::chrono::steady_clock::time_point deadline);
     void sendAll(
         const std::vector<std::uint8_t>& bytes,
         std::chrono::steady_clock::time_point deadline,
@@ -79,6 +82,10 @@ private:
     int requestGapMs_ = 0;
     std::chrono::steady_clock::time_point nextRequestAt_{};
     std::uint16_t transactionId_ = 0;
+    // Transactions that timed out cleanly on this connection; a late reply carrying one of these
+    // ids is read and dropped instead of tearing the connection down.
+    std::vector<std::uint16_t> abandonedTransactionIds_;
+    int consecutiveTimeouts_ = 0;
     std::intptr_t socket_ = -1;
     std::mutex transactionMutex_;
     std::condition_variable transactionCv_;

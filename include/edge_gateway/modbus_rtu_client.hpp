@@ -39,6 +39,10 @@ public:
         const std::vector<std::uint16_t>& values
     ) override;
 
+    // Milliseconds until a request to this slave may start (per-slave frameIntervalMs); 0 when it may
+    // start now. Lets the collector serve another slave instead of sleeping on the bus.
+    int requestReadyInMs(int slave) const override;
+
 private:
     std::vector<std::uint8_t> transact(
         int slave,
@@ -62,9 +66,11 @@ private:
     );
 
     void ensurePortOpen();
+    std::chrono::steady_clock::time_point nextRequestAllowedAt(int slave, bool includeBusSilence) const;
     void waitForFrameInterval(int slave);
     std::chrono::microseconds minimumBusSilentInterval() const;
     void noteBusActivity();
+    void noteRequestWritten(int slave, std::chrono::steady_clock::time_point writeStartedAt);
     static std::uint16_t crc16(const std::vector<std::uint8_t>& bytes);
     static void appendCrc(std::vector<std::uint8_t>& frame);
     static void validateCrc(const std::vector<std::uint8_t>& frame);
@@ -91,6 +97,8 @@ private:
     std::condition_variable transactionCv_;
     int activeTransactions_ = 0;
     int pendingPriorityWrites_ = 0;
+    // Guards the bus timing below: the collector asks requestReadyInMs() outside a transaction.
+    mutable std::mutex timingMutex_;
     std::unordered_map<int, std::chrono::steady_clock::time_point> lastRequestWriteAtBySlave_;
     std::chrono::steady_clock::time_point lastBusActivityAt_{};
     static thread_local int priorityContextDepth_;
