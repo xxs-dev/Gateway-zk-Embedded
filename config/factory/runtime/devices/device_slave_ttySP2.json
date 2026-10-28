@@ -48,8 +48,6 @@
     "maxTasksPerMeterPerCycle": 2,
     "realtimeMaxTasksPerMeterPerCycle": 16,
     "backgroundTaskIntervalMs": 5000,
-    "maxBackgroundTasksPerMeterPerCycle": 1,
-    "realtimeMaxBackgroundTasksPerMeterPerCycle": 16,
     "failureGoodValueGraceMs": 0,
     "failureBadQualityThreshold": 3
   },

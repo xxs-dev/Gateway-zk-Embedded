@@ -29,8 +29,9 @@ def build_profile(original):
         raise ValueError('Existing read limits cannot fit fast group')
     result['protocol']['transport']['frameIntervalMs'] = 20
     result['collect'].update(maxTasksPerMeterPerCycle=1, realtimeMaxTasksPerMeterPerCycle=1,
-        maxBackgroundTasksPerMeterPerCycle=1, realtimeMaxBackgroundTasksPerMeterPerCycle=1,
         backgroundTaskIntervalMs=0)
+    for removed in ('maxBackgroundTasksPerMeterPerCycle', 'realtimeMaxBackgroundTasksPerMeterPerCycle'):
+        result['collect'].pop(removed, None)
     for p in enabled:
         if p['read']['dataType'] == 'device_online':
             continue
