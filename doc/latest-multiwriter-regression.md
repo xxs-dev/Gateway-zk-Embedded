@@ -1,5 +1,12 @@
 # Latest Multiwriter Recurrence Regression
 
+## Current Runtime Coverage (2026-10-28)
+
+The integrated regression uses the compatible version range from the current
+layout header (v11 only). It retains the three waves, four writers, inode,
+unique-slot and restart assertions. v8/v9/v10 below describe historical evidence,
+not versions the v11 runtime may attach; legacy conversion has separate tests.
+
 ## Evidence (2026-09-16)
 
 Native WSL Ubuntu x86_64, GCC 15.2.0; current production source:

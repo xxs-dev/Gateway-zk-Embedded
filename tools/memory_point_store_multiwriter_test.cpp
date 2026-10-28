@@ -271,7 +271,8 @@ int main() {
         return 1;
     }
     int failures = 0;
-    for (std::uint32_t version : {8, 9, 10}) {
+    for (std::uint32_t version = kMinimumCompatibleSharedStoreVersion;
+         version <= kSharedStoreVersion; ++version) {
         try {
             require(Clock::now() < deadline, "test deadline exceeded");
             concurrentRestartWaves(version, deadline);

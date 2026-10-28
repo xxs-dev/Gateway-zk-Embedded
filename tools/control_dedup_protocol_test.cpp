@@ -62,6 +62,7 @@ void test(const std::string& protocol) {
     config.mqttDriver.powerControlOwnershipFile = dir.file("owner.json");
     config.protocol.type = protocol; config.address = "000000000020";
     config.protocol.dlt645.write.enabled = true; config.protocol.dlt645.write.password = "02000000";
+    config.protocol.dlt645.write.operatorCode = "01020304";
     PointDefinition point; point.index = 1001; point.pointCode = "control"; point.enabled = true;
     point.write.enable = true; point.write.dataType = "digital_output";
     point.read.gpio = 17;

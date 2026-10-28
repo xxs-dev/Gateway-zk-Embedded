@@ -128,7 +128,7 @@ void verifyFullTelemetryRequiresExistingStores() {
             store.putLatest(value);
             const auto present = request();
             require(startsWith(present, "HTTP/1.1 200") && present.find("FULL_TEST") != std::string::npos,
-                    "existing producer must appear in the full snapshot");
+                    "existing producer must appear in the full snapshot: " + present);
         }
         ::shm_unlink(("/" + name).c_str());
         require(!startsWith(request(), "HTTP/1.1 200"), "removed producer must not yield successful empty snapshot");
