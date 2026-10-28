@@ -1,0 +1,6 @@
+[Unit]
+Description=Gateway disk headroom check (preserve business data)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gateway-disk-guard

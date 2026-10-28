@@ -903,6 +903,10 @@ if(BUILD_TESTING)
             COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_boot_test.sh")
         set_tests_properties(gateway_services_boot PROPERTIES TIMEOUT 15)
         add_test(
+            NAME gateway_cellular_failover
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_cellular_failover_test.sh"
+        )
+        add_test(
             NAME gateway_test_lab_modbus_e2e
             COMMAND sh
                 "${CMAKE_SOURCE_DIR}/test-lab/tests/run_modbus_e2e.sh"

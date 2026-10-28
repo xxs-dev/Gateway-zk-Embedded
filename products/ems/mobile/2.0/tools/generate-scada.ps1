@@ -2,6 +2,7 @@
 param(
     [string]$SourceProjectDirectory,
     [string]$RuntimeConfigDirectory,
+    [switch]$EnableLocalControls,
     [string]$OutputProjectDirectory,
     [string]$OutputPackage,
     [string]$MachineCode = "COMM202600999",
@@ -20,6 +21,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $projectDisplayName = $DisplayName
+if ($EnableLocalControls -and $LayoutProfile -ne 'XMindV2') {
+    throw 'The legacy local-control contract requires LayoutProfile XMindV2'
+}
 
 . (Join-Path $PSScriptRoot "..\..\..\common\powershell\Repository.ps1")
 $repoRoot = Find-GatewayRepositoryRoot -StartPath $PSScriptRoot
@@ -2079,6 +2083,12 @@ foreach($spec in $trendSpecs) {
 }
 
 $screens = if ($LayoutProfile -eq "Lanhu") { @(Get-LanhuScreens) } else { @(Get-XMindV2Screens) }
+if ($EnableLocalControls) {
+    . (Join-Path $PSScriptRoot '..\scada\local-controls.ps1')
+    Assert-LocalControlContract
+    $screens = @(Add-LocalControlScreens $screens)
+    $XMindV2ExpectedScreens += 'LocalControl'
+}
 
 [void](New-Item -ItemType Directory -Path $outputRoot -Force)
 $screensDirectory = Join-Path $outputRoot "screens"
@@ -2102,6 +2112,9 @@ $manifest = [pscustomobject][ordered]@{
     layoutProfile = $LayoutProfile
     entryScreen = "Meters-Overview"
     packageRole = "project"
+}
+if ($EnableLocalControls) {
+    $manifest | Add-Member -NotePropertyName localControlContract -NotePropertyValue 'comm104-740100-v1'
 }
 $topology = [pscustomobject][ordered]@{
     mode = "integrated"
@@ -2148,7 +2161,40 @@ Write-Json (Join-Path $outputRoot "permissions.json") ([pscustomobject][ordered]
         users = @($localUser)
     }
 })
+if ($EnableLocalControls) {
+    $sourcePermissions = Read-Json (Join-Path $sourceRoot "permissions.json")
+    $permissionsPath = Join-Path $outputRoot "permissions.json"
+    $localPermissions = Read-Json $permissionsPath
+    if ($null -ne $sourcePermissions.PSObject.Properties['localAccess'] -and
+        @($sourcePermissions.localAccess.users).Count -gt 0) {
+        $localPermissions = $sourcePermissions
+    }
+    $localPermissions.localAccess.protectedScreenPrefixes = @(
+        @($localPermissions.localAccess.protectedScreenPrefixes) +
+        @('Guide-', 'Vehicle-', 'Strategy-', 'Control-', 'LocalControl') | Select-Object -Unique
+    )
+    Write-Json $permissionsPath $localPermissions
+}
 foreach ($screen in $screens) {
+    foreach ($widget in $screen.widgets) {
+        if ($widget.widgetId -notin @('overview-pcs-running','devices-pcs-run','overview-pcs-state','overview-flow-pcs','device-pcs-run')) { continue }
+        $rules = @((New-StateRule 'offline' '离线' '#71808A' 1399 'eq' '0' 100),
+                   (New-StateRule 'fault' '故障' '#E45858' 1212 'eq' '1' 90))
+        $rules[1].conditions = @($rules[1].conditions) + @((New-StateRule 'online' '' '' 1399 'eq' '1' 0).conditions)
+        foreach ($state in @(@{Index=1209;Code='stopped';Label='停机';Color='#D9A441'},
+                              @{Index=1210;Code='standby';Label='待机';Color='#39B8D6'},
+                              @{Index=1211;Code='running';Label='运行';Color='#20C879'})) {
+            $rule = New-StateRule $state.Code $state.Label $state.Color $state.Index 'eq' '1' 50
+            foreach ($index in @(1209,1210,1211,1212,1399)) {
+                if ($index -eq $state.Index) { continue }
+                $value = if ($index -eq 1399) { '1' } else { '0' }
+                $rule.conditions = @($rule.conditions) + @((New-StateRule 'condition' '' '' $index 'eq' $value 0).conditions)
+            }
+            $rules += $rule
+        }
+        $widget.stateRules = $rules
+        $widget.properties.defaultStateLabel = '未知/状态冲突'
+    }
     Write-Json (Join-Path $screensDirectory ($screen.screenId + ".json")) $screen
 }
 if ($LayoutProfile -eq "Lanhu") {
@@ -2207,7 +2253,7 @@ if ($controlScreens.Count -ne $expectedControls) { throw "control area is incomp
 $pcsControl = @($screens | Where-Object screenId -eq "Control-Pcs")
 $hasWritablePcsPoint = @([uint32[]]@(1200,1201,1202,1207,1310,1315,1318,1319,1320,1321,1322,1323) | Where-Object { Is-WritableIndex $_ }).Count -gt 0
 $hasWritablePhasePoint = @([uint32[]]@(1318,1319,1320,1321,1322,1323) | Where-Object { Is-WritableIndex $_ }).Count -gt 0
-if ($hasWritablePhasePoint -and @($pcsControl[0].widgets | Where-Object type -eq "pcsPhasePowerControl").Count -ne 1) {
+if (-not $EnableLocalControls -and $hasWritablePhasePoint -and @($pcsControl[0].widgets | Where-Object type -eq "pcsPhasePowerControl").Count -ne 1) {
     throw "writable compact PCS control page is missing the phase power controller"
 }
 if (-not $hasWritablePcsPoint -and @($pcsControl[0].widgets | Where-Object {
@@ -2220,7 +2266,8 @@ foreach ($screen in $screens) {
     $isProtected = $screen.screenId -like "Guide-*" -or
         $screen.screenId -like "Vehicle-*" -or
         $screen.screenId -like "Strategy-*" -or
-        $screen.screenId -like "Control-*"
+        $screen.screenId -like "Control-*" -or
+        ($EnableLocalControls -and $screen.screenId -eq 'LocalControl')
     foreach ($widget in $screen.widgets) {
         $actionType = if ($null -ne $widget.action -and
             $null -ne $widget.action.PSObject.Properties["type"]) {
@@ -2243,12 +2290,12 @@ foreach ($screen in $screens) {
 }
 
 $permissions = Read-Json (Join-Path $outputRoot "permissions.json")
-if (@($permissions.localAccess.protectedScreenPrefixes) -join ',' -ne 'Guide-,Vehicle-,Strategy-,Control-') {
+if (-not $EnableLocalControls -and @($permissions.localAccess.protectedScreenPrefixes) -join ',' -ne 'Guide-,Vehicle-,Strategy-,Control-') {
     throw "local access must protect guide, vehicle, strategy and control pages"
 }
-if (@($permissions.localAccess.users).Count -ne 1 -or
+if (-not $EnableLocalControls -and (@($permissions.localAccess.users).Count -ne 1 -or
     [string]$permissions.localAccess.users[0].passwordSha256 -notmatch '^[0-9a-f]{64}$' -or
-    [string]$permissions.localAccess.users[0].salt -notmatch '^[0-9a-f]{32}$') {
+    [string]$permissions.localAccess.users[0].salt -notmatch '^[0-9a-f]{32}$')) {
     throw "local access credential record is incomplete"
 }
 

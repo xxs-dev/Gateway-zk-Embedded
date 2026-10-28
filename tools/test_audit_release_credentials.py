@@ -112,7 +112,11 @@ class ReleaseCredentialAuditTest(unittest.TestCase):
 
     def test_repository_release_inputs_are_clean(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        inputs = [os.path.join(root, "config"), os.path.join(root, "gateway-factory-defaults.tar.gz")]
+        inputs = [os.path.join(root, "config")]
+        archive = os.path.join(root, "gateway-factory-defaults.tar.gz")
+        # Release binaries are generated artifacts, no longer checked into the source tree.
+        if os.path.isfile(archive):
+            inputs.append(archive)
         result = audit.audit_paths(inputs)
         details = "\n".join(
             "{}:{}: {}".format(item.source, item.location, item.reason)

@@ -1232,6 +1232,9 @@ if [ "$INSTALL_SYSTEMD" = "1" ] && command -v systemctl >/dev/null 2>&1; then
   install_deploy_file_if_exists "mqtt-tls-tunnel@.service" "/etc/systemd/system/mqtt-tls-tunnel@.service"
   install_deploy_file_if_exists "gateway-network-failover.service" "/etc/systemd/system/gateway-network-failover.service"
   install_deploy_file_if_exists "gateway-cellular.service" "/etc/systemd/system/gateway-cellular.service"
+  SZRL_IDEMPOTENCY_HELPER=$(deploy_file "gateway-szrl-idempotency.sh" || true)
+  [ -n "$SZRL_IDEMPOTENCY_HELPER" ] || { echo "required deploy file missing: gateway-szrl-idempotency.sh" >&2; exit 2; }
+  sh "$SZRL_IDEMPOTENCY_HELPER" install
   if [ -e /dev/watchdog ] || [ -e /dev/watchdog0 ]; then
     mkdir -p /etc/systemd/system.conf.d
     install_deploy_file_if_exists "10-gateway-watchdog.conf" "/etc/systemd/system.conf.d/10-gateway-watchdog.conf"

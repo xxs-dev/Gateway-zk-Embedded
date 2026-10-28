@@ -405,7 +405,7 @@ class FactoryRouteClosureTests(unittest.TestCase):
             for meter in virtual_document["meters"]
             for point in meter["points"]
         }
-        self.assertEqual(631, len(points))
+        self.assertEqual(638, len(points))
         self.assertEqual(set(range(217, 226)), set(points).intersection(range(217, 226)))
         self.assertEqual("H_TQ_avg_SA", points[217]["pointCode"])
         self.assertEqual("kVA", points[217]["read"]["unit"])
