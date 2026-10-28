@@ -527,6 +527,9 @@ struct IecProtocolConfig {
     int counterInterrogationQualifier = 5;
     // Only unbalanced FT1.2 transmission is implemented; true is rejected at load time.
     bool balanced = false;
+    // Zone of the time tags exchanged with the station (CP56Time2a/CP24Time2a, IEC 103
+    // CP32Time2a, C_CS_NA_1, AM5SE broadcast): "local" = gateway time zone, "utc" = UTC.
+    std::string timestampZone = "local";
     int t0Ms = 30000;
     int t1Ms = 15000;
     int t2Ms = 10000;

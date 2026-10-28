@@ -1084,6 +1084,7 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
         iec.counterInterrogationQualifier
     );
     iec.balanced = requireBool(object, "balanced", iec.balanced);
+    iec.timestampZone = requireString(object, "timestampZone", iec.timestampZone);
     iec.t0Ms = requireInt(object, "t0Ms", iec.t0Ms);
     iec.t1Ms = requireInt(object, "t1Ms", iec.t1Ms);
     iec.t2Ms = requireInt(object, "t2Ms", iec.t2Ms);

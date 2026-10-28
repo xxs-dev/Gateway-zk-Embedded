@@ -67,6 +67,11 @@ int main() {
             "\"dataType\":\"double_command\",\"allowedValues\":[1,2],\"iec\":{\"ioa\":3001,\"selectBeforeExecute\":true}")),
             "valid double command");
 
+        // Time tag zone.
+        expectAccept(config("iec104", mode104 + ",\"timestampZone\":\"utc\"", point104), "timestampZone utc");
+        expectReject(config("iec104", mode104 + ",\"timestampZone\":\"gmt+8\"", point104), "timestampZone",
+            "unknown timestampZone");
+
         // Unbalanced transmission only.
         expectReject(config("iec101", mode101 + ",\"balanced\":true", point104, kSerial), "balanced", "iec101 balanced");
         expectReject(config("iec103", mode101 + ",\"balanced\":true", point103, kSerial), "balanced", "iec103 balanced");

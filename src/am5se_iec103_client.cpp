@@ -234,7 +234,7 @@ std::vector<Iec103DisturbanceRecord> Am5seIec103Client::listDisturbanceRecords(i
         for (int i = 0; i < config_.maxPollFrames && result.size() < 50U && steadyNowMs() < deadline; ++i) {
             const auto reply = master_.requestClassData(1);
             if (reply.hasUserData() && reply.asdu[0] == 0x17) {
-                const auto records = IecCodec::decodeIec103RecordingDirectory(reply.asdu);
+                const auto records = IecCodec::decodeIec103RecordingDirectory(reply.asdu, config_);
                 result.insert(result.end(), records.begin(), records.end());
             } else {
                 keepEvents(reply);
@@ -433,7 +433,7 @@ void Am5seIec103Client::sendDiscoveryIfDue(bool force) {
         }
         const auto destination = ipv4Address(config_.udpBroadcastAddress, config_.udpPort);
         // The broadcast doubles as the station clock source: it carries wall-clock time.
-        const auto packet = IecCodec::buildAm5seUdpDiscoveryPacket(wallClockMs(), config_.stationName);
+        const auto packet = IecCodec::buildAm5seUdpDiscoveryPacket(config_, wallClockMs());
 #ifdef _WIN32
         const auto sent = sendto(
             udp,

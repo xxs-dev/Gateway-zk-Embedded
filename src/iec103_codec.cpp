@@ -66,11 +66,16 @@ IecDataValue baseValue(const std::vector<std::uint8_t>& asdu, int functionType, 
     return value;
 }
 
-// ASDU 1 / 2: DPI (1 = OFF, 2 = ON, 0/3 = intermediate/indeterminate) + CP32Time2a.
+// ASDU 1 / 2: FUN, INF, DPI, (RET, FAN,) CP32Time2a, SIN. The raw DPI 0..3 is kept; the
+// collector maps it like an IEC 101/104 double point (1 -> off/0, 2 -> on/1, 0/3 -> bad
+// quality). For AM5SE this is the mapping the code adopts, NOT a verified property of the
+// firmware: the actual meaning of DPI in its change frames still has to be confirmed by the
+// vendor, or by comparing raw frames (GATEWAY_IEC103_DEBUG / channel trace) with the real
+// breaker position on site.
 void decodeTimeTaggedMessage(
     std::vector<IecDataValue>& out,
     const std::vector<std::uint8_t>& asdu,
-    std::int64_t nowMs
+    const iec_detail::TimeTagContext& time
 ) {
     const bool relativeTime = asdu[0] == 2;
     const std::size_t timeOffset = kHeaderSize + 3 + (relativeTime ? 4 : 0);
@@ -82,10 +87,9 @@ void decodeTimeTaggedMessage(
     value.value = static_cast<double>(dpi);
     value.text = std::to_string(dpi);
     value.doublePoint = true;
-    value.timestampMs = decodeCp32Time2a(asdu, timeOffset, nowMs);
+    value.timestampMs = decodeCp32Time2a(asdu, timeOffset, time);
     if (dpi == 0 || dpi == 3) {
-        markBad(value, std::string("IEC103 DPI ") + (dpi == 0 ? "intermediate" : "indeterminate") +
-            " (DPI=" + std::to_string(dpi) + ")");
+        markBad(value, "IEC103 DPI=" + std::to_string(dpi) + " has no on/off mapping");
     }
     out.push_back(std::move(value));
 }
@@ -130,7 +134,7 @@ void decodeMeasurands(std::vector<IecDataValue>& out, const std::vector<std::uin
 void decodeFaultLocation(
     std::vector<IecDataValue>& out,
     const std::vector<std::uint8_t>& asdu,
-    std::int64_t nowMs
+    const iec_detail::TimeTagContext& time
 ) {
     const std::size_t sclOffset = kHeaderSize + 2;
     if (asdu.size() < sclOffset + 4 + 4 + 4) {
@@ -139,7 +143,7 @@ void decodeFaultLocation(
     auto value = baseValue(asdu, asdu[kHeaderSize], asdu[kHeaderSize + 1]);
     value.value = static_cast<double>(readFloatLe(asdu, sclOffset));
     value.text = std::to_string(value.value);
-    value.timestampMs = decodeCp32Time2a(asdu, sclOffset + 8, nowMs);
+    value.timestampMs = decodeCp32Time2a(asdu, sclOffset + 8, time);
     if (!std::isfinite(value.value)) {
         markBad(value, "IEC103 SCL is not finite");
     }
@@ -298,7 +302,10 @@ std::vector<std::uint8_t> IecCodec::buildIec103ComtradeFileCallAsdu(
     return asdu;
 }
 
-std::vector<Iec103DisturbanceRecord> IecCodec::decodeIec103RecordingDirectory(const std::vector<std::uint8_t>& asdu) {
+std::vector<Iec103DisturbanceRecord> IecCodec::decodeIec103RecordingDirectory(
+    const std::vector<std::uint8_t>& asdu,
+    const IecProtocolConfig& config
+) {
     if (asdu.size() < 6 || asdu[0] != 0x17) {
         return {};
     }
@@ -316,7 +323,7 @@ std::vector<Iec103DisturbanceRecord> IecCodec::decodeIec103RecordingDirectory(co
         Iec103DisturbanceRecord record;
         record.fan = readLe(asdu, offset, 2);
         record.state = asdu[offset + 2];
-        record.timestampMs = decodeCp56Time2a(asdu, offset + 3);
+        record.timestampMs = decodeCp56Time2a(asdu, offset + 3, iec_detail::timeTagsUtc(config));
         record.rawTimeHex = toHex(std::vector<std::uint8_t>(
             asdu.begin() + static_cast<std::ptrdiff_t>(offset + 3),
             asdu.begin() + static_cast<std::ptrdiff_t>(offset + 10)));
@@ -349,17 +356,17 @@ Iec103ComtradeChunk IecCodec::decodeIec103ComtradeChunk(const std::vector<std::u
 }
 
 std::vector<std::uint8_t> IecCodec::buildAm5seUdpDiscoveryPacket(
-    std::int64_t unixTimeMs,
-    const std::string& stationName
+    const IecProtocolConfig& config,
+    std::int64_t unixTimeMs
 ) {
     std::vector<std::uint8_t> packet(41, 0);
     packet[0] = 0xFF;
     packet[1] = 0x01;
     std::vector<std::uint8_t> time;
-    appendCp56Time2a(time, unixTimeMs);
+    appendCp56Time2a(time, unixTimeMs, iec_detail::timeTagsUtc(config));
     std::copy(time.begin(), time.end(), packet.begin() + 2);
-    const auto stationBytes = std::min<std::size_t>(16U, stationName.size());
-    std::copy_n(stationName.begin(), stationBytes, packet.begin() + 9);
+    const auto stationBytes = std::min<std::size_t>(16U, config.stationName.size());
+    std::copy_n(config.stationName.begin(), stationBytes, packet.begin() + 9);
     return packet;
 }
 
@@ -372,20 +379,18 @@ std::vector<IecDataValue> IecCodec::decodeIec103Data(
     if (asdu.size() < kHeaderSize + 2) {
         return values;
     }
-    if (nowMs <= 0) {
-        nowMs = iec_detail::systemNowMs();
-    }
+    const auto time = iec_detail::timeTagContext(config, nowMs);
     switch (asdu[0]) {
         case 1:
         case 2:
-            decodeTimeTaggedMessage(values, asdu, nowMs);
+            decodeTimeTaggedMessage(values, asdu, time);
             break;
         case 3:
         case 9:
             decodeMeasurands(values, asdu);
             break;
         case 4:
-            decodeFaultLocation(values, asdu, nowMs);
+            decodeFaultLocation(values, asdu, time);
             break;
         case 10:
             decodeGenericData(values, asdu, config);

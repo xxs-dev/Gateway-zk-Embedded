@@ -8,9 +8,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <functional>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -256,6 +258,30 @@ void verifyDataFlowControl() {
     require(station->countUserData(7) == 1, "GI sent once DFC is clear");
 }
 
+// GATEWAY_IEC103_DEBUG logs raw IEC 103 change frames (for comparing the DPI with the real
+// breaker position on site); off by default.
+void verifyChangeFrameDebugLog() {
+    const auto capture = [](bool enabled) {
+        if (enabled) setenv("GATEWAY_IEC103_DEBUG", "1", 1); else unsetenv("GATEWAY_IEC103_DEBUG");
+        auto port = std::make_shared<SerialStation>();
+        port->station.onUserData = answerIec103Interrogation;
+        IecFt12Client client("iec103", port, iec103Config());
+        (void)client.poll();
+        port->station.class1.push_back({1, 0x81, 1, 1, 1, 100, 0x02, 0x34, 0x12, 0x05, 0x0A, 0x00});
+        std::ostringstream log;
+        auto* previous = std::cerr.rdbuf(log.rdbuf());
+        (void)client.poll();
+        std::cerr.rdbuf(previous);
+        unsetenv("GATEWAY_IEC103_DEBUG");
+        return log.str();
+    };
+    const auto logged = capture(true);
+    require(logged.find("ASDU1") != std::string::npos && logged.find("DPI=2") != std::string::npos &&
+        logged.find("CP32=10:05:04.660") != std::string::npos && logged.find("raw=01810101016402341205") != std::string::npos,
+        "change frame debug line: " + logged);
+    require(capture(false).find("change frame") == std::string::npos, "change frame logging is off by default");
+}
+
 }  // namespace
 
 int main() {
@@ -268,6 +294,7 @@ int main() {
         verifyLateReplyDoesNotShiftPolls();
         verifyForeignAddressIgnored();
         verifyDataFlowControl();
+        verifyChangeFrameDebugLog();
         std::cout << "IEC FT1.2 link tests passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

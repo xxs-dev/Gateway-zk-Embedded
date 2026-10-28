@@ -215,7 +215,7 @@ void verifyTestFramesTimeTagsAndHeldDoublePoints() {
 
         (void)collector.collectOnce(1300);
         const auto opened = store.getLatestByIndex(433001, 1300);
-        require(opened && opened->value == 0.0 && opened->quality == 1, "DPI 1 (OFF) stored as 0");
+        require(opened && opened->value == 0.0 && opened->quality == 1, "adopted mapping: DPI 1 stored as 0");
     }
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }

@@ -81,7 +81,7 @@ int main() {
         0x02, 0x00, 0x01, 0x1C, 0xD0, 0x0D, 0x0F, 0x12, 0x02, 0x14,
         0x03, 0x00, 0x01, 0xBE, 0x2C, 0x0E, 0x0F, 0x12, 0x02, 0x14
     };
-    const auto directory = IecCodec::decodeIec103RecordingDirectory(directoryAsdu);
+    const auto directory = IecCodec::decodeIec103RecordingDirectory(directoryAsdu, config);
     requireTrue(directory.size() == 2, "AM5SE ASDU23 directory count");
     requireTrue(directory[0].fan == 2 && directory[1].fan == 3, "AM5SE ASDU23 FAN values");
     requireTrue(directory[0].timestampMs > 0, "AM5SE ASDU23 timestamp");
@@ -134,7 +134,9 @@ int main() {
         "AM5SE ASDU10 maps GIN 0/1 to FUN/INF 1/140");
     requireNear(yc.front().value, 0.00065, "AM5SE ASDU10 float value");
 
-    const auto discovery = IecCodec::buildAm5seUdpDiscoveryPacket(0, "KY");
+    auto discoveryConfig = config;
+    discoveryConfig.stationName = "KY";
+    const auto discovery = IecCodec::buildAm5seUdpDiscoveryPacket(discoveryConfig, 0);
     requireTrue(discovery.size() == 41, "AM5SE UDP discovery length");
     requireTrue(discovery[0] == 0xFF && discovery[1] == 0x01, "AM5SE UDP discovery marker");
     requireTrue(discovery[9] == 'K' && discovery[10] == 'Y', "AM5SE UDP station name");

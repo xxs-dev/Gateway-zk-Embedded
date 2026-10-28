@@ -28,15 +28,17 @@ struct IecDataValue {
     bool test = false;
     // VTI T bit on step-position information objects (types 5/6/32).
     bool transient = false;
-    // Double-point information (IEC 101/104 DIQ types 3/4/31, IEC 103 ASDU 1/2 DPI):
-    // value holds the raw DPI 0..3 (1 = OFF, 2 = ON, 0/3 = intermediate/indeterminate).
+    // Double-point information (IEC 101/104 DIQ types 3/4/31, IEC 103 ASDU 1/2 DPI): value holds
+    // the raw DPI 0..3. IEC 101/104: 1 = OFF, 2 = ON, 0/3 = intermediate/indeterminate. The same
+    // mapping is applied to IEC 103 ASDU 1/2; for AM5SE it is the code's adopted mapping, not a
+    // verified firmware property (to be confirmed by the vendor or against raw frames on site).
     bool doublePoint = false;
     // 1 = good; 0 = the device flagged the value unusable (IV/NT/OV/BL/SB, DPI 0/3,
     // counter IV/CY, IEC 103 MEA OV/ER). qualityMsg names the flags.
     int quality = 1;
     std::string qualityMsg;
-    // Device time tag (CP56Time2a / CP24Time2a / IEC 103 CP32Time2a) in Unix ms.
-    // 0 when the object carries no time tag or the tag is flagged invalid.
+    // Device time tag (CP56Time2a / CP24Time2a / IEC 103 CP32Time2a) in Unix ms, interpreted in
+    // protocol.iec.timestampZone. 0 when the object carries no time tag or the tag is invalid.
     std::int64_t timestampMs = 0;
     // Command echo only: raw qualifier byte (SCO/DCO/RCO/QOS) incl. S/E bit.
     int commandQualifier = -1;
@@ -252,12 +254,14 @@ public:
         int fileType
     );
     static std::vector<Iec103DisturbanceRecord> decodeIec103RecordingDirectory(
-        const std::vector<std::uint8_t>& asdu
+        const std::vector<std::uint8_t>& asdu,
+        const IecProtocolConfig& config
     );
     static Iec103ComtradeChunk decodeIec103ComtradeChunk(const std::vector<std::uint8_t>& asdu);
+    // Online/clock broadcast: CP56Time2a of unixTimeMs (timestampZone) + stationName.
     static std::vector<std::uint8_t> buildAm5seUdpDiscoveryPacket(
-        std::int64_t unixTimeMs,
-        const std::string& stationName
+        const IecProtocolConfig& config,
+        std::int64_t unixTimeMs
     );
 
     // nowMs resolves time tags without a date (CP24Time2a, CP32Time2a); 0 = system clock.
@@ -277,9 +281,9 @@ public:
     static IecDataValue protectionEventValue(const IecProtectionEvent& event);
 
     static bool pointMatches(const PointDefinition& point, const IecDataValue& value);
-    // True when value cannot be represented by point: a double point in an intermediate or
-    // indeterminate state (DPI 0/3) mapped to a boolean point. The collector then keeps the
-    // previous value and publishes it with bad quality.
+    // True when value cannot be represented by point: a double point with DPI 0/3 (no on/off
+    // mapping) on a boolean point. The collector then keeps the previous value and publishes it
+    // with bad quality.
     static bool holdsPreviousValue(const PointDefinition& point, const IecDataValue& value);
     static DecodedValue decodePointValue(const PointDefinition& point, const IecDataValue& value);
     static std::string toHex(const std::vector<std::uint8_t>& bytes);
