@@ -93,7 +93,20 @@ Collector::Collector(
     });
 }
 
+void Collector::onSchedulingClockStepped(std::int64_t deltaMs) {
+    const auto shift = [deltaMs](std::int64_t& value) { if (value > 0) value += deltaMs; };
+    shift(offlineProbeNextAttemptMs_);
+    shift(backoffUntilMs_);
+    shift(lastBackgroundTaskMs_);
+    for (auto& entry : taskFailureStates_) {
+        shift(entry.second.backoffUntilMs);
+        shift(entry.second.offlineProbeUntilMs);
+        shift(entry.second.lastFailureMs);
+    }
+}
+
 CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
+    observeSchedulingClock(nowMs);
     CollectCycleResult result;
     const auto startedMs = monotonicClockMs_();
     const auto schedulingNowMs = [&] {

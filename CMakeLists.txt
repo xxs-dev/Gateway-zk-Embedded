@@ -35,6 +35,13 @@ add_test(NAME ems_control_mode_test COMMAND ems_control_mode_test)
 
 add_library(edge_gateway
     src/channel_trace.cpp
+    src/validation/device_config_validation.cpp
+    src/validation/modbus_validation.cpp
+    src/validation/dlt645_validation.cpp
+    src/validation/iec_validation.cpp
+    src/validation/can_validation.cpp
+    src/validation/dio_validation.cpp
+    src/validation/northbound_validation.cpp
     src/agc_avc_controller.cpp
     src/agc_avc_command_mailbox.cpp
     src/agc_avc_service.cpp
@@ -500,6 +507,11 @@ add_executable(timing_policy_test tools/timing_policy_test.cpp)
 target_link_libraries(timing_policy_test PRIVATE edge_gateway)
 target_compile_options(timing_policy_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(config_corpus_load_test tools/config_corpus_load_test.cpp)
+target_link_libraries(config_corpus_load_test PRIVATE edge_gateway)
+add_executable(collector_clock_and_expiry_test tools/collector_clock_and_expiry_test.cpp)
+target_link_libraries(collector_clock_and_expiry_test PRIVATE edge_gateway)
+
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
 target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
@@ -859,6 +871,8 @@ if(BUILD_TESTING)
     add_test(NAME iec104_client_integration COMMAND iec104_client_integration_test)
     add_test(NAME iec_collector_incremental COMMAND iec_collector_incremental_test)
     add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
+    add_test(NAME config_corpus_load COMMAND config_corpus_load_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME collector_clock_and_expiry COMMAND collector_clock_and_expiry_test)
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
     add_test(NAME config_loader COMMAND config_loader_test)

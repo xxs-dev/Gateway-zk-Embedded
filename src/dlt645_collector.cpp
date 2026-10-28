@@ -42,6 +42,7 @@ Dlt645Collector::Dlt645Collector(
 }
 
 CollectCycleResult Dlt645Collector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
+    observeSchedulingClock(nowMs);
     CollectCycleResult result;
     if (shouldSkipFailedCollectionCycle()) {
         return result;

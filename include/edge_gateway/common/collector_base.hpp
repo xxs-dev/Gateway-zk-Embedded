@@ -57,6 +57,15 @@ protected:
     ) const;
     std::vector<PointDefinition> duePoints(std::int64_t nowMs, bool forceDue = false);
     int effectiveIntervalMs(const PointDefinition& point) const;
+    // Expiry for a freshly read value: ts + min(cachePolicy.ttlMs, stale horizon) (CollectConfig).
+    std::int64_t valueExpireAt(const PointDefinition& point, std::int64_t nowMs) const;
+    // Call first thing in collectOnce(). nowMs is wall-clock time (it timestamps values); when it moves
+    // backwards (NTP or a manual clock set) every stored scheduling time is shifted by the same amount,
+    // so intervals and backoffs keep their remaining length instead of freezing collection.
+    // Returns the shift applied (negative) or 0.
+    std::int64_t observeSchedulingClock(std::int64_t nowMs);
+    // Subclasses shift their own scheduling times (backoffs, last-attempt times) by deltaMs.
+    virtual void onSchedulingClockStepped(std::int64_t deltaMs) { (void)deltaMs; }
     bool shouldSkipFailedCollectionCycle();
     void recordCollectionCycleSuccess();
     void recordCollectionCycleFailure();
@@ -67,6 +76,7 @@ protected:
     std::shared_ptr<IMqttPublisher> mqttPublisher_;
     std::unordered_map<std::uint32_t, std::int64_t> lastReadMs_;
     std::unordered_map<std::uint32_t, std::int64_t> lastValueUpdateMs_;
+    std::int64_t lastObservedNowMs_ = 0;
     int collectionCycleFailures_ = 0;
     int collectionSkipCyclesRemaining_ = 0;
 };

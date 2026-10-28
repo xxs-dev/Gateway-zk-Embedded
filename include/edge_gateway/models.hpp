@@ -604,6 +604,11 @@ struct CollectConfig {
     int realtimeTaskFailureBackoffMaxMs = 30000;
     int failureGoodValueGraceMs = 0;
     int failureBadQualityThreshold = 3;
+    // A successfully read value expires (reads as stale, then leaves the store) when it has not been
+    // refreshed for max(staleAfterIntervals x point interval, staleAfterMinMs), never later than the
+    // point's cachePolicy.ttlMs. staleAfterIntervals <= 0 keeps the TTL only.
+    int staleAfterIntervals = 20;
+    int staleAfterMinMs = 120000;
     bool adaptiveSplitOnFailure = true;
     int adaptiveSplitMaxRegisters = 1;
     int adaptiveSplitMaxDepth = 2;
@@ -1754,6 +1759,10 @@ struct CommandResult {
     double requestedValue = 0.0;
     bool verifyAttempted = false;
     bool verifyPassed = false;
+    // The request reached the wire but no conclusive reply came back (timeout, mismatched reply):
+    // the device may have executed it. Reported as neither success nor a plain failure; callers
+    // must not retry with a new command id.
+    bool outcomeUnknown = false;
 };
 
 struct CommandExecutionException {

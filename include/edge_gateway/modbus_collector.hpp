@@ -71,6 +71,8 @@ private:
     std::vector<std::uint16_t> executeReadTask(const ReadTask& task) const;
     int taskFailureBackoffCycles(int consecutiveFailures, bool realtimeFocused) const;
 
+    void onSchedulingClockStepped(std::int64_t deltaMs) override;
+
     std::shared_ptr<IModbusClient> modbusClient_;
     std::function<std::int64_t()> monotonicClockMs_;
     // Shortened to the fastest point interval; a single in-flight request may overrun.

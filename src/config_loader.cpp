@@ -1,4 +1,5 @@
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/device_config_validation.hpp"
 #include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
@@ -323,6 +324,8 @@ void normalizeCollectConfig(CollectConfig& config) {
     );
     config.failureGoodValueGraceMs = std::max(0, config.failureGoodValueGraceMs);
     config.failureBadQualityThreshold = std::max(1, config.failureBadQualityThreshold);
+    config.staleAfterIntervals = std::max(0, config.staleAfterIntervals);
+    config.staleAfterMinMs = std::max(0, config.staleAfterMinMs);
     config.adaptiveSplitMaxRegisters = std::max(1, config.adaptiveSplitMaxRegisters);
     config.adaptiveSplitMaxDepth = std::max(1, config.adaptiveSplitMaxDepth);
     config.adaptiveSplitLeafProbeBudget = std::max(0, config.adaptiveSplitLeafProbeBudget);
@@ -1235,6 +1238,8 @@ CollectConfig parseCollect(const JsonValue* value) {
         "failureBadQualityThreshold",
         config.failureBadQualityThreshold
     );
+    config.staleAfterIntervals = requireInt(object, "staleAfterIntervals", config.staleAfterIntervals);
+    config.staleAfterMinMs = requireInt(object, "staleAfterMinMs", config.staleAfterMinMs);
     config.adaptiveSplitOnFailure = requireBool(
         object,
         "adaptiveSplitOnFailure",
@@ -4259,6 +4264,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
             config.startupWrites.push_back(parseStartupWriteConfig(*item));
         }
     }
+    validateDeviceConfig(config);
     return config;
 }
 

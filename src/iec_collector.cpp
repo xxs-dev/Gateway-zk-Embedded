@@ -42,6 +42,7 @@ IecCollector::IecCollector(
 
 CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     (void)realtimeFocused;
+    observeSchedulingClock(nowMs);
     CollectCycleResult result;
     if (shouldSkipFailedCollectionCycle()) {
         return result;
