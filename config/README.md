@@ -19,6 +19,7 @@
 - `runtime/tls` 放生产环境 MQTT TLS CA、客户端证书和可选 stunnel 兜底配置
 - 这些文件会被程序实际读取，修改后会影响运行结果
 - 出厂和运行样例默认所有协议驱动共用 `gateway_point_store`，MQTT、事件引擎和系统监测只需要读取这一个共享内存
+- 点位历史默认保留 30 天；旧 app 配置未提供 `pointHistory` 时也使用该默认值
 
 `runtime/apps/mqtt-service.json` 的全局 `pointHistory.retentionDays` 缺省为 30，数值兼容夹取到 1..3650 天，五类协议入口共用。它约束所有进入 `SqliteSampleWriter` 的 flagged 点位历史，不改变 `isStore`、`persistIntervalSec`、`persistOnChange` 的筛选规则，也不改变 full/realtime、MQTT outbox 或事件存储。
 

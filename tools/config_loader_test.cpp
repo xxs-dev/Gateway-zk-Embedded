@@ -411,6 +411,20 @@ void verifyDlt645WriteConfig() {
     }
     require(missingPasswordRejected, "enabled DLT645 write without password must be rejected");
 
+    bool missingOperatorCodeRejected = false;
+    try {
+        (void)edge_gateway::ConfigLoader::loadFromText(
+            R"JSON({
+              "protocol": { "type": "dlt645_2007" },
+              "dlt645": { "write": { "enabled": true, "password": "02000000", "operatorCode": "" } },
+              "meters": []
+            })JSON"
+        );
+    } catch (const std::invalid_argument&) {
+        missingOperatorCodeRejected = true;
+    }
+    require(missingOperatorCodeRejected, "enabled DLT645 write without operator code must be rejected");
+
     const auto templatePath = tempPath();
     std::ofstream templateOutput(templatePath.c_str(), std::ios::binary | std::ios::trunc);
     templateOutput << R"JSON({

@@ -59,6 +59,7 @@ struct CommandGroupSubmitResult {
 class PointStoreRouter {
 public:
     PointStoreRouter();
+    void setFailOnStoreReadError(bool fail) { failOnStoreReadError_ = fail; }
 
     void addStore(const std::string& sharedMemoryName, MemoryPointStore& store);
     void addRoutesFromDeviceConfigs(
@@ -170,6 +171,7 @@ private:
     void restoreEmsVirtualParameter(const PointStoreRoute& route);
 
     std::unordered_map<std::string, MemoryPointStore*> stores_;
+    bool failOnStoreReadError_ = false;
     std::unordered_map<std::uint32_t, PointStoreRoute> routes_;
     std::unordered_map<std::string, PointStoreRoute> routesByLocation_;
     std::uint32_t nextDerivedIndex_ = 900000000U;

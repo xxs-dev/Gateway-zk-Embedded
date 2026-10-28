@@ -102,6 +102,16 @@ int main() {
     require(contains(result.configFiles, mqttPath), "sibling app config should be pullable");
     require(contains(result.configFiles, emsConfig), "EMS device config should be pullable");
 
+    writeFile(
+        cameraPath,
+        R"({"cameraService":{"enabled":true,"sharedMemoryName":""}})"
+    );
+    const auto defaultCameraResult = discoverSystemMonitorRuntimeDependencies(primaryPath, primary);
+    require(
+        contains(defaultCameraResult.sharedMemoryNames, "gateway_point_store"),
+        "enabled camera with an empty name should discover the default store"
+    );
+
     unlink(primaryPath.c_str());
     unlink(mqttPath.c_str());
     unlink(cameraPath.c_str());

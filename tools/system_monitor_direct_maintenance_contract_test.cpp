@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
