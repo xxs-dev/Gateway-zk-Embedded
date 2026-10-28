@@ -611,6 +611,9 @@ struct CollectConfig {
     bool logAdaptiveSplitParentFailures = false;
     bool offlineProbeOnly = true;
     int offlineProbeTaskCount = 2;
+    // Optional wall-clock guard for confirmed-offline probes. Zero preserves
+    // the legacy cycle-only behavior.
+    int offlineProbeIntervalMs = 0;
     int runtimeMeterBatchSize = 16;
     int maxTasksPerMeterPerCycle = 2;
     int realtimeMaxTasksPerMeterPerCycle = 6;

@@ -327,6 +327,7 @@ void normalizeCollectConfig(CollectConfig& config) {
     config.adaptiveSplitMaxDepth = std::max(1, config.adaptiveSplitMaxDepth);
     config.adaptiveSplitLeafProbeBudget = std::max(0, config.adaptiveSplitLeafProbeBudget);
     config.offlineProbeTaskCount = std::max(1, config.offlineProbeTaskCount);
+    config.offlineProbeIntervalMs = std::max(0, config.offlineProbeIntervalMs);
     config.runtimeMeterBatchSize = std::max(1, config.runtimeMeterBatchSize);
     config.maxTasksPerMeterPerCycle = std::max(1, config.maxTasksPerMeterPerCycle);
     config.realtimeMaxTasksPerMeterPerCycle = std::max(
@@ -1256,6 +1257,11 @@ CollectConfig parseCollect(const JsonValue* value) {
     );
     config.offlineProbeOnly = requireBool(object, "offlineProbeOnly", config.offlineProbeOnly);
     config.offlineProbeTaskCount = requireInt(object, "offlineProbeTaskCount", config.offlineProbeTaskCount);
+    config.offlineProbeIntervalMs = requireInt(
+        object,
+        "offlineProbeIntervalMs",
+        config.offlineProbeIntervalMs
+    );
     config.runtimeMeterBatchSize = requireInt(object, "runtimeMeterBatchSize", config.runtimeMeterBatchSize);
     config.maxTasksPerMeterPerCycle = requireInt(
         object,

@@ -215,6 +215,20 @@ edge_gateway::PointDefinition lowPriorityPoint(
     return point;
 }
 
+void verifyRegisterBoolAliasDecodesConfiguredBit() {
+    auto point = registerPoint(500003, "register_bool", 56);
+    point.read.function = 4;
+    point.read.dataType = "bool";
+    point.read.bit = 9;
+
+    const auto setBit = edge_gateway::ModbusCodec::decodeReadValue({0x0A00}, point);
+    require(setBit.value == 1.0, "register bool should decode a configured set bit");
+
+    point.read.bit = 10;
+    const auto clearBit = edge_gateway::ModbusCodec::decodeReadValue({0x0A00}, point);
+    require(clearBit.value == 0.0, "register bool should decode a configured clear bit");
+}
+
 edge_gateway::DeviceConfig buildConfig(const std::string& sharedMemoryName) {
     edge_gateway::DeviceConfig config;
     config.machineCode = "GW_TEST";
@@ -1657,10 +1671,132 @@ void verifyNonFiniteFloatDecodeRejected() {
     require(rejected, "non-finite float register values must be rejected");
 }
 
+void verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter() {
+    const std::string storeName = "gateway_collector_offline_probe_interval_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.cycleBackoffEnabled = false;
+        config.collect.offlineFailureThreshold = 3;
+        config.collect.slaveFailureBackoffThreshold = 100;
+        config.collect.taskFailureBackoffMs = 0;
+        config.collect.taskFailureBackoffMaxMs = 0;
+        config.collect.offlineProbeOnly = true;
+        config.collect.offlineProbeTaskCount = 1;
+        config.collect.offlineProbeIntervalMs = 1000;
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->failStart(0);
+        client->failStart(10);
+
+        TestCollector collector(config, store, client);
+        try {
+            (void)collector.collectOnce(4000);
+        } catch (const std::exception&) {
+        }
+        const auto readsAfterFailure = client->readCount(0) + client->readCount(10);
+        require(readsAfterFailure > 0, "meter should be probed initially");
+
+        try {
+            (void)collector.collectOnce(4500);
+        } catch (const std::exception&) {
+        }
+        const auto readsBeforeConfirmedOffline = client->readCount(0) + client->readCount(10);
+        require(
+            readsBeforeConfirmedOffline > readsAfterFailure,
+            "transient failures below the offline threshold must not be throttled"
+        );
+
+        try {
+            (void)collector.collectOnce(5000);
+        } catch (const std::exception&) {
+        }
+        const auto readsAfterConfirmedOffline = client->readCount(0) + client->readCount(10);
+
+        try {
+            (void)collector.collectOnce(5500);
+        } catch (const std::exception&) {
+        }
+        require(
+            client->readCount(0) + client->readCount(10) == readsAfterConfirmedOffline,
+            "offline probe interval should suppress retries only after confirmed offline"
+        );
+
+        try {
+            (void)collector.collectOnce(6000);
+        } catch (const std::exception&) {
+        }
+        require(
+            client->readCount(0) + client->readCount(10) > readsAfterConfirmedOffline,
+            "offline probe should resume after configured interval"
+        );
+    }
+    cleanupStore(storeName);
+}
+
+void verifyOfflineProbeIntervalThrottlesFailedTaskOnly() {
+    const std::string storeName = "gateway_collector_offline_probe_task_interval_test";
+    cleanupStore(storeName);
+    {
+        auto config = buildConfig(storeName);
+        config.collect.offlineFailureThreshold = 3;
+        config.collect.taskFailureBackoffThreshold = 1;
+        config.collect.taskFailureBackoffMs = 0;
+        config.collect.taskFailureBackoffMaxMs = 0;
+        config.collect.offlineProbeOnly = true;
+        config.collect.offlineProbeIntervalMs = 1000;
+
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(0, 123);
+        client->failStart(10);
+
+        TestCollector collector(config, store, client);
+        for (const auto nowMs : {4000, 4500}) {
+            try {
+                (void)collector.collectOnce(nowMs);
+            } catch (const std::exception&) {
+            }
+        }
+        const auto failedTaskReadsBeforeConfirmation = client->readCount(10);
+        require(failedTaskReadsBeforeConfirmation == 2,
+            "failed task should be retried before task offline threshold");
+
+        try {
+            (void)collector.collectOnce(5000);
+        } catch (const std::exception&) {
+        }
+        const auto failedTaskReadsAfterConfirmation = client->readCount(10);
+        require(failedTaskReadsAfterConfirmation == 3,
+            "failed task should be probed at the confirmation boundary");
+
+        try {
+            (void)collector.collectOnce(5500);
+        } catch (const std::exception&) {
+        }
+        require(client->readCount(10) == failedTaskReadsAfterConfirmation,
+            "confirmed failed task should be wall-clock throttled");
+        require(client->readCount(0) > 3,
+            "healthy task must continue while another task is throttled");
+
+        try {
+            (void)collector.collectOnce(6000);
+        } catch (const std::exception&) {
+        }
+        require(client->readCount(10) > failedTaskReadsAfterConfirmation,
+            "failed task probe should resume after interval");
+    }
+    cleanupStore(storeName);
+}
+
 }  // namespace
 
 int main() {
     try {
+        verifyRegisterBoolAliasDecodesConfiguredBit();
+        verifyOfflineProbeIntervalThrottlesConfirmedOfflineMeter();
+        verifyOfflineProbeIntervalThrottlesFailedTaskOnly();
         verifyFastBlockWithSafetyAndSlowCoverage(false);
         verifyFastBlockWithSafetyAndSlowCoverage(true);
         verifySelectedAdjacentTasksShareRead(false);
