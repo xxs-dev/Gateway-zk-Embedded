@@ -62,6 +62,23 @@
           }
         },
         {
+          "index": 310001,
+          "pointCode": "can0_interface_online",
+          "name": "CAN0 接口在线",
+          "category": "status",
+          "enabled": true,
+          "fullUpload": true,
+          "reportOnChange": true,
+          "read": {
+            "enable": true,
+            "dataType": "interface_online",
+            "unit": ""
+          },
+          "write": {
+            "enable": false
+          }
+        },
+        {
           "index": 310101,
           "pointCode": "engine_speed",
           "name": "发动机转速",
@@ -83,7 +100,8 @@
               "bitLength": 16,
               "bitOrder": "lsb0",
               "endian": "little",
-              "receiveTimeoutMs": 5000
+              "receiveTimeoutMs": 5000,
+              "invalidRawValues": ["0xFFFF"]
             }
           },
           "write": {

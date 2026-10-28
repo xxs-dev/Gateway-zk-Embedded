@@ -20,8 +20,11 @@
 
 - C++ 已新增 `CanDriver`、`CanDriverService`、`CanSignalCodec` 和 `can_signal_codec_test`。
 - `protocol.type=can_socketcan` 时，驱动使用 SocketCAN 收发 `can0` 到 `can3`。
-- `read.can` 支持按 `frameId`、标准帧/扩展帧、`byteOffset`、`bitOffset`、`bitLength`、大小端和倍率解析。
-- `write.can` 支持从共享内存 pending write 队列取写命令，并编码为 CAN 帧发送。
+- `read.can` 支持按 `frameId`、标准帧/扩展帧、`byteOffset`、`bitOffset`、`bitLength`、Intel/Motorola 字节序和倍率解析，位置定义见“信号位置定义”。
+- `write.can` 支持从共享内存 pending write 队列取写命令，按发送帧镜像编码并发送（见“写入与帧镜像”）。
+- 加载配置时校验 CAN 点表（帧 ID 写法与范围、数据类型、字节序、位范围、同帧写入定义一致性等），错误定义直接报错并点名，不再在运行时静默停解或解出错值。
+- 维护 `interface_online` 点：读取 SocketCAN 错误帧识别 bus-off / 错误被动，接口 down 或 bus-off 时设备离线、信号点保留旧值并置坏质量。
+- 支持 `read.can.invalidRawValues`、按帧选择 CAN FD 发送（`write.can.fd`）；在线与超时判定使用单调时钟。
 - 顶层 `startupWrites[]` 已支持驱动启动自动写入。`CanDriver` 打开 SocketCAN 后按 `pointCode` 查找可写点，校验写入约束，发送 `write.can` 帧，并发布 `startup-write-succeeded`、`startup-write-failed` 或 `startup-write-skipped` 状态事件。
 - `gateway-services.sh` 已支持按 `deviceConfigFiles[]` 自动启动 `can-driver@device_canX.service`，未配置的 CAN 驱动不会启动。
 - 初始化安装包脚本和工厂包脚本已包含 `CanDriver` 与 `can-driver@.service`。
@@ -230,13 +233,13 @@ CAN 配置文件使用现有设备配置体系：
 | `restartMs` | bus-off 后自动恢复时间，建议 `100` |
 | `listenOnly` | 只监听不发送，联调抓包时可开启 |
 | `loopback` | 本机环回测试，生产默认 `false` |
-| `fdEnabled` | 是否启用 CAN-FD，第一阶段默认 `false` |
+| `fdEnabled` | 接口启用 CAN FD：可接收 FD 帧，并允许 `write.can.fd=true` 的发送帧；默认 `false` |
 | `dataBitrate` | CAN-FD 数据段波特率，`fdEnabled=true` 时生效 |
-| `manageInterface` | 驱动启动时是否自动配置并拉起接口 |
-| `rxQueueSize` | 驱动内部收帧队列上限 |
-| `txQueueSize` | 驱动内部发帧队列上限 |
+| `manageInterface` | 驱动启动时、以及接口 down 或 bus-off 超过 5 秒未自动恢复时，自动配置并拉起接口 |
+| `rxQueueSize` | 仅 `udp_test` 测试传输使用（UDP 接收缓冲）；SocketCAN 使用内核队列 |
+| `txQueueSize` | 仅 `udp_test` 测试传输使用（UDP 发送缓冲）；SocketCAN 使用内核队列 |
 
-第一阶段默认使用经典 CAN，`fdEnabled=false`。
+默认使用经典 CAN，`fdEnabled=false`。`fdEnabled=true` 只决定接口能力，每个发送帧是否以 FD 发出由该帧的 `write.can.fd` 决定（默认经典帧）。
 
 ### `collect`
 
@@ -256,7 +259,8 @@ CAN 配置文件使用现有设备配置体系：
 | --- | --- |
 | `defaultIntervalMs` | 主循环默认休眠时间，CAN 收帧主要由 socket 触发 |
 | `writebackIntervalMs` | 扫描 pending write 队列的周期 |
-| `interfaceCheckIntervalMs` | 检查接口 up/down、bus-off 状态的周期 |
+| `interfaceCheckIntervalMs` | 检查接口 up/down、载波（bus-off 时内核会关闭载波）的周期；bus-off 另由错误帧即时识别 |
+| `receiveWaitMs` | 单次等待收帧的最长时间 |
 | `batchOptimize` | 保留字段，CAN 不做寄存器连续合并，固定 `false` |
 | `maxBatchRegisters` | 保留字段，CAN 固定 `1` |
 
@@ -359,10 +363,9 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
       "byteOffset": 0,
       "bitOffset": 0,
       "bitLength": 16,
-      "bitOrder": "lsb0",
       "endian": "little",
       "receiveTimeoutMs": 5000,
-      "invalidRawValues": []
+      "invalidRawValues": ["0xFFFF"]
     },
     "cachePolicy": {
       "storeLatest": true,
@@ -404,25 +407,21 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
     "scale": 1,
     "offset": 0,
     "byteOrder": "AB",
-    "minValue": 0,
-    "maxValue": 1,
+    "min": 0,
+    "max": 1,
     "step": 1,
     "allowedValues": [0, 1],
     "verifyAfterWrite": false,
     "can": {
-      "mode": "signal",
       "frameId": "0x321",
       "extended": false,
       "dlc": 8,
+      "fd": false,
       "payloadTemplate": "0000000000000000",
-      "mergePolicy": "template",
       "byteOffset": 0,
       "bitOffset": 0,
       "bitLength": 1,
-      "bitOrder": "lsb0",
-      "endian": "little",
-      "sendRepeat": 1,
-      "sendIntervalMs": 0
+      "endian": "little"
     }
   },
   "alarms": [],
@@ -470,61 +469,84 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
 
 - 启动写入只用于上传周期、状态订阅、采集开关等不会触发现场动作的参数。
 - 消防阀门控制、复位、PCS 功率下发等真实动作点不得默认加入 `startupWrites`。
-- 多字节告警策略类参数在没有整帧编辑器前，不建议拆成单字段自动写入，避免写一个字段时清零同帧其它参数。
+- 启动写入同样经过发送帧镜像（见“写入与帧镜像”），不会清零同帧其他信号；但驱动刚启动时镜像来自 `payloadTemplate`，同帧其他信号此时取模板值。
 
 ### `read.can` 字段
 
 | 字段 | 说明 |
 | --- | --- |
-| `frameId` | CAN 帧 ID，支持 `"0x123"` 或 `"0x18FF50E5"` |
-| `extended` | 是否扩展帧，`false` 表示 11 位标准帧，`true` 表示 29 位扩展帧 |
-| `dlc` | 期望数据长度，经典 CAN 为 `0` 到 `8` |
-| `byteOffset` | 信号起始字节，`0` 起始 |
-| `bitOffset` | 信号起始 bit，`0` 起始 |
-| `bitLength` | 信号 bit 长度，建议 `1` 到 `64` |
-| `bitOrder` | bit 编号方式，第一阶段固定 `lsb0` |
-| `endian` | 字节序，支持 `little`、`big` |
-| `receiveTimeoutMs` | 超过该时间未收到对应帧，点位置 stale |
-| `invalidRawValues` | 原始值黑名单，例如设备用 `0xFFFF` 表示无效 |
+| `frameId` | CAN 帧 ID，必须写成 `0x` 开头的十六进制，例如 `"0x123"`、`"0x18FF50E5"`；不带 `0x`（如 `"18FF50E5"`、`"123"`）加载时报错 |
+| `extended` | 是否扩展帧，`false` 表示 11 位标准帧（ID 最大 `0x7FF`，超出加载报错），`true` 表示 29 位扩展帧（最大 `0x1FFFFFFF`） |
+| `dlc` | 期望数据长度，仅用于提示：信号超出 `dlc` 时加载给出警告；实际以收到的帧长度为准，帧比信号短时该信号置坏质量 |
+| `byteOffset` / `bitOffset` | 信号位置，含义随 `endian` 不同，见“信号位置定义” |
+| `bitLength` | 信号位数 `1` 到 `64`；不填时按数据类型取默认（`bool`=1、8/16/32/64 位整数、`float32`=32） |
+| `endian` | 只接受 `little`（Intel）或 `big`（Motorola），其他写法（`motorola`、`BE`、`Big` 等）加载报错 |
+| `bitOrder` | 可省略；若填写只能为 `lsb0`（历史生成器写入的固定值），其他值加载报错。位置完全由 `endian` 决定 |
+| `receiveTimeoutMs` | 超过该时间（单调时钟）未收到对应帧，点位保留旧值并置坏质量；`0` 表示不检查 |
+| `invalidRawValues` | 表示“无效/不可用”的原始值（缩放前、无符号位型），整数或 `"0x..."` 字符串，例如 J1939 的 `"0xFFFF"`；收到该值时信号保留旧值、置坏质量、不写历史库。值超出信号位宽时加载报错 |
+
+### 信号位置定义
+
+只有一种定义，按 DBC：Intel 信号的起始位是最低位（LSB），Motorola 信号的起始位是最高位（MSB）。`bitOffset=0` 且长度为 8 的倍数时，两种字节序都是字节对齐的信号。
+
+| `endian` | `byteOffset` | `bitOffset` | 由 DBC 起始位 S 换算 |
+| --- | --- | --- | --- |
+| `little`（Intel，`@1`） | LSB 所在字节 | LSB 在该字节内的位号，从字节最低位（0x01）起数 | `byteOffset = S / 8`，`bitOffset = S % 8` |
+| `big`（Motorola，`@0`） | MSB 所在字节 | MSB 距该字节最高位（0x80）的位数，`0` 表示 bit7 | `byteOffset = S / 8`，`bitOffset = 7 - S % 8` |
+
+Intel 信号从 LSB 起向高位、再向后一字节的 bit0 延伸；Motorola 信号从 MSB 起向低位、再向后一字节的 bit7 延伸。
+
+示例（与 cantools 对照的测试向量见 `tools/can_signal_layout_test.cpp`，报文 `A5 3C 96 0F 81 7E C3 5A`）：
+
+| DBC 定义 | 配置 | 解码值 |
+| --- | --- | --- |
+| `3\|12@0+` | `endian=big, byteOffset=0, bitOffset=4, bitLength=12` | `0x53C`（byte0 低 4 位 `5` + byte1 `3C`） |
+| `3\|4@0+` | `endian=big, byteOffset=0, bitOffset=4, bitLength=4` | `0x5`（byte0 低半字节） |
+| `7\|16@0+` | `endian=big, byteOffset=0, bitOffset=0, bitLength=16` | `0xA53C`（字节对齐大端） |
+| `21\|10@0-` | `endian=big, byteOffset=2, bitOffset=2, bitLength=10, dataType=int16` | `0x160` |
+| `4\|12@1+` | `endian=little, byteOffset=0, bitOffset=4, bitLength=12` | `0x3CA` |
+
+COMM202600103 正华探测器的浓度点（`endian=big, bitOffset=0, bitLength=16`）按此定义仍是字节对齐大端，结果不变。
 
 ### `write.can` 字段
 
 | 字段 | 说明 |
 | --- | --- |
-| `mode` | 写入模式，第一阶段支持 `signal`，后续扩展 `raw_frame` |
-| `frameId` | 发送帧 ID |
-| `extended` | 是否扩展帧 |
-| `dlc` | 发送数据长度 |
-| `payloadTemplate` | 发送帧基础数据，十六进制字符串 |
-| `mergePolicy` | 位域合并策略，支持 `template`、`latestFrame` |
-| `byteOffset` | 写入信号起始字节 |
-| `bitOffset` | 写入信号起始 bit |
-| `bitLength` | 写入信号 bit 长度 |
-| `bitOrder` | bit 编号方式，第一阶段固定 `lsb0` |
-| `endian` | 字节序 |
-| `sendRepeat` | 每次写入重复发送次数 |
-| `sendIntervalMs` | 重复发送间隔 |
+| `frameId` / `extended` | 发送帧 ID 与帧类型，规则同 `read.can` |
+| `dlc` | 发送数据长度：经典帧 `0` 到 `8`；FD 帧 `0`-`8`、`12`、`16`、`20`、`24`、`32`、`48`、`64` |
+| `fd` | 该帧以 CAN FD 发送，需 `protocol.can.fdEnabled=true`；默认 `false`（经典帧） |
+| `remoteRequest` | 发送远程帧（仅经典帧） |
+| `payloadTemplate` | 发送帧初始内容，正好 `dlc` 字节的十六进制、不带分隔符，例如 `"0000000000000000"`；不填为全 0 |
+| `byteOffset` / `bitOffset` / `bitLength` / `endian` | 信号位置，规则同 `read.can` |
 
-`mergePolicy` 说明：
+写入值按 `write.dataType` 编码：整数类型先 `round((value - offset) / scale)`，超出位宽（无符号负数、有符号越界）直接拒绝，不截断；`read.signed=true` 的 `uintN` 信号按补码写入；非有限值拒绝。
 
-| 策略 | 行为 |
-| --- | --- |
-| `template` | 使用 `payloadTemplate` 作为基础帧，只替换当前信号对应 bit，推荐第一阶段默认使用 |
-| `latestFrame` | 使用最近一次收到的同 ID 帧作为基础帧，再替换当前信号；如果没有缓存帧，则回退到 `payloadTemplate` |
+### 写入与帧镜像
+
+- 每个发送帧（`frameId` + `extended`）在驱动内维护一份“最后发送的载荷”镜像，初值为 `payloadTemplate`（不填为全 0）。写某个信号时只改它自己的位，再整帧发送，同帧其他信号保持最后一次下发的值。
+- 同一批待写命令中，连续写同一帧不同信号的命令合并成一帧发送；同一信号在一批里出现两次（例如脉冲 1→0）时按顺序分两帧发出，不会被合并吞掉。
+- 共用一个发送帧的所有写点必须一致：`dlc`、`fd`、`remoteRequest` 相同，非空的 `payloadTemplate` 相同，否则加载报错。写信号位重叠时加载给出警告。
+- 镜像不跨进程保存：驱动重启后回到 `payloadTemplate`。
+- 脉冲型命令位（启动、复位、清故障）在镜像里保持最后写入的值，之后写同帧其他信号时会随整帧再次发出；这类位写 `1` 后应再写 `0`，或单独占一帧。
+- 写入成功只表示帧已进入内核发送队列（`write()` 成功），CAN 没有接收方确认；需要确认结果时应由设备的状态反馈点判断。CAN 写点不支持 `verifyAfterWrite`（配置了会给出警告并忽略）。
+- 原 `mode`、`mergePolicy`、`sendRepeat`、`sendIntervalMs`、`protocol.can.preserveFrameSignals` 均未实现/已删除，不要再配置。
 
 ## 数据类型
 
-第一阶段建议支持以下 `read.dataType` / `write.dataType`：
+`read.dataType` / `write.dataType` 只接受下列名称，其他名称（如 `int`、`double`、`float`、`short`）加载报错：
 
 | 类型 | 说明 |
 | --- | --- |
-| `bool` | 1 bit 开关量 |
+| `bool` | 开关量，原始值非 0 为 1 |
 | `uint8` / `int8` | 8 位整数 |
 | `uint16` / `int16` | 16 位整数 |
 | `uint32` / `int32` | 32 位整数 |
-| `float32` | IEEE754 单精度浮点 |
-| `device_online` | 设备在线状态 |
-| `interface_online` | CAN 接口在线状态 |
+| `uint64` / `int64` | 64 位整数 |
+| `float32` | IEEE754 单精度浮点，`bitLength` 必须为 32 |
+| `device_online` | 设备在线状态（只读） |
+| `interface_online` | CAN 接口在线状态（只读） |
+
+`intN` 按补码符号扩展；`uintN` 配 `read.signed=true` 时也按补码解释。
 
 解码公式：
 
@@ -538,15 +560,22 @@ value = raw * scale + offset
 raw = round((value - offset) / scale)
 ```
 
+## 接收与解码失败
+
+- 每个信号独立解码：某个信号出错（帧比信号短、配置错误、浮点非有限值、命中 `invalidRawValues`）只影响该信号，同帧其他信号照常更新。
+- 出错的信号保留旧值、置坏质量（`quality=0`，`qualityMsg` 为原因），`isStore=false`，不写历史库，不会被写成 0。没有旧值时发布值 0 + 坏质量。
+- 解码错误按点限频写日志（每点每分钟一条，附带被抑制的条数）。
+- 其他驱动持有优先控制租约时，CAN 接收不暂停（接收不占用共享总线，消防探测器等告警必须持续更新）；历史库刷盘仍让路。
+
 ## 在线状态点
 
 CAN 需要两类在线状态。
 
 ### 接口在线
 
-接口在线点表示 `canX` 是否可用。
+接口在线点表示 `canX` 是否可用。驱动按 `read.dataType=interface_online` 识别该点（index 和 `pointCode` 任意），放在任一逻辑设备下即可。
 
-建议每个 CAN 配置自动生成一个接口在线点：
+建议每个 CAN 配置生成一个接口在线点：
 
 ```json
 {
@@ -584,8 +613,14 @@ CAN 需要两类在线状态。
 
 判定规则：
 
-- `canX` 已 up 且未 bus-off：值为 `1`。
-- 接口 down、bus-off、socket 打开失败：值为 `0`。
+- `canX` 已 up、有载波且未 bus-off，socket 正常：值为 `1`。
+- 接口 down、无载波、bus-off、socket 打开失败：值为 `0`。
+- bus-off 由 SocketCAN 错误帧（`CAN_RAW_ERR_FILTER` 订阅 `CAN_ERR_BUSOFF`、`CAN_ERR_CRTL`、`CAN_ERR_RESTARTED`）即时识别，另外每 `interfaceCheckIntervalMs` 检查接口标志 `IFF_UP` / `IFF_RUNNING`。控制器重启（`restartMs` 自动恢复或人工 `ip link set canX type can restart`）、链路重新 up 或重新收到数据帧后恢复为 `1`。
+- 无载波超过 5 秒（例如 `restartMs=0` 时的 bus-off）且 `manageInterface=true` 时，驱动重新配置并拉起接口。
+- 接口离线时：所有逻辑设备 `device_online=0`，所有信号点保留旧值、置坏质量（`qualityMsg` 为 `CAN interface offline: <原因>`），不写历史库；接口恢复后，设备要重新收到帧才回到在线。
+- 错误被动（error-passive）仍可收发，只发布状态事件 `bus-error-passive` / `bus-error-active`，不改变在线状态。
+- 状态事件：`interface-online`、`interface-offline`（带 `reason`）、`bus-off`、`bus-restarted`。
+- 在线、接收超时、接口检查都按单调时钟计时，系统时间回拨或前跳不会冻结或误判。
 
 ### 设备在线
 
@@ -631,9 +666,9 @@ CAN 需要两类在线状态。
 
 判定规则：
 
-- 该设备 `onlineFrameIds[]` 中任意帧在 `onlineTimeoutMs` 内出现，值为 `1`。
-- 超过 `onlineTimeoutMs` 未出现，值为 `0`。
-- 如果 `onlineFrameIds[]` 为空，则使用该设备所有读点位涉及的 `frameId` 作为在线帧集合。
+- 该设备 `onlineFrameIds[]` 中任意帧（不区分标准帧/扩展帧），或该设备任一读点位的帧，在 `onlineTimeoutMs` 内出现，值为 `1`。
+- 超过 `onlineTimeoutMs` 未出现，或接口离线，值为 `0`。
+- `onlineFrameIds[]` 中的 ID 必须写成 `0x` 开头的十六进制，否则加载报错。
 
 ## index 规划
 
@@ -771,10 +806,9 @@ Java 端必须校验 index 全局唯一，并避免和 Modbus、DLT645、DI/DO�
               "byteOffset": 0,
               "bitOffset": 0,
               "bitLength": 16,
-              "bitOrder": "lsb0",
               "endian": "little",
               "receiveTimeoutMs": 5000,
-              "invalidRawValues": []
+              "invalidRawValues": ["0xFFFF"]
             },
             "cachePolicy": {
               "storeLatest": true,
@@ -817,25 +851,21 @@ Java 端必须校验 index 全局唯一，并避免和 Modbus、DLT645、DI/DO�
             "scale": 1,
             "offset": 0,
             "byteOrder": "AB",
-            "minValue": 0,
-            "maxValue": 1,
+            "min": 0,
+            "max": 1,
             "step": 1,
             "allowedValues": [0, 1],
             "verifyAfterWrite": false,
             "can": {
-              "mode": "signal",
               "frameId": "0x321",
               "extended": false,
               "dlc": 8,
+              "fd": false,
               "payloadTemplate": "0000000000000000",
-              "mergePolicy": "template",
               "byteOffset": 0,
               "bitOffset": 0,
               "bitLength": 1,
-              "bitOrder": "lsb0",
-              "endian": "little",
-              "sendRepeat": 1,
-              "sendIntervalMs": 0
+              "endian": "little"
             }
           },
           "alarms": [],
@@ -905,7 +935,7 @@ CAN 接口配置字段：
 | 自动恢复 | `protocol.can.restartMs` | 默认 `100` |
 | 只监听 | `protocol.can.listenOnly` | 抓包时使用 |
 | 环回 | `protocol.can.loopback` | 本机测试使用 |
-| CAN-FD | `protocol.can.fdEnabled` | 第一阶段默认关闭 |
+| CAN-FD | `protocol.can.fdEnabled` | 默认关闭；开启后每个发送帧仍按 `write.can.fd` 决定是否以 FD 发出 |
 | 数据段波特率 | `protocol.can.dataBitrate` | CAN-FD 开启时显示 |
 
 校验规则：
@@ -960,17 +990,22 @@ CAN 接口配置字段：
 | 变位上传 | `reportOnChange` |
 | 可写 | `write.enable` |
 | 写入模板 | `write.can.payloadTemplate` |
-| 合并策略 | `write.can.mergePolicy` |
+| FD 帧 | `write.can.fd` |
 
 交互规则：
 
 - `category=online` 时锁定 CAN 信号列。
-- `write.enable=false` 时隐藏或禁用写入模板、合并策略。
+- `write.enable=false` 时隐藏或禁用写入模板、FD 帧。
 - `dataType=bool` 时默认 `bitLength=1`。
 - `float32` 默认 `bitLength=32`。
+- `frameId` 一律生成 `0x` 开头的十六进制。
 - 标准帧 `frameId` 最大 `0x7FF`。
 - 扩展帧 `frameId` 最大 `0x1FFFFFFF`。
-- `byteOffset + bitLength` 不得超过 `dlc * 8`。
+- `byteOffset * 8 + bitOffset + bitLength` 不得超过 `dlc * 8`。
+- 从 DBC 导入大端（Motorola）信号时按“信号位置定义”换算 `bitOffset = 7 - 起始位 % 8`。
+- 同一发送帧的写点 `dlc`、FD、模板必须一致。
+
+边端在加载时对以上规则做同样校验，不符合的配置直接拒绝启动并点名测点。
 
 ### Excel 导入导出
 
@@ -999,7 +1034,7 @@ fullUpload
 reportOnChange
 writeEnable
 payloadTemplate
-mergePolicy
+fd
 onlineFrame
 receiveTimeoutMs
 ```
@@ -1039,9 +1074,10 @@ Java 生成 CAN 配置时：
 - 按 `frameId + extended` 做帧过滤。
 - 按 `read.can` 解码 bit 位并写共享内存。
 - 按设备 `onlineFrameIds[]` 维护 `device_online`。
-- 按接口状态维护 `interface_online`。
-- 扫描 pending write，按 `write.can` 编码并发送帧。
-- bus-off 或接口 down 时发布状态事件，并把接口在线点置 `0`。
+- 按接口状态和错误帧维护 `interface_online`。
+- 扫描 pending write，按 `write.can` 编码进发送帧镜像并发送。
+- bus-off 或接口 down 时发布状态事件，接口在线点置 `0`，设备离线，信号点保留旧值并置坏质量。
+- `fdEnabled=true` 时接收 CAN FD 帧，`write.can.fd=true` 的帧以 CAN FD 发送。
 
 第一阶段不实现：
 
@@ -1049,7 +1085,7 @@ Java 生成 CAN 配置时：
 - J1939 PGN / SPN 自动解析。
 - DBC 文件解析。
 - 多包传输协议。
-- CAN-FD 真实收发，配置字段先保留。
+- 写入回读确认（`verifyAfterWrite`）。
 
 ## systemd 模板
 
@@ -1144,7 +1180,6 @@ Java 验收：
 - DBC 文件导入，自动生成 `read.can` 信号。
 - J1939 PGN / SPN 模板。
 - CANopen SDO / PDO。
-- CAN-FD 真实收发。
 - 原始 CAN 帧透传诊断命令。
 - CAN 总线负载率统计。
 - bus-off 自动恢复计数和平台告警。
