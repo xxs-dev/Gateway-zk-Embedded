@@ -1855,6 +1855,10 @@ struct CommandResult {
     // the device may have executed it. Reported as neither success nor a plain failure; callers
     // must not retry with a new command id.
     bool outcomeUnknown = false;
+    // The device accepted/executed the request but the read-back or feedback (register read-back,
+    // breaker position, DI auxiliary contact) shows another value. Not a definite failure: the
+    // device may have acted. Never retried automatically. success is false.
+    bool feedbackMismatch = false;
 };
 
 struct CommandExecutionException {
