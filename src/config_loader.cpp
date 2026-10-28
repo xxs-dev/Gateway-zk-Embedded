@@ -580,6 +580,11 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
             spec.dlt645.fixedDataHex
         );
         spec.dlt645.verifyPointCode = requireString(dlt645Object, "verifyPointCode", spec.dlt645.verifyPointCode);
+        {
+            const auto verifyIndex = requireInt(dlt645Object, "verifyIndex", 0);
+            if (verifyIndex < 0) throw std::invalid_argument("write.dlt645.verifyIndex must be a point index");
+            spec.dlt645.verifyIndex = static_cast<std::uint32_t>(verifyIndex);
+        }
         if (const auto* verifyValue = dlt645->find("verifyValue")) {
             if (!verifyValue->isNull()) spec.dlt645.verifyValue = verifyValue->asNumber();
         }
@@ -944,6 +949,11 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     device.onlineTimeoutExplicit = value.find("onlineTimeoutMs") != nullptr;
     device.onlineTimeoutMs = requireInt(object, "onlineTimeoutMs", device.onlineTimeoutMs);
     device.onlineFrameIds = parseStringArray(value.find("onlineFrameIds"));
+    {
+        const auto positionIndex = requireInt(object, "positionReadBackIndex", 0);
+        if (positionIndex < 0) throw std::invalid_argument("meters[].positionReadBackIndex must be a point index");
+        device.positionReadBackIndex = static_cast<std::uint32_t>(positionIndex);
+    }
     if (const auto* points = value.find("points")) {
         device.points.reserve(points->asArray().values.size());
         for (const auto& item : points->asArray().values) {
@@ -4369,7 +4379,9 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
 
         result.push_back(std::move(point));
     }
-    validateDlt645PointList(result, "DLT645 standard points");
+    // The read-back target of trip/close points is per meter (meters[].positionReadBackIndex), so the
+    // template itself is checked without it; the expanded meters are checked when the driver starts.
+    validateDlt645PointList(result, "DLT645 standard points", true);
     return result;
 }
 

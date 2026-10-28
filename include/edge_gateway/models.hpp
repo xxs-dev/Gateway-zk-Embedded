@@ -63,10 +63,14 @@ struct Dlt645WriteSpec {
     int byteCount = 0;
     int unit = 2;
     std::string fixedDataHex;
-    // Read-back confirmation (requires write.verifyAfterWrite && write.verifyByRead): pointCode of a
-    // readable point of the same meter and the value it must show once the command took effect
-    // (unset: the written value). Polled for verifyTimeoutMs after the 94H acknowledgement.
+    // Read-back confirmation (requires write.verifyAfterWrite && write.verifyByRead), exactly one of:
+    //  - verifyPointCode: a readable DL/T 645 point of the same meter, read from the meter;
+    //  - verifyIndex: a point of another device on this gateway (e.g. a DIO auxiliary contact),
+    //    read from the shared point store; only values collected after the command count.
+    // verifyValue: the value it must show once the command took effect (unset: the written value;
+    // required for verifyIndex and for trip/close). Polled for verifyTimeoutMs after 94H.
     std::string verifyPointCode;
+    std::uint32_t verifyIndex = 0;
     Optional<double> verifyValue;
     int verifyTimeoutMs = 3000;
 };
@@ -612,6 +616,10 @@ struct LogicalDeviceConfig {
     bool onlineTimeoutExplicit = false;
     std::vector<std::string> onlineFrameIds;
     std::vector<PointDefinition> points;
+    // DL/T 645: gateway index of this meter's position point on another device (e.g. the DIO
+    // auxiliary contact of a breaker whose firmware has no position DI). Applied as
+    // write.dlt645.verifyIndex to this meter's trip/close points that have no read-back target.
+    std::uint32_t positionReadBackIndex = 0;
 };
 
 struct CollectConfig {

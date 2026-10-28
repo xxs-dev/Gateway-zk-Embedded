@@ -339,7 +339,7 @@ void verifyNorthboundConfig() {
 }
 
 void verifyDlt645WriteConfig() {
-    // Generated per run: no meter password in test data; a factory default (P0P1P2=000000) is refused.
+    // Generated per run (any 8-hex-digit code is accepted, including the vendor level-0 code 00000000).
     std::string password = "02";
     for (int i = 0; i < 6; ++i) password.push_back(static_cast<char>('1' + (std::rand() % 9)));
     const auto config = edge_gateway::ConfigLoader::loadFromText(

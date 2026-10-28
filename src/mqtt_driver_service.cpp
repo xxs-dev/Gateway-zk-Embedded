@@ -1,4 +1,5 @@
 #include "edge_gateway/mqtt_driver_service.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/ems_control_mode.hpp"
 
 #include <algorithm>
@@ -801,14 +802,18 @@ bool isRealtimeStartAction(const std::string& action) {
            normalized == "renew";
 }
 
-std::vector<PointDefinition> effectiveMeterPoints(const DeviceConfig& config, const LogicalDeviceConfig& device) {
-    if (!device.points.empty()) {
+std::vector<PointDefinition> effectiveMeterPoints(
+    const DeviceConfig& config,
+    const LogicalDeviceConfig& device,
+    std::size_t meterIndex
+) {
+    if (config.protocol.type != "dlt645_2007") {
         return device.points;
     }
-    if (config.protocol.type != "dlt645_2007" || config.protocol.standardPointsFile.empty()) {
-        return {};
-    }
-    return ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile);
+    const auto standardPoints = device.points.empty() && !config.protocol.standardPointsFile.empty()
+        ? ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile)
+        : std::vector<PointDefinition>();
+    return expandDlt645MeterPoints(device, meterIndex, standardPoints);
 }
 
 std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<DeviceConfig>& deviceConfigs) {
@@ -817,13 +822,7 @@ std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<
         if (!config.meters.empty()) {
             std::size_t meterIndex = 0;
             for (const auto& device : config.meters) {
-                auto points = effectiveMeterPoints(config, device);
-                if (config.protocol.type == "dlt645_2007" && device.points.empty()) {
-                    const std::uint32_t indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
-                    for (std::size_t i = 0; i < points.size(); ++i) {
-                        points[i].index = indexBase + static_cast<std::uint32_t>(i);
-                    }
-                }
+                auto points = effectiveMeterPoints(config, device, meterIndex);
                 for (const auto& point : points) {
                     if (point.fullUpload) {
                         indexes.push_back(point.index);

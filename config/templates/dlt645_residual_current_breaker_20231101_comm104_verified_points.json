@@ -1,7 +1,7 @@
 {
   "protocol": "dlt645_2007",
   "profile": "residual_current_breaker_20231101_comm104_verified",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "source": "低压智能剩余电流断路器通讯协议-20231101；COMM202600104现场读取验证及协议控制命令",
   "pointCount": 51,
   "points": [
@@ -219,21 +219,24 @@
       "fullUpload": false,
       "reportOnChange": false,
       "enabledByDefault": false,
-      "desc": "DI=06010101；默认关闭。本固件不支持闸位 DI 07020100，启用前必须配置闸位读回点 (write.verifyAfterWrite/verifyByRead + write.dlt645.verifyPointCode/verifyValue)，否则加载报错",
+      "desc": "DI=06010101；默认关闭。本固件不支持闸位 DI 07020100，闸位读回取该表 meters[].positionReadBackIndex 指向的 DIO 辅助触点（期望 0）；未配置 positionReadBackIndex 的表启用此点时驱动拒绝启动",
       "write": {
         "enable": false,
         "dataType": "dlt645_scheduled_control",
         "min": 0,
         "max": 99,
         "step": 1,
-        "verifyAfterWrite": false,
-        "verifyByRead": false,
+        "verifyAfterWrite": true,
+        "verifyByRead": true,
         "dlt645": {
           "di": "06010101",
           "dataType": "dlt645_scheduled_control",
           "byteCount": 2,
-          "unit": 2
-        }
+          "unit": 2,
+          "verifyValue": 0,
+          "verifyTimeoutMs": 5000
+        },
+        "verifyDelayMs": 200
       }
     },
     {
@@ -288,21 +291,24 @@
       "fullUpload": false,
       "reportOnChange": false,
       "enabledByDefault": false,
-      "desc": "DI=06010201；默认关闭。本固件不支持闸位 DI 07020100，启用前必须配置闸位读回点 (write.verifyAfterWrite/verifyByRead + write.dlt645.verifyPointCode/verifyValue)，否则加载报错",
+      "desc": "DI=06010201；默认关闭。本固件不支持闸位 DI 07020100，闸位读回取该表 meters[].positionReadBackIndex 指向的 DIO 辅助触点（期望 1）；未配置 positionReadBackIndex 的表启用此点时驱动拒绝启动",
       "write": {
         "enable": false,
         "dataType": "dlt645_scheduled_control",
         "min": 0,
         "max": 99,
         "step": 1,
-        "verifyAfterWrite": false,
-        "verifyByRead": false,
+        "verifyAfterWrite": true,
+        "verifyByRead": true,
         "dlt645": {
           "di": "06010201",
           "dataType": "dlt645_scheduled_control",
           "byteCount": 2,
-          "unit": 2
-        }
+          "unit": 2,
+          "verifyValue": 1,
+          "verifyTimeoutMs": 5000
+        },
+        "verifyDelayMs": 200
       }
     },
     {
@@ -357,21 +363,24 @@
       "fullUpload": false,
       "reportOnChange": false,
       "enabledByDefault": false,
-      "desc": "DI=06010301；默认关闭。本固件不支持闸位 DI 07020100，启用前必须配置闸位读回点 (write.verifyAfterWrite/verifyByRead + write.dlt645.verifyPointCode/verifyValue)，否则加载报错",
+      "desc": "DI=06010301；默认关闭。本固件不支持闸位 DI 07020100，闸位读回取该表 meters[].positionReadBackIndex 指向的 DIO 辅助触点（期望 0）；未配置 positionReadBackIndex 的表启用此点时驱动拒绝启动",
       "write": {
         "enable": false,
         "dataType": "dlt645_scheduled_control",
         "min": 0,
         "max": 99,
         "step": 1,
-        "verifyAfterWrite": false,
-        "verifyByRead": false,
+        "verifyAfterWrite": true,
+        "verifyByRead": true,
         "dlt645": {
           "di": "06010301",
           "dataType": "dlt645_scheduled_control",
           "byteCount": 2,
-          "unit": 2
-        }
+          "unit": 2,
+          "verifyValue": 0,
+          "verifyTimeoutMs": 5000
+        },
+        "verifyDelayMs": 200
       }
     },
     {

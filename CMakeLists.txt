@@ -552,6 +552,7 @@ if(BUILD_TESTING)
     add_test(NAME can_signal_layout COMMAND can_signal_layout_test ${CMAKE_SOURCE_DIR})
     add_test(NAME can_driver_runtime COMMAND can_driver_runtime_test)
     add_test(NAME dio_driver_review COMMAND dio_driver_review_test)
+endif()
 # driver-review: nb-mqtt
 if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING
    AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

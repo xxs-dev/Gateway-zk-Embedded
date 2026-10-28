@@ -45,27 +45,29 @@ CommandResult Dlt645CommandExecutor::executeByIndex(
         result.pointCode = point.pointCode;
         validateWrite(point, value);
         const auto payload = Dlt645Codec::encodeWritePayload(value, point.write);
-        const auto* readBack = readBackPoint(point);
-        const auto expected = readBack != nullptr && point.write.dlt645.verifyValue
+        const bool readBack = hasReadBack(point);
+        const auto label = readBack ? readBackLabel(point) : std::string();
+        const auto expected = readBack && point.write.dlt645.verifyValue
             ? *point.write.dlt645.verifyValue
             : value;
-        if (readBack != nullptr) {
+        if (readBack) {
             double current = 0.0;
             try {
-                current = readValue(*readBack);
+                current = readBackValue(point, 0).value;
             } catch (const std::exception& ex) {
                 throw std::runtime_error(
-                    "DLT645 pre-check failed, command not sent: cannot read " + readBack->pointCode + ": " + ex.what()
+                    "DLT645 pre-check failed, command not sent: cannot read " + label + ": " + ex.what()
                 );
             }
             if (std::abs(current - expected) <= 1e-6) {
                 result.success = true;
                 result.verifyAttempted = true;
                 result.verifyPassed = true;
-                result.message = "ok; " + readBack->pointCode + " already shows the target value, DLT645 command not sent";
+                result.message = "ok; " + label + " already shows the target value, DLT645 command not sent";
                 return result;
             }
         }
+        const auto sentAtMs = wallNowMs();
         client_->writeData(
             config_.address,
             point.write.dlt645.di,
@@ -73,18 +75,18 @@ CommandResult Dlt645CommandExecutor::executeByIndex(
             config_.protocol.dlt645.write.operatorCode,
             payload
         );
-        if (readBack == nullptr) {
+        if (!readBack) {
             result.success = true;
             result.message = "ok; DLT645 command accepted, physical state not verified";
             return result;
         }
         if (isDlt645SwitchingControl(point.write) && value > 0.0) {
             result.success = true;
-            result.message = "ok; DLT645 delayed command accepted, " + readBack->pointCode +
+            result.message = "ok; DLT645 delayed command accepted, " + label +
                 " changes after the delay and is not verified";
             return result;
         }
-        confirmByReadBack(point, *readBack, expected, result);
+        confirmByReadBack(point, label, expected, sentAtMs, result);
     } catch (const Dlt645OutcomeUnknownError& ex) {
         result.success = false;
         result.outcomeUnknown = true;
@@ -96,15 +98,28 @@ CommandResult Dlt645CommandExecutor::executeByIndex(
     return result;
 }
 
-const PointDefinition* Dlt645CommandExecutor::readBackPoint(const PointDefinition& point) const {
+std::int64_t Dlt645CommandExecutor::wallNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+bool Dlt645CommandExecutor::hasReadBack(const PointDefinition& point) {
     // Trip/close points cannot load without a read-back (validateDlt645PointList).
-    if (!point.write.verifyAfterWrite || !point.write.verifyByRead) {
-        return nullptr;
+    return point.write.verifyAfterWrite && point.write.verifyByRead;
+}
+
+std::string Dlt645CommandExecutor::readBackLabel(const PointDefinition& point) {
+    if (point.write.dlt645.verifyIndex != 0) {
+        return "index " + std::to_string(point.write.dlt645.verifyIndex);
     }
+    return point.write.dlt645.verifyPointCode;
+}
+
+const PointDefinition& Dlt645CommandExecutor::localReadBackPoint(const PointDefinition& point) const {
     for (const auto& candidate : config_.points) {
         if (candidate.pointCode == point.write.dlt645.verifyPointCode && candidate.enabled &&
             candidate.read.enable && !candidate.read.dlt645Di.empty()) {
-            return &candidate;
+            return candidate;
         }
     }
     throw std::invalid_argument(
@@ -112,15 +127,40 @@ const PointDefinition* Dlt645CommandExecutor::readBackPoint(const PointDefinitio
     );
 }
 
-double Dlt645CommandExecutor::readValue(const PointDefinition& point) const {
-    const auto data = client_->readData(config_.address, point.read.dlt645Di);
-    return Dlt645Codec::decodePayload(data, point).value;
+Dlt645CommandExecutor::ReadBackSample Dlt645CommandExecutor::readBackValue(
+    const PointDefinition& point,
+    std::int64_t notBeforeMs
+) const {
+    ReadBackSample sample;
+    const auto storeIndex = point.write.dlt645.verifyIndex;
+    if (storeIndex == 0) {
+        // Same meter: read the DI from the meter itself.
+        const auto& readBack = localReadBackPoint(point);
+        const auto data = client_->readData(config_.address, readBack.read.dlt645Di);
+        sample.value = Dlt645Codec::decodePayload(data, readBack).value;
+        sample.fresh = true;
+        return sample;
+    }
+    // Another device on this gateway (e.g. a DIO auxiliary contact): its collector publishes the
+    // value to the shared point store. Only a good, non-stale value counts.
+    const auto stored = store_.getLatestByIndex(storeIndex, wallNowMs());
+    if (!stored) {
+        throw std::runtime_error("point index " + std::to_string(storeIndex) + " has no value in the point store");
+    }
+    if (stored->stale || stored->quality != 1) {
+        throw std::runtime_error("point index " + std::to_string(storeIndex) + " is stale or bad quality");
+    }
+    sample.value = stored->value;
+    // Strictly after: a sample from the millisecond the command left was taken before it acted.
+    sample.fresh = notBeforeMs <= 0 || stored->ts > notBeforeMs;
+    return sample;
 }
 
 void Dlt645CommandExecutor::confirmByReadBack(
     const PointDefinition& point,
-    const PointDefinition& readBack,
+    const std::string& label,
     double expected,
+    std::int64_t sentAtMs,
     CommandResult& result
 ) const {
     result.verifyAttempted = true;
@@ -134,13 +174,19 @@ void Dlt645CommandExecutor::confirmByReadBack(
     std::string lastError;
     while (true) {
         try {
-            lastValue = readValue(readBack);
-            haveValue = true;
-            if (std::abs(lastValue - expected) <= 1e-6) {
-                result.success = true;
-                result.verifyPassed = true;
-                result.message = "ok; DLT645 command accepted and confirmed by " + readBack.pointCode;
-                return;
+            // Store-backed read-backs only count values collected after the command was sent.
+            const auto sample = readBackValue(point, sentAtMs);
+            if (sample.fresh) {
+                lastValue = sample.value;
+                haveValue = true;
+                if (std::abs(lastValue - expected) <= 1e-6) {
+                    result.success = true;
+                    result.verifyPassed = true;
+                    result.message = "ok; DLT645 command accepted and confirmed by " + label;
+                    return;
+                }
+            } else {
+                lastError = "no value collected since the command was sent";
             }
         } catch (const std::exception& ex) {
             lastError = ex.what();
@@ -155,10 +201,10 @@ void Dlt645CommandExecutor::confirmByReadBack(
     std::ostringstream message;
     if (!haveValue) {
         result.outcomeUnknown = true;
-        message << "DLT645 command accepted (94H) but " << readBack.pointCode
+        message << "DLT645 command accepted (94H) but " << label
                 << " could not be read back: " << lastError << "; outcome unknown";
     } else {
-        message << "DLT645 command accepted (94H) but " << readBack.pointCode << "=" << lastValue
+        message << "DLT645 command accepted (94H) but " << label << "=" << lastValue
                 << ", expected " << expected << " within " << point.write.dlt645.verifyTimeoutMs << " ms";
     }
     result.message = message.str();

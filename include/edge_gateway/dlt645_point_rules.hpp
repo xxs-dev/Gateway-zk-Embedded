@@ -21,11 +21,21 @@ std::string dlt645WriteDataType(const WriteSpec& spec);
 bool isDlt645SwitchingControl(const WriteSpec& spec);
 // A data identifier with an FF byte addresses a data block (e.g. 0201FF00 = Ua,Ub,Uc).
 bool isDlt645BlockDataId(const std::string& dataIdHex);
-// PA P0 P1 P2 whose secret part P0..P2 is 000000 (factory default at any level, e.g. 00000000).
-bool isDlt645DefaultPassword(const std::string& passwordHex);
 
 // Checks one meter's point list. Throws std::invalid_argument for definitions that cannot work or
-// would decode wrong values; owner names the meter or template in messages.
-void validateDlt645PointList(const std::vector<PointDefinition>& points, const std::string& owner);
+// would decode wrong values; owner names the meter or template in messages. A template may leave
+// the read-back target of trip/close points open (it comes from meters[].positionReadBackIndex).
+void validateDlt645PointList(const std::vector<PointDefinition>& points, const std::string& owner,
+                             bool templateList = false);
+
+// The effective points of one meter of a DL/T 645 device config (meters[meterIndex]): its own
+// points, else the standard template with auto indexes 200000 + meterIndex*10000 + position;
+// trip/close points without a read-back target get meters[].positionReadBackIndex. The single
+// expansion used by the driver, the point store router and the MQTT service.
+std::vector<PointDefinition> expandDlt645MeterPoints(
+    const LogicalDeviceConfig& meter,
+    std::size_t meterIndex,
+    const std::vector<PointDefinition>& standardPoints
+);
 
 }  // namespace edge_gateway

@@ -16,13 +16,15 @@
       "wakeupBytes": 4
     },
     "standardPointsFile": "/opt/modbus-gateway/config/templates/dlt645_residual_current_breaker_20231101_comm104_verified_points.json",
-    "standardPointsVersion": "1.4.0"
+    "standardPointsVersion": "1.5.0"
   },
   "dlt645": {
     "standardPointsFile": "/opt/modbus-gateway/config/templates/dlt645_residual_current_breaker_20231101_comm104_verified_points.json",
-    "standardPointsVersion": "1.4.0",
+    "standardPointsVersion": "1.5.0",
     "write": {
-      "enabled": false
+      "enabled": false,
+      "password": "00000000",
+      "operatorCode": "00000000"
     }
   },
   "collect": {
@@ -69,6 +71,7 @@
       "enabled": true,
       "slave": 20,
       "address": "000000000020",
+      "positionReadBackIndex": 998,
       "protocolType": "dlt645_2007",
       "sourceCom": "COM2",
       "sourceAddress": 20,
@@ -80,6 +83,7 @@
       "enabled": true,
       "slave": 21,
       "address": "000000000021",
+      "positionReadBackIndex": 997,
       "protocolType": "dlt645_2007",
       "sourceCom": "COM2",
       "sourceAddress": 21,
@@ -91,6 +95,7 @@
       "enabled": true,
       "slave": 22,
       "address": "000000000022",
+      "positionReadBackIndex": 999,
       "protocolType": "dlt645_2007",
       "sourceCom": "COM2",
       "sourceAddress": 22,

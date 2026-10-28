@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "edge_gateway/common/command_executor_interface.hpp"
 #include "edge_gateway/dlt645_client.hpp"
@@ -10,12 +11,15 @@
 namespace edge_gateway {
 
 // C=14H writes. Writes are off unless dlt645.write.enabled and the point's write.enable are set.
-// Points with a read-back (write.verifyAfterWrite + verifyByRead + write.dlt645.verifyPointCode;
-// mandatory for trip/close) are checked before and confirmed after execution:
-//  - before: the read-back point is read; unreadable -> rejected, nothing sent; already at the
-//    target value -> success without sending;
+// Points with a read-back (write.verifyAfterWrite + verifyByRead; mandatory for trip/close) are
+// checked before and confirmed after execution. The read-back is either a DL/T 645 point of the same
+// meter (write.dlt645.verifyPointCode, read from the meter) or a point of another device on this
+// gateway (write.dlt645.verifyIndex, e.g. a DIO auxiliary contact, read from the shared point store):
+//  - before: unreadable (store: missing, stale or bad quality) -> rejected, nothing sent; already at
+//    the target value -> success without sending;
 //  - after the 94H acknowledgement: polled until it shows the target value (verifyPassed) or
-//    write.dlt645.verifyTimeoutMs passes (failure; outcomeUnknown when it could not be read).
+//    write.dlt645.verifyTimeoutMs passes (failure; outcomeUnknown when nothing could be read; for
+//    the store only values collected after the command count).
 // A sent request without a conclusive reply reports outcomeUnknown. Nothing is retried.
 class Dlt645CommandExecutor : public ICommandExecutor {
 public:
@@ -40,13 +44,22 @@ public:
     ) const override;
 
 private:
+    struct ReadBackSample {
+        double value = 0.0;
+        bool fresh = false;  // collected after the requested time
+    };
+
     const PointDefinition& findPointByIndex(std::uint32_t index) const;
-    const PointDefinition* readBackPoint(const PointDefinition& point) const;
-    double readValue(const PointDefinition& point) const;
+    static std::int64_t wallNowMs();
+    static bool hasReadBack(const PointDefinition& point);
+    static std::string readBackLabel(const PointDefinition& point);
+    const PointDefinition& localReadBackPoint(const PointDefinition& point) const;
+    ReadBackSample readBackValue(const PointDefinition& point, std::int64_t notBeforeMs) const;
     void confirmByReadBack(
         const PointDefinition& point,
-        const PointDefinition& readBack,
+        const std::string& label,
         double expected,
+        std::int64_t sentAtMs,
         CommandResult& result
     ) const;
     void validateWrite(const PointDefinition& point, double value) const;

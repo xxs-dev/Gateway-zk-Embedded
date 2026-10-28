@@ -47,7 +47,7 @@ struct Fixture {
         writeDevice();
     }
     void writeDevice(const std::string& machine = "SYNTHETIC") {
-        write(root + "/device.json", "{\"machineCode\":\"" + machine + "\",\"protocol\":{\"type\":\"modbus_tcp\"},\"memoryStore\":{\"sharedMemoryName\":\"" + segment + "\"},\"meters\":[{\"meterCode\":\"pcs\",\"points\":[{\"index\":1103,\"pointCode\":\"power\",\"address\":2,\"read\":{\"dataType\":\"int16\"},\"write\":{\"enable\":true}}]}]}");
+        write(root + "/device.json", "{\"machineCode\":\"" + machine + "\",\"protocol\":{\"type\":\"modbus_tcp\"},\"memoryStore\":{\"sharedMemoryName\":\"" + segment + "\"},\"meters\":[{\"meterCode\":\"pcs\",\"points\":[{\"index\":1103,\"pointCode\":\"power\",\"address\":2,\"read\":{\"dataType\":\"int16\"},\"write\":{\"enable\":true,\"dataType\":\"int16\"}}]}]}");
     }
     std::string request(const std::string& index = "1103", const std::string& password = "") const {
         return "{\"passwordSha256\":\"" + (password.empty() ? hash : password) + "\",\"requestId\":\"observation\",\"machineCode\":\"SYNTHETIC\",\"meterCode\":\"pcs\",\"pointCode\":\"power\",\"index\":" + index + "}";

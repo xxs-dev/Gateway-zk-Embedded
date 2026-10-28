@@ -320,15 +320,17 @@ config/runtime/devices/device_dio.json
 | `read.gpio` | 实际 GPIO 编号 |
 | `read.activeHigh=false` | 因为说明书定义 DO 拉低闭合 |
 | `write.enable=true` | 允许通过 pendingWrites 下发 |
-| `write.startupValue` | 可选，`0` 或 `1`：驱动启动时该 DO 的逻辑值；不填为 `0`（非激活） |
+| `write.startupValue` | 可选，`0` 或 `1`：上电后驱动首次启动时该 DO 的逻辑值；不填为 `0`（非激活）。驱动重启时引脚已是输出，保持原电平 |
 | `write.verifyByRead=true` | 写后读取 GPIO 电平确认状态（读到的是 SoC 输出锁存，不是继电器触点） |
 
 #### DO 启动与退出状态
 
-- 驱动启动、开始采集和执行写命令之前，把每个可写 DO（`write.enable=true` 且 `write.dataType=digital_output`）设为输出并写入启动值：`write.startupValue`，未配置时为逻辑 `0`（非激活）。按 `activeHigh` 换算电平，例如 `activeHigh=false` 的 DO 启动为高电平（继电器断开）。驱动重启同样回到启动值，之后由平台 / EMS 重新下发。
+- 驱动启动、开始采集和执行写命令之前，检查每个可写 DO（`write.enable=true` 且 `write.dataType=digital_output`）：
+  - 引脚还不是输出（上电后首次启动）：设为输出并写入启动值 `write.startupValue`，未配置时为逻辑 `0`（非激活）。按 `activeHigh` 换算电平，例如 `activeHigh=false` 的 DO 启动为高电平（继电器断开）；用内核的 `high`/`low` 方向值一步完成，没有毛刺。
+  - 引脚已是输出（驱动重启、升级、崩溃后被拉起）：保持当前电平不动，正在由 EMS 保持的继电器（风机、并网脱扣、HPLC 等）不会因驱动重启断开。
 - 某个 DO 启动时无法设置（GPIO 不可用）时记录日志，该点上报坏质量，不会把悬空输入电平当作 DO 状态上报；GPIO 可用后由采集周期补设为启动值。已经是输出的引脚，采集不会改动它的电平（不覆盖已执行的写命令）。
 - `--once` 诊断运行不强制写启动值，已是输出的引脚保持原电平，避免干扰正在运行的驱动。
-- 进程退出（停止服务、崩溃）时不主动改变输出，DO 保持最后的电平，直到下次启动写入启动值。
+- 进程退出（停止服务、崩溃）时不主动改变输出，DO 保持最后的电平；驱动再次启动时也保持（见上），只有整机上电后才回到启动值。
 - 只读的 `digital_output` 点（`write.enable=false`）不由驱动驱动，按引脚当前电平上报。
 
 #### 加载校验

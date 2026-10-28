@@ -34,7 +34,12 @@ std::vector<std::string> applyDioStartupOutputs(const DeviceConfig& config, IGpi
             continue;
         }
         try {
-            gpioPort.setOutputDirection(point->read.gpio, dioStartupGpioHigh(*point));
+            // Power-on (pin not yet an output): drive the startup state. A driver restart finds the
+            // pin already an output and keeps its level, so a relay held by EMS does not drop.
+            const auto high = dioStartupGpioHigh(*point);
+            if (gpioPort.ensureOutput(point->read.gpio, high)) {
+                gpioPort.writeValue(point->read.gpio, high);
+            }
         } catch (const std::exception& ex) {
             failures.push_back(point->pointCode + ": " + ex.what());
             std::cerr << "DO startup state failed pointCode=" << point->pointCode

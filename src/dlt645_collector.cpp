@@ -102,14 +102,14 @@ CollectCycleResult Dlt645Collector::collectOnce(std::int64_t nowMs, bool realtim
     for (std::size_t i = 0; i < realtimeDue.size() && plan.size() < budget; ++i) {
         plan.push_back(realtimeDue[i].second);
     }
+    // Background DIs use the slots realtime leaves free; while realtime fills the budget they still
+    // get one read per backgroundTaskIntervalMs (same share rule as the Modbus collector).
     auto backgroundSlots = budget - plan.size();
-    const auto backgroundBudget = std::max(0, realtimeFocused
-        ? collect.realtimeMaxBackgroundTasksPerMeterPerCycle
-        : collect.maxBackgroundTasksPerMeterPerCycle);
-    const auto backgroundIntervalMs = std::max(0, collect.backgroundTaskIntervalMs);
-    if (backgroundBudget > 0 && (lastBackgroundReadMs_ < 0 || backgroundIntervalMs == 0 ||
-                                 nowMs - lastBackgroundReadMs_ >= backgroundIntervalMs)) {
-        backgroundSlots += static_cast<std::size_t>(backgroundBudget);
+    if (lastBackgroundReadMs_ < 0) {
+        lastBackgroundReadMs_ = nowMs;
+    }
+    if (backgroundSlots == 0 && nowMs - lastBackgroundReadMs_ >= std::max(0, collect.backgroundTaskIntervalMs)) {
+        backgroundSlots = 1;
     }
     for (std::size_t i = 0; i < backgroundDue.size() && i < backgroundSlots; ++i) {
         plan.push_back(backgroundDue[i].second);

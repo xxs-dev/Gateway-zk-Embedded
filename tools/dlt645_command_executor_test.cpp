@@ -1,11 +1,14 @@
 // DL/T 645 command executor: write gates, trip/close with position check before and read-back after
 // execution, outcomeUnknown on lost replies, no retries.
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "dlt645_test_support.hpp"
@@ -171,6 +174,94 @@ void readBackMismatchFails() {
     require(writes(*port, "06010301") == 1, "one command, no retry");
 }
 
+// COMM104 breakers have no position DI (07020100 answers D1): the position comes from a DIO
+// auxiliary contact (another driver) through the shared point store (write.dlt645.verifyIndex).
+class AuxContactPort : public MeterPort {
+public:
+    std::atomic<bool> closed{true};
+    void write(const std::vector<std::uint8_t>& bytes) override {
+        MeterPort::write(bytes);
+        closed = meter.breakerClosed();
+    }
+};
+
+const std::uint32_t kAuxIndex = 999;
+
+PointDefinition auxContactPoint() {
+    PointDefinition point;
+    point.index = kAuxIndex;
+    point.pointCode = "di_load_breaker_closed";
+    point.enabled = true;
+    point.read.enable = true;
+    point.read.dataType = "digital_input";
+    return point;
+}
+
+void putAux(MemoryPointStore& store, double value) {
+    PointValue v;
+    v.index = kAuxIndex;
+    v.machineCode = "COMM_TEST";
+    v.meterCode = "DIO";
+    v.pointCode = "di_load_breaker_closed";
+    v.value = value;
+    v.ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    v.expireAt = v.ts + 60000;
+    store.putLatest(v);
+}
+
+DeviceConfig auxBreakerConfig() {
+    auto config = breakerConfig();
+    config.points.erase(config.points.begin());  // no same-meter position point at all
+    for (auto& point : config.points) {
+        point.write.dlt645.verifyPointCode.clear();
+        point.write.dlt645.verifyIndex = kAuxIndex;
+    }
+    return config;
+}
+
+void readBackFromAnotherDevice() {
+    MemoryPointStore::cleanupOrphanedSegment(kStore);
+    MemoryPointStore store(kStore);
+    store.registerPoint("COMM_TEST", "DIO", auxContactPoint());
+    auto port = std::make_shared<AuxContactPort>();
+    auto client = std::make_shared<Dlt645Client>(port, options());
+    Dlt645CommandExecutor executor(auxBreakerConfig(), store, client);
+
+    // No DIO value yet: the position is unknown, nothing is switched blind.
+    const auto blind = executor.executeByIndex("aux-blind", 200001, 0, 1000);
+    require(!blind.success && !blind.outcomeUnknown && writes(*port, "06010101") == 0,
+            "no auxiliary contact value: command not sent: " + blind.message);
+
+    // The DIO collector keeps sampling the contact while the command runs.
+    std::atomic<bool> running{true};
+    std::thread dio([&] {
+        while (running) {
+            putAux(store, port->closed ? 1.0 : 0.0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto trip = executor.executeByIndex("aux-trip", 200001, 0, 1001);
+    const auto close = executor.executeByIndex("aux-close", 200002, 0, 1002);
+    const auto again = executor.executeByIndex("aux-close-2", 200002, 0, 1003);
+    running = false;
+    dio.join();
+    require(trip.success && trip.verifyAttempted && trip.verifyPassed && !trip.outcomeUnknown,
+            "trip confirmed by the DIO auxiliary contact: " + trip.message);
+    require(close.success && close.verifyPassed, "close confirmed by the DIO auxiliary contact: " + close.message);
+    require(again.success && again.verifyPassed && writes(*port, "06010201") == 1,
+            "contact already closed: success without sending: " + again.message);
+    require(port->count("07020100") == 0, "the meter itself is never asked for its position");
+
+    // DIO stops publishing after the command: the contact value is old, the outcome is unknown.
+    putAux(store, 1.0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    const auto frozen = executor.executeByIndex("aux-frozen", 200001, 0, 1004);
+    require(!frozen.success && frozen.outcomeUnknown && writes(*port, "06010101") == 2,
+            "no contact value collected after the command: outcome unknown: " + frozen.message);
+}
+
 }  // namespace
 
 int main() {
@@ -179,6 +270,7 @@ int main() {
         gatesRejectWithoutSending();
         lostReplyIsOutcomeUnknown();
         readBackMismatchFails();
+        readBackFromAnotherDevice();
         MemoryPointStore::cleanupOrphanedSegment(kStore);
         std::cout << "dlt645_command_executor_test passed" << std::endl;
         return 0;

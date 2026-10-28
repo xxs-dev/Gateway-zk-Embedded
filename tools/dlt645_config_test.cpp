@@ -117,16 +117,30 @@ void breakerTemplates() {
     validateDlt645PointList(points, "breaker template");
     require(byCode(points, "breaker_remote_trip").write.dlt645.verifyPointCode == "breaker_switch_state" &&
             *byCode(points, "breaker_remote_close").write.dlt645.verifyValue == 1.0, "read-back targets");
-    // The COMM202600104 firmware has no position DI: enabling trip without a read-back must fail.
+    // The COMM202600104 firmware has no position DI: the read-back target is the meter's DIO
+    // auxiliary contact (meters[].positionReadBackIndex). The template loads without a target...
     auto comm104 = loadTemplate(kBreakerComm104);
     for (auto& p : comm104) {
-        if (p.pointCode == "breaker_remote_trip") {
+        if (p.pointCode == "breaker_remote_trip" || p.pointCode == "breaker_remote_close") {
             p.enabled = true;
             p.write.enable = true;
         }
     }
-    require(throwsWith([&] { validateDlt645PointList(comm104, "comm104"); }, "position read-back"),
-            "trip without read-back must not load");
+    validateDlt645PointList(comm104, "comm104 template", true);
+    // ...but a meter without positionReadBackIndex cannot run an enabled trip point.
+    LogicalDeviceConfig meter;
+    meter.meterCode = "LOAD_BREAKER";
+    require(throwsWith([&] { validateDlt645PointList(expandDlt645MeterPoints(meter, 2, comm104), "meter"); },
+                       "position read-back"), "trip without read-back must not run");
+    meter.positionReadBackIndex = 999;
+    const auto expanded = expandDlt645MeterPoints(meter, 2, comm104);
+    validateDlt645PointList(expanded, "meter");
+    require(byCode(expanded, "breaker_remote_trip").write.dlt645.verifyIndex == 999 &&
+            byCode(expanded, "breaker_remote_close").write.dlt645.verifyIndex == 999 &&
+            *byCode(expanded, "breaker_remote_close").write.dlt645.verifyValue == 1.0 &&
+            byCode(expanded, "breaker_remote_trip").index == 220000U + 11U,
+            "meter 22 trip/close read back from DIO index 999 (trip point index 220011)");
+    require(byCode(expanded, "breaker_cancel_trip").write.dlt645.verifyIndex == 0, "cancel commands have no read-back");
 }
 
 void templateValidation() {
@@ -144,8 +158,12 @@ void templateValidation() {
 void shippedConfigs() {
     const auto config = ConfigLoader::loadFromFile(g_root + "/config/runtime/devices/device_dlt645_breakers_20_22.json");
     require(!config.protocol.dlt645.write.enabled, "shipped breaker config must not enable writes");
-    require(config.protocol.dlt645.write.password.empty() && config.protocol.dlt645.write.operatorCode.empty(),
-            "shipped breaker config must not carry a password");
+    // Field-verified on breaker 22: level-0 factory code (PA P0 P1 P2) and operator code 00000000.
+    require(config.protocol.dlt645.write.password == "00000000" && config.protocol.dlt645.write.operatorCode == "00000000",
+            "shipped breaker config keeps the verified password and operator code");
+    require(config.meters.size() == 3 && config.meters[0].positionReadBackIndex == 998 &&
+            config.meters[1].positionReadBackIndex == 997 && config.meters[2].positionReadBackIndex == 999,
+            "breakers 20/21/22 read their position from DIO auxiliary contacts 998/997/999");
 }
 
 std::string deviceJson(const std::string& points, const std::string& extra = "", const std::string& address = "000000000001") {
@@ -187,12 +205,13 @@ void validation() {
     require(throwsWith([&] { load(R"({"protocol":{"type":"dlt645_2007","transport":{"wakeupBytes":40}},"meters":[]})"); },
                        "wakeupBytes"), "wakeupBytes bounded");
 
-    // Writes: default password forbidden, switching commands need a read-back.
+    // Writes: 8-hex-digit password/operator code (the vendor's level-0 code 00000000 is valid),
+    // switching commands need a read-back.
     const auto writeBlock = [](const std::string& password) {
         return R"("dlt645":{"write":{"enabled":true,"password":")" + password + R"(","operatorCode":"01020304"}},)";
     };
-    require(throwsWith([&] { load(deviceJson("", writeBlock("00000000"))); }, "factory default"), "00000000 forbidden");
-    require(throwsWith([&] { load(deviceJson("", writeBlock("04000000"))); }, "factory default"), "000000 secret forbidden");
+    load(deviceJson("", writeBlock("00000000")));
+    require(throwsWith([&] { load(deviceJson("", writeBlock("0000000"))); }, "8 hex"), "short password rejected");
     const auto password = dlt645_test::fixturePassword();
     load(deviceJson("", writeBlock(password)));
     const auto state = readPointJson("breaker_switch_state", "dlt645_bcd", R"({"di":"07020100","byteCount":1})");
@@ -207,6 +226,21 @@ void validation() {
     auto missingTarget = trip(R"("verifyAfterWrite":true,"verifyByRead":true,)");
     require(throwsWith([&] { load(deviceJson(missingTarget, writeBlock(password))); }, "verifyPointCode"),
             "read-back point must exist in the same meter");
+
+    // Read-back from another device's point (DIO auxiliary contact) by its gateway index.
+    const auto auxTrip = [](const std::string& verify) {
+        return R"({"index":2,"pointCode":"trip","enabled":true,"write":{"enable":true,"min":0,"max":99,"step":1,)"
+               R"("verifyAfterWrite":true,"verifyByRead":true,)"
+               R"("dlt645":{"di":"06010101","dataType":"dlt645_scheduled_control","byteCount":2,"unit":2,)" + verify + "}}}";
+    };
+    load(deviceJson(auxTrip(R"("verifyIndex":999,"verifyValue":0)"), writeBlock(password)));
+    require(throwsWith([&] { load(deviceJson(auxTrip(R"("verifyIndex":999)"), writeBlock(password))); }, "verifyValue"),
+            "verifyIndex needs the expected value");
+    require(throwsWith([&] { load(deviceJson(state + "," + auxTrip(
+                R"("verifyIndex":999,"verifyPointCode":"breaker_switch_state","verifyValue":0)"), writeBlock(password))); },
+                       "exactly one"), "verifyIndex and verifyPointCode are exclusive");
+    require(throwsWith([&] { load(deviceJson(auxTrip(R"("verifyIndex":2,"verifyValue":0)"), writeBlock(password))); },
+                       "another point"), "verifyIndex must not name the command point");
 }
 
 // --mock acceptance: every shipped DL/T 645 config decodes all its points against the simulator.
@@ -238,7 +272,6 @@ void mockAcceptance(const std::string& relativeConfig) {
             }
             item.meters.clear();
             item.collect.maxTasksPerMeterPerCycle = 1000;
-            item.collect.maxBackgroundTasksPerMeterPerCycle = 1000;
             Dlt645Collector collector(item, store, client);
             const auto result = collector.collectOnce(1000);
             std::size_t expected = 0;

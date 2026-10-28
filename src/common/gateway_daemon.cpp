@@ -1,4 +1,5 @@
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 
@@ -186,12 +187,12 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
         item.deviceName = logicalDevice.deviceName;
         item.address = logicalDevice.address;
         item.protocol.slave = logicalDevice.slave;
-        item.points = logicalDevice.points.empty() ? dlt645StandardPoints : logicalDevice.points;
-        if (config.protocol.type == "dlt645_2007" && logicalDevice.points.empty()) {
-            const std::uint32_t indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
-            for (std::size_t i = 0; i < item.points.size(); ++i) {
-                item.points[i].index = indexBase + static_cast<std::uint32_t>(i);
-            }
+        if (config.protocol.type == "dlt645_2007") {
+            item.points = expandDlt645MeterPoints(logicalDevice, meterIndex, dlt645StandardPoints);
+            // The template is checked without per-meter read-back targets; check the meter as run.
+            validateDlt645PointList(item.points, "meter " + item.meterCode);
+        } else {
+            item.points = logicalDevice.points;
         }
         item.meters.clear();
         expanded.push_back(item);

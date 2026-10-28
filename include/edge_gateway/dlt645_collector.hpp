@@ -16,8 +16,8 @@ class Dlt645Client;
 // Scheduling: every DI is one request serving all points that share it (block DIs use
 // read.dlt645.offset). Each cycle reads the DIs that are due, most overdue first: realtime DIs
 // (collectPriority 0) up to maxTasksPerMeterPerCycle (realtime lease: realtimeMax...), then
-// background DIs (collectPriority > 0) in the unused slots plus maxBackgroundTasksPerMeterPerCycle
-// every backgroundTaskIntervalMs. The first read timeout ends the cycle, so a dead meter costs one
+// background DIs (collectPriority > 0) in the unused slots; while realtime fills the budget one
+// background DI is still read every backgroundTaskIntervalMs. The first read timeout ends the cycle, so a dead meter costs one
 // timeout per cycle and does not starve the other meters on the bus.
 // Failures: a DI keeps its last good value until failureBadQualityThreshold consecutive failures
 // (or failureGoodValueGraceMs); offlineFailureThreshold consecutive cycles without any reply mark

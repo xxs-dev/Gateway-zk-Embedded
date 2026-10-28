@@ -151,7 +151,7 @@ void realtimeBeforeBackground() {
     auto config = meterConfig(scope.name, "1", {energy, readPoint(2, "ua", "02010100", "dlt645_bcd", 2, 0.1),
                                                  readPoint(3, "ub", "02010200", "dlt645_bcd", 2, 0.1)});
     config.collect.maxTasksPerMeterPerCycle = 2;
-    config.collect.maxBackgroundTasksPerMeterPerCycle = 0;
+    config.collect.backgroundTaskIntervalMs = 60000;
     Dlt645Collector collector(config, store, client);
     collector.collectOnce(1000);
     require(port->requests.size() == 2 && port->count("02010100") == 1 && port->count("02010200") == 1,
@@ -270,12 +270,13 @@ void clockStepShiftsBackgroundSchedule() {
     ub.read.intervalMs = 1;
     auto config = meterConfig(scope.name, "1", {ua, ub, energy, energy2});
     config.collect.maxTasksPerMeterPerCycle = 1;
-    config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
     config.collect.backgroundTaskIntervalMs = 5000;
     Dlt645Collector collector(config, store, client);
     const std::int64_t start = 10000000;
-    collector.collectOnce(start);      // ua + energy (gated background slot)
-    collector.collectOnce(start + 1);  // ub, background gate closed
+    collector.collectOnce(start - 5000);  // ua only: the background share opens one interval later
+    require(port->count("00010000") == 0, "realtime fills the budget: no background before the share opens");
+    collector.collectOnce(start);      // ua + energy (background share)
+    collector.collectOnce(start + 1);  // ub, background share closed
     require(port->count("00010000") == 1 && port->count("00020000") == 0, "one background slot per interval");
     // Wall clock steps back by one hour: the background gate moves with it.
     const auto stepped = start - 3600000;

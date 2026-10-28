@@ -177,6 +177,7 @@ void doStartupState(const std::string& base) {
     sysfs.addGpio(238, "in\n", "0\n");  // active-low, startupValue 1 -> low
     sysfs.addGpio(129, "in\n", "1\n");  // active-high, no startupValue -> low
     sysfs.addGpio(130, "in\n", "1\n");  // not available at startup (direction write fails)
+    sysfs.addGpio(232, "out\n", "0\n");  // driver restart: active-low DO held active by EMS
     const auto storeName = "dio_review_startup_" + std::to_string(getpid());
     MemoryPointStore::cleanupOrphanedSegment(storeName);
     {
@@ -187,6 +188,7 @@ void doStartupState(const std::string& base) {
         config.points.push_back(lit);
         config.points.push_back(doPoint(986, 129, true));
         config.points.push_back(doPoint(987, 130, false));
+        config.points.push_back(doPoint(988, 232, false));
         // A directory in place of the control file: every write to it fails (EISDIR).
         ::unlink(sysfs.file(130, "direction").c_str());
         ::mkdir(sysfs.file(130, "direction").c_str(), 0755);
@@ -201,6 +203,8 @@ void doStartupState(const std::string& base) {
               "startupValue 1 drives the active-low DO low");
         check(slurp(sysfs.file(129, "direction")) == "low" && slurp(sysfs.file(129, "value"))[0] == '0',
               "active-high DO starts inactive (low)");
+        check(slurp(sysfs.file(232, "direction")).compare(0, 3, "out") == 0 && slurp(sysfs.file(232, "value"))[0] == '0',
+              "driver restart keeps a DO that is already an output (relay stays as EMS left it)");
 
         MemoryPointStore store(config.memoryStore);
         DioCollector collector(config, store, port);

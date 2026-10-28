@@ -153,7 +153,7 @@ CanDriverService::CanDriverService(
         "mqtt-forwarder"
     ),
     mqttPublisher_(std::move(mqttPublisher)) {
-    if (config_.protocol.type != "can_socketcan" && config_.protocol.type != "can") {
+    if (config_.protocol.type != "can_socketcan") {
         throw std::invalid_argument("CanDriver requires protocol.type=can_socketcan");
     }
     initializeRuntimeDevices();

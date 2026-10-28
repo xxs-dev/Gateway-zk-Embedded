@@ -115,7 +115,8 @@ void validateRead(const PointDefinition& point, const Findings& findings) {
 void validateWrite(
     const PointDefinition& point,
     const std::vector<PointDefinition>& points,
-    const Findings& findings
+    const Findings& findings,
+    bool templateList
 ) {
     const bool fatal = point.enabled;
     const auto& write = point.write;
@@ -151,24 +152,46 @@ void validateWrite(
     }
 
     const bool verifyByRead = write.verifyAfterWrite && write.verifyByRead;
-    if (isDlt645SwitchingControl(write) && (!verifyByRead || write.dlt645.verifyPointCode.empty())) {
+    const bool hasPointCode = !write.dlt645.verifyPointCode.empty();
+    const bool hasIndex = write.dlt645.verifyIndex != 0;
+    if (templateList && verifyByRead && !hasPointCode && !hasIndex) {
+        // Target supplied per meter (meters[].positionReadBackIndex); the rest is checked here.
+        if (!write.dlt645.verifyValue) {
+            findings.report(point, fatal, "read-back needs write.dlt645.verifyValue (expected position)");
+        }
+        if (write.dlt645.verifyTimeoutMs < 100 || write.dlt645.verifyTimeoutMs > 60000) {
+            findings.report(point, fatal, "write.dlt645.verifyTimeoutMs must be 100..60000");
+        }
+        return;
+    }
+    if (isDlt645SwitchingControl(write) && (!verifyByRead || (!hasPointCode && !hasIndex))) {
         findings.report(point, fatal, "switching command needs a position read-back: set write.verifyAfterWrite, "
-            "write.verifyByRead and write.dlt645.verifyPointCode/verifyValue");
+            "write.verifyByRead, write.dlt645.verifyValue and write.dlt645.verifyPointCode (same meter) or "
+            "write.dlt645.verifyIndex (another device, e.g. a DIO auxiliary contact)");
         return;
     }
     if (write.verifyAfterWrite && !write.verifyByRead) {
         findings.report(point, fatal, "DL/T 645 can only verify by reading back; set write.verifyByRead");
     }
     if (!verifyByRead) return;
-    if (write.dlt645.verifyPointCode.empty()) {
-        findings.report(point, fatal, "write.verifyByRead needs write.dlt645.verifyPointCode");
+    if (hasPointCode == hasIndex) {
+        findings.report(point, fatal, "write.verifyByRead needs exactly one of write.dlt645.verifyPointCode and "
+            "write.dlt645.verifyIndex");
         return;
     }
-    if (isDlt645SwitchingControl(write) && !write.dlt645.verifyValue) {
-        findings.report(point, fatal, "switching command needs write.dlt645.verifyValue (expected position)");
+    if ((isDlt645SwitchingControl(write) || hasIndex) && !write.dlt645.verifyValue) {
+        findings.report(point, fatal, "read-back needs write.dlt645.verifyValue (expected position)");
     }
     if (write.dlt645.verifyTimeoutMs < 100 || write.dlt645.verifyTimeoutMs > 60000) {
         findings.report(point, fatal, "write.dlt645.verifyTimeoutMs must be 100..60000");
+    }
+    if (hasIndex) {
+        // Another device's point: it lives in another configuration file, so only the index itself
+        // can be checked here; the executor refuses the command when the point is absent or stale.
+        if (write.dlt645.verifyIndex == point.index) {
+            findings.report(point, fatal, "write.dlt645.verifyIndex must name another point");
+        }
+        return;
     }
     const PointDefinition* target = nullptr;
     for (const auto& candidate : points) {
@@ -212,11 +235,8 @@ bool isDlt645BlockDataId(const std::string& dataIdHex) {
     return false;
 }
 
-bool isDlt645DefaultPassword(const std::string& passwordHex) {
-    return passwordHex.size() == 8 && passwordHex.compare(2, 6, "000000") == 0;
-}
-
-void validateDlt645PointList(const std::vector<PointDefinition>& points, const std::string& owner) {
+void validateDlt645PointList(const std::vector<PointDefinition>& points, const std::string& owner,
+                             bool templateList) {
     const Findings findings(owner);
     // Several points decoding exactly the same bytes of one DI: on a block DI that is the
     // "Ua/Ub/Uc all show Ua" mistake (missing offsets).
@@ -242,7 +262,7 @@ void validateDlt645PointList(const std::vector<PointDefinition>& points, const s
             }
         }
         if (point.write.enable) {
-            validateWrite(point, points, findings);
+            validateWrite(point, points, findings, templateList);
         }
     }
 }
@@ -252,13 +272,9 @@ void validateDlt645DeviceConfig(const DeviceConfig& config) {
     if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
         throw std::invalid_argument("protocol.transport.wakeupBytes must be 0..16");
     }
+    // Password/operator code format (8 hex digits, PA P0 P1 P2 / C0..C3) is checked by the parser.
+    // The vendor's level-0 factory code 00000000 is a valid site password and is not refused.
     const auto& write = config.protocol.dlt645.write;
-    if (!write.password.empty() && isDlt645DefaultPassword(write.password)) {
-        throw std::invalid_argument(
-            "dlt645.write.password is a factory default (P0P1P2=000000); provision the site password"
-        );
-    }
-
     const auto checkAddress = [](const std::string& owner, const std::string& address) {
         std::string normalized;
         try {
@@ -297,6 +313,30 @@ void validateDlt645DeviceConfig(const DeviceConfig& config) {
     if (anyWritablePoint && !write.enabled) {
         configWarning("DL/T 645 points have write.enable=true but dlt645.write.enabled=false; writes are rejected");
     }
+}
+
+std::vector<PointDefinition> expandDlt645MeterPoints(
+    const LogicalDeviceConfig& meter,
+    std::size_t meterIndex,
+    const std::vector<PointDefinition>& standardPoints
+) {
+    auto points = meter.points.empty() ? standardPoints : meter.points;
+    if (meter.points.empty()) {
+        const auto indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            points[i].index = indexBase + static_cast<std::uint32_t>(i);
+        }
+    }
+    if (meter.positionReadBackIndex != 0) {
+        for (auto& point : points) {
+            auto& verify = point.write.dlt645;
+            if (point.write.verifyAfterWrite && point.write.verifyByRead && isDlt645SwitchingControl(point.write) &&
+                verify.verifyPointCode.empty() && verify.verifyIndex == 0) {
+                verify.verifyIndex = meter.positionReadBackIndex;
+            }
+        }
+    }
+    return points;
 }
 
 }  // namespace edge_gateway
