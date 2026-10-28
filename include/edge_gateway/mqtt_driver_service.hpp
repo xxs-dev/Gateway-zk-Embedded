@@ -99,8 +99,16 @@ private:
     struct PendingCommandReply {
         MqttCommandReply reply;
         PointStoreRoute route;
+        // deadlineMs: non-final "unknown" reply; horizonMs: stop watching (final "unknown" reply).
         std::int64_t deadlineMs = 0;
+        std::int64_t horizonMs = 0;
+        bool timeoutReported = false;
         bool durableControl = false;
+    };
+    enum class CommandAdmission {
+        Admitted,
+        Duplicate,
+        RateLimited
     };
 
     void runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs);
@@ -122,7 +130,12 @@ private:
     void processPendingCommandReplies(std::int64_t nowMs);
     int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs, bool retained = false);
-    bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs, bool durableControl);
+    CommandAdmission admitCommand(
+        const std::string& meterCode,
+        const std::string& cmdId,
+        std::int64_t nowMs,
+        bool durableControl
+    );
     bool admitMailboxCommand(const std::string& meterCode, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleOtaQueryRequest(const std::string& payload);
@@ -204,6 +217,7 @@ private:
     int isolatedFallbackRetryDelayMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::deque<PendingCommandReply> pendingCommandReplies_;
+    int resultWaitMs_ = 0;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
     std::unordered_map<std::string, std::deque<std::int64_t>> mailboxWindowByMeter_;

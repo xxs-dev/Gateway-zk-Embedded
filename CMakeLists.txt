@@ -523,6 +523,11 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPI
     target_link_libraries(modbus_northbound_tsan_test PRIVATE pthread)
     add_test(NAME modbus_northbound_tsan COMMAND modbus_northbound_tsan_test)
 endif()
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(mqtt_command_outcome_test tools/mqtt_command_outcome_test.cpp)
+    target_link_libraries(mqtt_command_outcome_test PRIVATE edge_gateway)
+    add_test(NAME mqtt_command_outcome COMMAND mqtt_command_outcome_test)
+endif()
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)

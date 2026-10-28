@@ -629,9 +629,11 @@ void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord&
     copyString(slot.cmdId, kCmdIdSize, result.cmdId);
     copyString(slot.message, kWritebackMessageSize, result.message);
     copyString(slot.stage, kWritebackStageSize, result.stage);
+    // success byte bits: 0x01 success, 0x02 highPriority, 0x04 outcomeUnknown.
     slot.success = static_cast<std::uint8_t>(
         (result.success ? 0x01U : 0x00U) |
-        (result.highPriority ? 0x02U : 0x00U)
+        (result.highPriority ? 0x02U : 0x00U) |
+        (!result.success && result.outcomeUnknown ? 0x04U : 0x00U)
     );
     slot.verifyAttempted = result.verifyAttempted ? 1 : 0;
     slot.verifyPassed = result.verifyPassed ? 1 : 0;
@@ -678,6 +680,7 @@ Optional<WritebackResultRecord> findWritebackResult(
             result.verifyAttempted = slot.verifyAttempted != 0;
             result.verifyPassed = slot.verifyPassed != 0;
             result.highPriority = (slot.success & 0x02U) != 0;
+            result.outcomeUnknown = (slot.success & 0x04U) != 0;
             found = result;
         }
         head = (head + 1) % kMaxWritebackResultSlots;
@@ -2079,6 +2082,7 @@ std::vector<WritebackResultRecord> MemoryPointStore::recentWritebackResults(
         r.index = slot.index; r.value = slot.value;
         r.success = (slot.success & 0x01U) != 0;
         r.highPriority = (slot.success & 0x02U) != 0;
+        r.outcomeUnknown = (slot.success & 0x04U) != 0;
         r.message = readString(slot.message, kWritebackMessageSize);
         r.stage = readString(slot.stage, kWritebackStageSize);
         r.requestedAt = slot.requestedAt; r.acceptedAt = slot.acceptedAt;

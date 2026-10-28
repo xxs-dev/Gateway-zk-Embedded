@@ -319,6 +319,9 @@ struct WritebackResultRecord {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
+    // Copied from CommandResult.outcomeUnknown (success is then false): the device may have
+    // executed the write. Stage is "writeback-timeout" for such results.
+    bool outcomeUnknown = false;
 };
 
 struct MqttCommandRequest {
@@ -355,6 +358,12 @@ struct MqttCommandReply {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
+    // "succeeded", "failed" or "unknown" (the write may or may not have taken effect; do not
+    // retry with a new cmdId). success is true only for "succeeded".
+    std::string outcome = "failed";
+    // false only for the result-wait timeout reply: a later reply with the same cmdId carries the
+    // final result.
+    bool isFinal = true;
 };
 
 struct OtaRequest {

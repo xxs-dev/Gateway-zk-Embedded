@@ -176,8 +176,8 @@ void canCase() {
         f.store->submitWriteCommand(f.command);
         driver.processWritebackOnce(1 + f.config.memoryStore.pendingWriteMaxAgeMs + 1);
         const auto expired = f.store->getWritebackResult(f.command.cmdId);
-        require(expired && !expired->success && expired->stage ==
-                    (durable ? "writeback-timeout" : "expired"),
+        // Never dispatched: a definite failure for durable commands too (not an unknown outcome).
+        require(expired && !expired->success && !expired->outcomeUnknown && expired->stage == "expired",
                 "stale CAN command must not dispatch durable=" + std::to_string(durable) +
                     " stage=" + (expired ? expired->stage : "missing"));
         require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) < 0, "stale CAN command emitted datagram");

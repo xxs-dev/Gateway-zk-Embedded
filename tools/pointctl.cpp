@@ -29,7 +29,21 @@ void printUsage() {
         << "  pointctl stats [--shm <name>|--app-config <path>]\n"
         << "  pointctl create-empty --shm <new-name>\n"
         << "  pointctl pending [--limit <n>] [--shm <name>]\n"
-        << "  pointctl pending-peek [--limit <n>] [--shm <name>|--app-config <path>]\n";
+        << "  pointctl pending-peek [--limit <n>] [--shm <name>|--app-config <path>]\n"
+        << "  pointctl result --cmd <cmdId> [--index <index>] [--shm <name>]\n";
+}
+
+// outcome: succeeded / failed / unknown (the write may have taken effect; do not retry with a new cmdId).
+void printWritebackResult(const edge_gateway::WritebackResultRecord& result) {
+    std::cout << "cmdId=" << result.cmdId
+              << " index=" << result.index
+              << " value=" << result.value
+              << " success=" << result.success
+              << " outcome=" << (result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed"))
+              << " stage=" << result.stage
+              << " message=\"" << result.message << "\""
+              << " completedAt=" << result.completedAt
+              << std::endl;
 }
 
 std::string getOption(
@@ -172,6 +186,11 @@ int main(int argc, char* argv[]) {
                     return 2;
                 }
 
+                if (result.writeback) {
+                    // Completed synchronously (local parameter) or replayed from the control ledger.
+                    printWritebackResult(*result.writeback);
+                    return result.writeback->success ? 0 : 2;
+                }
                 std::cout << "submitted write"
                           << " cmdId=" << cmd.cmdId
                           << " index=" << cmd.index
@@ -321,6 +340,24 @@ int main(int argc, char* argv[]) {
                       << " ts=" << latest->ts
                       << " stale=" << latest->stale
                       << std::endl;
+            return 0;
+        }
+
+        if (command == "result") {
+            const auto cmdId = getOption(args, "--cmd");
+            const auto indexText = getOption(args, "--index");
+            if (cmdId.empty()) {
+                printUsage();
+                return 1;
+            }
+            const auto result = indexText.empty()
+                ? store.getWritebackResult(cmdId)
+                : store.getWritebackResult(cmdId, static_cast<std::uint32_t>(std::stoul(indexText)));
+            if (!result) {
+                std::cout << "no result cmdId=" << cmdId << std::endl;
+                return 2;
+            }
+            printWritebackResult(*result);
             return 0;
         }
 
