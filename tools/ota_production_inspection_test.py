@@ -2,22 +2,32 @@
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 from production_runtime_baseline_test import ProductionRuntimeTest
 
 
 def main():
     probe = str(Path(sys.argv[1]).resolve(strict=True))
+    native_uname = os.uname
     fixture = ProductionRuntimeTest('test_production_entry_exists_without_changing_legacy_actions')
     fixture.setUp()
     results = []
     try:
         owner, previous, candidate = fixture.signed_config_owner_fixture()
         entry = fixture.real_owner_entry(owner)
+        publish_new = entry.publish_new
+        def publish_on_host(*args, **kwargs):
+            # The fixture simulates ARM admission, but libc syscalls run on the host.
+            # Older glibc needs the native ABI for renameat2's syscall fallback.
+            with patch.object(entry.os, 'uname', native_uname):
+                return publish_new(*args, **kwargs)
+        fixture.patch(entry, 'publish_new', publish_on_host)
         with owner.lease():
             entry.production_ota_owner(owner, owner.read())
         fixture.assertEqual(owner.read()['phase'], 'OWNER_FINISHED')
@@ -97,7 +107,7 @@ def main():
             file.symlink_to(backup)
             call('symlink-runtime-file', 409)
             file.unlink()
-            file.hardlink_to(backup)
+            os.link(str(backup), str(file))
             call('hardlink-runtime-file', 409)
             file.unlink()
         finally:
