@@ -301,6 +301,12 @@ void verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+// A monotonic pending-write stamp taken ageMs ago (never 0, which means unstamped).
+std::uint32_t monotonicStampAgo(std::int64_t ageMs) {
+    const auto stamp = edge_gateway::pendingWriteMonotonicNowMs() - static_cast<std::uint32_t>(ageMs);
+    return stamp == 0 ? 0xFFFFFFFFu : stamp;
+}
+
 void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
     const std::string storeName = uniqueStoreName("gateway_daemon_control_generation_test");
     const std::string ownershipFile = "/tmp/gateway-daemon-power-control-owner.json";
@@ -406,8 +412,10 @@ void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
             stale.source = "compute-engine";
             stale.ts = 3003;
             stale.acceptedAt = 3003;
+            // Queued maxAge+1 ms ago by the monotonic clock; the wall clock shows no age at all.
+            stale.acceptedMonotonicMs = monotonicStampAgo(deviceConfig.memoryStore.pendingWriteMaxAgeMs + 1);
             store.submitWriteCommand(stale);
-            daemon.processWritebackOnce(3003 + deviceConfig.memoryStore.pendingWriteMaxAgeMs + 1);
+            daemon.processWritebackOnce(3003);
             const auto staleResult = store.getWritebackResult(stale.cmdId);
             require(staleResult && !staleResult->success && staleResult->stage == "expired",
                 "a queued write older than pendingWriteMaxAgeMs must fail with stage expired");
@@ -462,6 +470,31 @@ void verifyStaleControlGenerationIsRejectedBeforeDeviceWrite() {
             require(noExpiryResult && noExpiryResult->success, "maxAge=0 must preserve ordinary write");
             require(client->guardCalls() == guardsBefore, "maxAge=0 must not add a guarded write callback");
             require(client->writeCount(1) == 3, "maxAge=0 ordinary write did not reach device");
+
+            // Wall-clock steps after enqueue do not decide a queued write's age (pendingWriteMaxAgeMs=200).
+            const auto queueAt = [&](const std::string& cmdId, std::int64_t wallMs, std::uint32_t monotonicStamp) {
+                edge_gateway::PendingWriteCommand command = beforeSend;
+                command.cmdId = cmdId;
+                command.ts = wallMs;
+                command.acceptedAt = wallMs;
+                command.acceptedMonotonicMs = monotonicStamp;
+                store.submitWriteCommand(command);
+            };
+            queueAt("CMD_WALL_JUMPED_FORWARD", 6000, 0);
+            daemon.processWritebackOnce(6000 + 3600000);
+            const auto jumped = store.getWritebackResult("CMD_WALL_JUMPED_FORWARD");
+            require(jumped && jumped->success, "a fresh write must run after the wall clock jumps an hour forward");
+            queueAt("CMD_WALL_STEPPED_BACK", 7200000, 0);
+            daemon.processWritebackOnce(3600000);
+            const auto steppedBack = store.getWritebackResult("CMD_WALL_STEPPED_BACK");
+            require(steppedBack && steppedBack->success, "a fresh write must run after the wall clock steps an hour back");
+            require(client->writeCount(1) == 5, "both fresh writes reach the device");
+            queueAt("CMD_STALE_WALL_FRESH", 8000000, monotonicStampAgo(201));
+            daemon.processWritebackOnce(8000000);
+            const auto revived = store.getWritebackResult("CMD_STALE_WALL_FRESH");
+            require(revived && !revived->success && revived->stage == "expired",
+                    "a stale write must expire even when a backward wall step makes it look fresh");
+            require(client->writeCount(1) == 5, "the stale write must never reach the device");
         }
     } catch (...) {
         std::remove(ownershipFile.c_str());

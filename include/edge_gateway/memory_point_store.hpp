@@ -19,17 +19,29 @@ enum class MemoryStoreOpenMode {
     CreateExclusive
 };
 
-// True when a queued write is older than maxAgeMs (by acceptedAt, else ts) or stamped more
-// than maxAgeMs in the future (clock stepped back). maxAgeMs <= 0 or no timestamp: never.
-inline bool isPendingWriteExpired(const PendingWriteCommand& command, std::int64_t nowMs, std::int64_t maxAgeMs) {
+// Current CLOCK_MONOTONIC in ms, truncated to the 32-bit pending-write stamp; never 0 (0 marks an
+// unstamped command). CLOCK_MONOTONIC is system-wide, so producer and consumer processes agree.
+std::uint32_t pendingWriteMonotonicNowMs();
+
+// Age of a queued write by its monotonic stamp; correct across one 32-bit wrap (49.7 days).
+inline std::int64_t pendingWriteAgeMs(const PendingWriteCommand& command, std::uint32_t monotonicNowMs) {
+    return static_cast<std::int32_t>(monotonicNowMs - command.acceptedMonotonicMs);
+}
+
+// True when a queued write is older than maxAgeMs by the producer's monotonic stamp. Wall-clock
+// steps (NTP, manual time set) do not change the result. An unstamped command or a stamp ahead of
+// now by more than maxAgeMs (not from this boot) is expired: such a command is never executed.
+// maxAgeMs <= 0: never.
+inline bool isPendingWriteExpired(const PendingWriteCommand& command, std::uint32_t monotonicNowMs,
+                                  std::int64_t maxAgeMs) {
     if (maxAgeMs <= 0) {
         return false;
     }
-    const auto base = command.acceptedAt > 0 ? command.acceptedAt : command.ts;
-    if (base <= 0) {
-        return false;
+    if (command.acceptedMonotonicMs == 0) {
+        return true;
     }
-    return nowMs - base > maxAgeMs || base - nowMs > maxAgeMs;
+    const auto age = pendingWriteAgeMs(command, monotonicNowMs);
+    return age > maxAgeMs || -age > maxAgeMs;
 }
 
 class MemoryPointStore {

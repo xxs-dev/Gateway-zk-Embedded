@@ -1107,6 +1107,22 @@ void MqttDriverService::runScanOnce(std::int64_t nowMs) {
     recordScanHealth(durationMs, false, nowMs);
 }
 
+void MqttDriverService::observeWallClock(std::int64_t wallMs, std::int64_t monotonicMs) {
+    if (lastObservedWallMs_ != 0) {
+        const auto stepMs = (wallMs - lastObservedWallMs_) - (monotonicMs - lastObservedMonotonicMs_);
+        if (stepMs >= 1000 || stepMs <= -1000) {
+            for (auto& pending : pendingCommandReplies_) {
+                pending.deadlineMs += stepMs;
+                pending.horizonMs += stepMs;
+            }
+            std::cerr << "mqtt driver wall clock stepped deltaMs=" << stepMs
+                      << "; command reply deadlines shifted" << std::endl;
+        }
+    }
+    lastObservedWallMs_ = wallMs;
+    lastObservedMonotonicMs_ = monotonicMs;
+}
+
 void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs) {
     replayPendingOtaStatuses(nowMs);
 
@@ -2144,6 +2160,7 @@ int MqttDriverService::scanLoopIncomingTimeoutMs(std::int64_t nowMs) const {
 void MqttDriverService::scanLoop() {
     while (running_.load()) {
         const auto nowMs = currentTimeMs();
+        observeWallClock(nowMs, currentMonotonicTimeMs());
         const auto timeoutMs = scanLoopIncomingTimeoutMs(nowMs);
         const auto started = std::chrono::steady_clock::now();
         bool failed = false;

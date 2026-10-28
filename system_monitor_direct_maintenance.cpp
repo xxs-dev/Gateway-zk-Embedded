@@ -657,13 +657,14 @@ edge_gateway::Optional<edge_gateway::WritebackResultRecord> waitForWritebackResu
     std::int64_t acceptedAt,
     int timeoutMs
 ) {
-    const auto deadline = nowMs() + std::max(0, timeoutMs);
+    // Monotonic deadline: a wall-clock step must neither cut the wait short nor stretch it.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(0, timeoutMs));
     do {
         auto result = router.getDurableWritebackResult(route, cmdId, acceptedAt);
         if (result) {
             return result;
         }
-        if (timeoutMs <= 0 || nowMs() >= deadline) {
+        if (timeoutMs <= 0 || std::chrono::steady_clock::now() >= deadline) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));

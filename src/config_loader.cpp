@@ -1509,8 +1509,9 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
     config.pendingWriteMaxAgeMs = requireInt64(object, "pendingWriteMaxAgeMs", config.pendingWriteMaxAgeMs);
-    if (config.pendingWriteMaxAgeMs < 0) {
-        throw std::invalid_argument("memoryStore.pendingWriteMaxAgeMs must be >= 0 (0 disables expiry)");
+    // The age is measured on a 32-bit monotonic stamp in the shared queue; one day is far below its range.
+    if (config.pendingWriteMaxAgeMs < 0 || config.pendingWriteMaxAgeMs > 86400000) {
+        throw std::invalid_argument("memoryStore.pendingWriteMaxAgeMs must be 0..86400000 (0 disables expiry)");
     }
     config.persistFlushBatchSize = requireSize(object, "persistFlushBatchSize", config.persistFlushBatchSize);
     config.allowDuplicateIndexAcrossSegments = requireBool(

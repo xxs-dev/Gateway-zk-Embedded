@@ -473,7 +473,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
         const auto startedAt = nowMs();
         const auto commandNowMs = currentTime();
         auto writebackResult = beginWritebackResult(command, startedAt);
-        if (isPendingWriteExpired(command, commandNowMs, maxAgeMs)) {
+        if (isPendingWriteExpired(command, pendingWriteMonotonicNowMs(), maxAgeMs)) {
             // Never execute a stale setpoint late (e.g. queued while this daemon was down).
             const auto message = "pending write expired before execution (memoryStore.pendingWriteMaxAgeMs=" +
                 std::to_string(maxAgeMs) + ")";
@@ -569,7 +569,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                 auto guard = clusterGuard ? std::make_shared<ClusterWriteGuard>(config_.emsCluster) : nullptr;
                 beforeWrite = [&, guard] {
                     if (guard) guard->check(command);
-                    if (isPendingWriteExpired(command, currentTime(), maxAgeMs)) {
+                    if (isPendingWriteExpired(command, pendingWriteMonotonicNowMs(), maxAgeMs)) {
                         expiredBeforeSend = true;
                         throw std::runtime_error("pending write expired before physical send");
                     }

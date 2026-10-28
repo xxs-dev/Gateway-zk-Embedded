@@ -167,9 +167,57 @@ void incompatibleSegmentIsNeverResized() {
 #endif
 }
 
+// Queued writes carry the producer's CLOCK_MONOTONIC stamp; the age check uses only that stamp.
+void monotonicStampCrossesSharedQueue() {
+    using namespace edge_gateway;
+    const auto name = "shm11_stamp_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/" + name).c_str()); } } cleanup{name};
+    MemoryPointStore store(name);
+    PendingWriteCommand command;
+    command.index = 77;
+    command.cmdId = "stamped";
+    command.acceptedAt = 1;  // wall time from another epoch: irrelevant to the age
+    store.submitWriteCommand(command);
+    const auto peeked = store.peekPendingWriteCommands();
+    require(peeked.size() == 1 && peeked.front().acceptedMonotonicMs != 0, "the producer must stamp an unstamped write");
+    const auto age = pendingWriteAgeMs(peeked.front(), pendingWriteMonotonicNowMs());
+    require(age >= 0 && age < 1000, "a just-queued write must be fresh");
+    require(!isPendingWriteExpired(peeked.front(), pendingWriteMonotonicNowMs(), 10000), "fresh write expired");
+    const auto pid = fork();
+    require(pid >= 0, "fork consumer");
+    if (pid == 0) {
+        // CLOCK_MONOTONIC is system-wide: another process measures the same age.
+        try {
+            MemoryPointStore consumer(name, MemoryStoreOpenMode::OpenExisting);
+            const auto drained = consumer.drainPendingWriteCommands();
+            const auto childAge = drained.size() == 1 ? pendingWriteAgeMs(drained.front(), pendingWriteMonotonicNowMs()) : -1;
+            _exit(childAge >= 0 && childAge < 1000 ? 0 : 1);
+        } catch (...) { _exit(1); }
+    }
+    int status = 0;
+    require(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+            "another process must see the producer's stamp as fresh");
+    command.acceptedMonotonicMs = 12345;
+    store.submitWriteCommand(command);
+    require(store.drainPendingWriteCommands().front().acceptedMonotonicMs == 12345, "an explicit stamp must be kept");
+
+    PendingWriteCommand probe;
+    require(isPendingWriteExpired(probe, 5000, 10000), "an unstamped write must never run");
+    require(!isPendingWriteExpired(probe, 5000, 0), "maxAge 0 disables expiry");
+    probe.acceptedMonotonicMs = 0xFFFFFF00u;
+    require(pendingWriteAgeMs(probe, 0x00000010u) == 0x110 && !isPendingWriteExpired(probe, 0x00000010u, 10000),
+            "the age must survive the 32-bit wrap");
+    probe.acceptedMonotonicMs = 1000;
+    require(isPendingWriteExpired(probe, 1000 + 10001, 10000), "older than maxAge expires");
+    require(!isPendingWriteExpired(probe, 1000 + 10000, 10000), "exactly maxAge is still valid");
+    require(isPendingWriteExpired(probe, 1000 - 10001 + 0x100000000ull, 10000),
+            "a stamp ahead of now by more than maxAge (not this boot) expires");
+}
+
 int main() {
     try {
 #ifndef _WIN32
+        monotonicStampCrossesSharedQueue();
         incompatibleSegmentIsNeverResized();
         legacySegmentIsRejectedWithoutMutation();
         authorizationSurvivesSharedQueue();

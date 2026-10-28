@@ -321,6 +321,9 @@ struct PendingWriteCommand {
     bool durableControl = false; // Set by trusted external ingress, never parsed from user JSON.
     Optional<ClusterWriteAuthorization> clusterAuthorization;
     bool platformControl = false; // Trusted ingress flag; persisted in the v11 reserved byte.
+    // Producer's CLOCK_MONOTONIC stamp (low 32 bits, ms) set when the command is queued; the age
+    // check uses it so a wall-clock step cannot expire or revive a queued command. 0 = unstamped.
+    std::uint32_t acceptedMonotonicMs = 0;
 };
 
 struct WritebackResultRecord {
