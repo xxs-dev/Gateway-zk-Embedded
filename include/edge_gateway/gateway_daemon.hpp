@@ -78,6 +78,8 @@ private:
     std::unordered_map<std::uint32_t, std::size_t> indexToRuntimeDevice_;
     std::unordered_map<std::string, std::size_t> meterCodeToRuntimeDevice_;
     std::size_t collectCursor_ = 0;
+    // Meters visited since the last full round (only when runtimeMeterBatchSize < meter count).
+    std::size_t roundVisited_ = 0;
     bool collectionWorkDeferred_ = false;
     int collectionNextDelayMs_ = 0;
     std::string realtimeMeterLeaseFile_;

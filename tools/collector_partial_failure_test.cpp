@@ -859,7 +859,7 @@ void verifyNoResponseParentTaskDoesNotSplitBeforeBudget() {
     cleanupStore(storeName);
 }
 
-void verifyMeterTaskBudgetPrioritizesDefaultPriorityPointsOverLowPriority() {
+void verifyBackgroundPointsKeepTheirOwnBlocks() {
     const std::string storeName = "gateway_collector_base_priority_budget_test";
     cleanupStore(storeName);
     {
@@ -883,12 +883,11 @@ void verifyMeterTaskBudgetPrioritizesDefaultPriorityPointsOverLowPriority() {
 
         TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(6400);
-        require(collected.executedTasks.size() == 1, "priority cycle should execute one realtime task");
-        require(collected.executedTasks[0].start == 0,
-            "default-priority points should be planned before low-priority points");
-        require(collected.executedTasks[0].count == 3,
-            "realtime base points should stay batched when background points are present");
-        require(client->readCount(3) == 0, "low-priority point should not consume initial high priority budget");
+        require(collected.executedTasks.size() == 2, "the turn should read the realtime block, then the idle-time background block");
+        require(collected.executedTasks[0].start == 0 && collected.executedTasks[0].count == 3,
+            "realtime points are read first and background registers do not widen their block");
+        require(collected.executedTasks[1].start == 3 && collected.executedTasks[1].count == 2,
+            "background points form their own block");
     }
     cleanupStore(storeName);
 }
@@ -901,7 +900,6 @@ void verifyLowPriorityTasksGetPeriodicBudgetSlot() {
         config.collect.maxBatchRegisters = 1;
         config.collect.maxTasksPerMeterPerCycle = 2;
         config.collect.backgroundTaskIntervalMs = 500;
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
         config.points = {
             onlinePoint(),
             registerPoint(500001, "base_register_0", 0),
@@ -937,8 +935,6 @@ void verifyRealtimeFocusedRaisesTaskBudgetAndBackgroundSlot() {
         config.collect.maxTasksPerMeterPerCycle = 1;
         config.collect.realtimeMaxTasksPerMeterPerCycle = 3;
         config.collect.backgroundTaskIntervalMs = 5000;
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
-        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 1;
         config.points = {
             onlinePoint(),
             registerPoint(500001, "base_register_0", 0),
@@ -1332,8 +1328,6 @@ void verifySlowRequestsYieldAndRotateWithoutStarvation(bool focused) {
         config.points = {onlinePoint()};
         config.collect.maxTasksPerMeterPerCycle = 32;
         config.collect.realtimeMaxTasksPerMeterPerCycle = 32;
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 32;
-        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 32;
         config.collect.backgroundTaskIntervalMs = 0;
         config.memoryStore.maxLatestPoints = 512;
         for (int i = 0; i < 253; ++i) {
@@ -1379,7 +1373,7 @@ void verifyBackgroundYieldsWhenRealtimeBecomesDue() {
     {
         auto config = buildConfig(storeName);
         config.points.clear();
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 32;
+        config.collect.maxTasksPerMeterPerCycle = 32;
         config.collect.backgroundTaskIntervalMs = 0;
         for (int i = 0; i < 33; ++i) {
             auto point = registerPoint(500001 + i, "mid_batch_" + std::to_string(i), i);
@@ -1478,16 +1472,16 @@ void verifySlowAdaptiveSplitYieldsWithoutInventingFailures() {
     cleanupStore(storeName);
 }
 
-void verifySelectedAdjacentTasksShareRead(bool focused) {
+void verifyDuePointsShareOneRead(bool focused) {
     const std::string name = "gateway_selected_adjacent_test";
     cleanupStore(name);
     {
         auto config = buildConfig(name);
         config.collect.maxBatchRegisters = 8;
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
-        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 1;
+        config.collect.maxTasksPerMeterPerCycle = 4;
+        config.collect.realtimeMaxTasksPerMeterPerCycle = 4;
         config.collect.backgroundTaskIntervalMs = 200;
-        auto slow = lowPriorityPoint(500002, "background", 11);
+        auto slow = registerPoint(500002, "middle", 11);
         slow.read.intervalMs = 500;
         config.points = {onlinePoint(), registerPoint(500001, "left", 10), slow,
                          registerPoint(500003, "right", 12), registerPoint(500004, "alias", 12)};
@@ -1495,19 +1489,20 @@ void verifySelectedAdjacentTasksShareRead(bool focused) {
         auto client = std::make_shared<FakeModbusClient>();
         client->setRegister(10, 10); client->setRegister(11, 11); client->setRegister(12, 12);
         TestCollector collector(config, store, client);
-        const auto first = collector.collectOnce(1000, focused);
-        require(first.executedTasks.size() == 2, "background interval bypassed by merge");
-        const auto merged = collector.collectOnce(1200, focused);
+        const auto merged = collector.collectOnce(1000, focused);
         require(merged.executedTasks.size() == 1 && merged.executedTasks[0].start == 10 &&
-                merged.executedTasks[0].count == 3, "eligible adjacent priority groups were not merged");
+                merged.executedTasks[0].count == 3, "due adjacent points were not read together");
         require(merged.values.size() == 4, "merged read lost shared-register fields");
         for (const auto& value : merged.values) {
             const auto expected = value.index == 500001 ? 10 : value.index == 500002 ? 11 : 12;
             require(value.value == expected, "merged read offset decoded wrong register");
         }
-        const auto notDue = collector.collectOnce(1400, focused);
+        const auto notDue = collector.collectOnce(1200, focused);
         require(notDue.executedTasks.size() == 2 && client->readCount(11) == 0,
-                "not-due background point used to bridge gap");
+                "a point that is not due was used to bridge the gap");
+        const auto allDue = collector.collectOnce(1500, focused);
+        require(allDue.executedTasks.size() == 1 && allDue.executedTasks[0].count == 3,
+                "the slower point did not rejoin the block when due again");
     }
     cleanupStore(name);
 }
@@ -1520,18 +1515,27 @@ void verifyMergeBoundariesAndFailureIsolation() {
             auto config = buildConfig(name);
             config.collect.maxBatchRegisters = mode == 1 ? 1 : 8;
             config.collect.batchOptimize = mode != 2;
-            config.collect.maxBackgroundTasksPerMeterPerCycle = mode == 3 ? 0 : 1;
             config.collect.backgroundTaskIntervalMs = 0;
-            auto background = lowPriorityPoint(500002, "background", mode == 0 ? 12 : 11);
+            if (mode == 3) config.collect.maxGapRegisters = 1;
+            auto background = registerPoint(500002, "neighbour", (mode == 0 || mode == 3) ? 12 : 11);
             if (mode == 4) background.read.function = 4;
             if (mode == 5) background.enabled = false;
             config.points = {onlinePoint(), registerPoint(500001, "critical", 10), background};
             edge_gateway::MemoryPointStore store(config.memoryStore);
             auto client = std::make_shared<FakeModbusClient>();
+            client->setRegister(10, 5); client->setRegister(11, 6); client->setRegister(12, 9);
             TestCollector collector(config, store, client);
             const auto result = collector.collectOnce(1000);
-            require(result.executedTasks.size() == ((mode == 3 || mode == 5) ? 1 : 2),
-                    "merge crossed gap/function/cap/budget/enable boundary");
+            if (mode == 3) {
+                require(result.executedTasks.size() == 1 && result.executedTasks[0].count == 3,
+                        "maxGapRegisters=1 did not bridge a one-register gap");
+                require(result.values.size() == 2 && result.values[0].value == 5.0 && result.values[1].value == 9.0,
+                        "gap read decoded wrong offset");
+                cleanupStore(name);
+                continue;
+            }
+            require(result.executedTasks.size() == (mode == 5 ? 1u : 2u),
+                    "merge crossed gap/function/cap/enable boundary");
             for (const auto& task : result.executedTasks) require(task.count == 1, "unexpected merged range");
         }
         cleanupStore(name);
@@ -1541,59 +1545,106 @@ void verifyMergeBoundariesAndFailureIsolation() {
     {
         auto config = buildConfig(name);
         config.collect.maxBatchRegisters = 8;
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
         config.collect.backgroundTaskIntervalMs = 0;
         config.collect.taskFailureBackoffThreshold = 1;
         config.collect.taskFailureBackoffMs = 500;
         config.collect.slaveFailureBackoffThreshold = 100;
         config.points = {onlinePoint(), registerPoint(500001, "critical", 10),
-                         lowPriorityPoint(500002, "background", 11)};
+                         registerPoint(500002, "neighbour", 11)};
         edge_gateway::MemoryPointStore store(config.memoryStore);
         auto client = std::make_shared<FakeModbusClient>();
+        client->setRegister(10, 7); client->setRegister(11, 8);
         client->failRangeWithMessage(10, 2, "modbus exception code=2 illegal data address");
         TestCollector collector(config, store, client);
-        try { collector.collectOnce(1000); } catch (const std::runtime_error&) {}
-        require(client->readCount(10) == 1 && client->readCount(11) == 0, "failed merged request retried immediately");
+        const auto split = collector.collectOnce(1000);
+        require(client->readCount(10) == 2 && client->readCount(11) == 1,
+                "a block rejected with an exception code was not split into its points");
+        require(split.values.size() == 2, "split points were not delivered in the same turn");
         const auto backedOff = collector.collectOnce(1200);
-        require(backedOff.executedTasks.empty(), "merged failure bypassed original task backoff");
-        const auto recovered = collector.collectOnce(1600);
-        require(recovered.executedTasks.size() == 2 && recovered.values.size() == 2,
-                "failed merged range did not recover as separate original tasks");
-        const auto retry = collector.collectOnce(1800);
-        require(retry.executedTasks.size() == 2, "known rejected combined range retried after leaf recovery");
+        require(backedOff.executedTasks.size() == 2 && client->readCount(10) == 3,
+                "the rejected block was retried during its backoff instead of reading its points");
+        collector.collectOnce(1600);
+        require(client->readCount(10) == 5, "the combined block was not retried after its backoff");
     }
     cleanupStore(name);
 }
 
-void verifyMergedBackgroundAccountingAndReservation() {
-    for (const bool slow : {false, true}) {
-        const std::string name = "gateway_merge_background_test";
-        cleanupStore(name);
-        {
-            auto config = buildConfig(name);
-            config.collect.maxBatchRegisters = 8;
-            config.collect.maxTasksPerMeterPerCycle = 2;
-            config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
-            config.collect.backgroundTaskIntervalMs = slow ? 0 : 200;
-            config.points = {onlinePoint(), registerPoint(500001, "critical", 11),
-                             lowPriorityPoint(500002, "background", 10)};
-            if (slow) config.points.push_back(registerPoint(500003, "first_critical", 0));
-            edge_gateway::MemoryPointStore store(config.memoryStore);
-            auto client = std::make_shared<FakeModbusClient>();
-            client->readDelayMs = slow ? 100 : 0;
-            TestCollector collector(config, store, client);
-            collector.collectOnce(1000);
-            const auto merged = collector.collectOnce(slow ? 1101 : 1200);
-            require(merged.executedTasks.front().start == 10 && merged.executedTasks.front().count == 2,
-                    "background reservation/preceding register not coalesced correctly");
-            if (!slow) {
-                const auto deferred = collector.collectOnce(1300);
-                require(deferred.executedTasks.size() == 1 && deferred.executedTasks.front().start == 11,
-                        "mixed read failed to consume background interval");
-            }
-        }
-        cleanupStore(name);
+void verifyEarliestDeadlineFirst() {
+    const std::string name = "gateway_collector_deadline_order_test";
+    cleanupStore(name);
+    {
+        auto config = buildConfig(name);
+        config.collect.maxBatchRegisters = 1;
+        config.collect.maxTasksPerMeterPerCycle = 1;
+        auto slow = registerPoint(500001, "slow", 0);
+        slow.read.intervalMs = 1000;
+        auto fast = registerPoint(500002, "fast", 10);
+        fast.read.intervalMs = 200;
+        config.points = {onlinePoint(), slow, fast};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        TestCollector collector(config, store, client);
+        collector.collectOnce(1000);
+        collector.collectOnce(1000);
+        require(client->readCount(0) == 1 && client->readCount(10) == 1, "both points should be read once first");
+        // Both overdue at 2000: the fast point's deadline (1200) is earlier than the slow one's (2000).
+        const auto turn = collector.collectOnce(2000);
+        require(turn.executedTasks.size() == 1 && turn.executedTasks[0].start == 10,
+                "the point with the earliest deadline must be read first, not the one updated longest ago");
+        require(turn.workDeferred, "due work left after the turn quantum must request an immediate next turn");
+        const auto next = collector.collectOnce(2000);
+        require(next.executedTasks.size() == 1 && next.executedTasks[0].start == 0,
+                "left-over due work must run on the next turn");
     }
+    cleanupStore(name);
+}
+
+void verifyBackgroundShareWhileRealtimeOverloaded() {
+    const std::string name = "gateway_collector_background_share_test";
+    cleanupStore(name);
+    {
+        auto config = buildConfig(name);
+        config.collect.maxBatchRegisters = 1;
+        config.collect.maxTasksPerMeterPerCycle = 4;
+        config.collect.backgroundTaskIntervalMs = 1000;
+        config.points = {onlinePoint()};
+        for (int i = 0; i < 8; ++i) {
+            config.points.push_back(registerPoint(500001 + i, "rt_" + std::to_string(i), i));
+        }
+        config.points.push_back(lowPriorityPoint(500100, "bg", 100));
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 50;
+        TestCollector collector(config, store, client);
+        // 8 realtime reads of 50 ms every 100 ms: the meter is permanently busy with realtime work.
+        for (int turn = 0; turn < 100; ++turn) {
+            collector.collectOnce(1000 + client->clockMs);
+            client->clockMs += 1;
+        }
+        const auto elapsedMs = client->clockMs;
+        const auto backgroundReads = client->readCount(100);
+        require(backgroundReads >= elapsedMs / 1000 - 1 && backgroundReads <= elapsedMs / 1000 + 2,
+                "an overloaded meter must still give the background point about one read per backgroundTaskIntervalMs");
+    }
+    cleanupStore(name);
+    cleanupStore(name);
+    {
+        // Idle capacity: background runs as soon as it is due, not once per backgroundTaskIntervalMs.
+        auto config = buildConfig(name);
+        config.collect.maxBatchRegisters = 1;
+        config.collect.backgroundTaskIntervalMs = 5000;
+        auto background = lowPriorityPoint(500100, "bg", 100);
+        background.read.intervalMs = 200;
+        config.points = {onlinePoint(), registerPoint(500001, "rt", 0), background};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        TestCollector collector(config, store, client);
+        for (std::int64_t now = 1000; now < 3000; now += 100) {
+            collector.collectOnce(now);
+        }
+        require(client->readCount(100) >= 9, "background points were throttled although the bus was idle");
+    }
+    cleanupStore(name);
 }
 
 void verifyFastBlockWithSafetyAndSlowCoverage(bool focused) {
@@ -1605,8 +1656,6 @@ void verifyFastBlockWithSafetyAndSlowCoverage(bool focused) {
         config.collect.maxBatchRegisters = 32;
         config.collect.maxTasksPerMeterPerCycle = 1;
         config.collect.realtimeMaxTasksPerMeterPerCycle = 1;
-        config.collect.maxBackgroundTasksPerMeterPerCycle = 1;
-        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle = 1;
         config.collect.backgroundTaskIntervalMs = 0;
         for (int i = 0; i < 26; ++i) {
             auto point = registerPoint(500001 + i, "fast_" + std::to_string(i), 201 + i);
@@ -1799,10 +1848,11 @@ int main() {
         verifyOfflineProbeIntervalThrottlesFailedTaskOnly();
         verifyFastBlockWithSafetyAndSlowCoverage(false);
         verifyFastBlockWithSafetyAndSlowCoverage(true);
-        verifySelectedAdjacentTasksShareRead(false);
-        verifySelectedAdjacentTasksShareRead(true);
+        verifyDuePointsShareOneRead(false);
+        verifyDuePointsShareOneRead(true);
         verifyMergeBoundariesAndFailureIsolation();
-        verifyMergedBackgroundAccountingAndReservation();
+        verifyEarliestDeadlineFirst();
+        verifyBackgroundShareWhileRealtimeOverloaded();
         verifySlowRequestsYieldAndRotateWithoutStarvation(false);
         verifySlowRequestsYieldAndRotateWithoutStarvation(true);
         verifyBackgroundYieldsWhenRealtimeBecomesDue();
@@ -1829,7 +1879,7 @@ int main() {
         verifyMeterTaskBudgetDefersBackedOffTasks();
         verifyBackedOffParentTaskSplitsBeforeBudget();
         verifyNoResponseParentTaskDoesNotSplitBeforeBudget();
-        verifyMeterTaskBudgetPrioritizesDefaultPriorityPointsOverLowPriority();
+        verifyBackgroundPointsKeepTheirOwnBlocks();
         verifyLowPriorityTasksGetPeriodicBudgetSlot();
         verifyRealtimeFocusedRaisesTaskBudgetAndBackgroundSlot();
         verifyRealtimeFocusedRespectsSlowIntervalPoints();

@@ -25,6 +25,7 @@ public:
     );
 
     CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
+    bool deviceOnline() const override;
 
 private:
     bool shouldSkipForBackoff(std::int64_t nowMs) const;
@@ -53,18 +54,19 @@ private:
         int& leafProbeBudgetRemaining,
         std::int64_t nowMs
     ) const;
-    std::vector<ReadTask> expandBackedOffTasksBeforeBudget(
+    std::vector<ReadTask> expandBackedOffTasks(
         const std::vector<ReadTask>& tasks,
         std::int64_t nowMs,
         bool realtimeFocused
     ) const;
     std::vector<ReadTask> limitToOfflineProbeTasks(const std::vector<ReadTask>& tasks) const;
-    std::vector<ReadTask> limitToMeterTaskBudget(
+    std::vector<ReadTask> orderTasksByDeadline(
         std::vector<ReadTask> tasks,
         std::int64_t nowMs,
-        int maxTasksPerCycle,
-        bool realtimeFocused = false
+        bool realtimeFocused
     ) const;
+    // Earliest due time of the task's points (lastRead + interval); minimum for never-read points.
+    std::int64_t taskDueMs(const ReadTask& task) const;
     std::int64_t taskOldestValueUpdateMs(const ReadTask& task) const;
     int pointPriority(const PointDefinition& point) const;
     int taskPriority(const ReadTask& task) const;
@@ -77,8 +79,6 @@ private:
     std::function<std::int64_t()> monotonicClockMs_;
     // Shortened to the fastest point interval; a single in-flight request may overrun.
     int timeSliceMs_ = 1000;
-    bool backgroundDeferred_ = false;
-    bool selectedTaskCoalescingHealthy_ = true;
     std::vector<std::size_t> readablePointOrder_;
     std::unordered_map<std::uint32_t, int> pointFailureCounts_;
     int consecutiveSuccesses_ = 0;
@@ -100,7 +100,7 @@ private:
     std::unordered_map<std::string, TaskFailureState> taskFailureStates_;
     mutable std::unordered_map<std::string, std::size_t> adaptiveSplitProbeCursors_;
     mutable std::size_t offlineProbeCursor_ = 0;
-    std::int64_t lastBackgroundTaskMs_ = -1;
+    std::int64_t lastBackgroundRequestMs_ = -1;
 };
 
 }  // namespace edge_gateway

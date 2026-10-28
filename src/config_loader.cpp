@@ -1,5 +1,6 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/device_config_validation.hpp"
+#include "edge_gateway/modbus_codec.hpp"
 #include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
@@ -337,12 +338,8 @@ void normalizeCollectConfig(CollectConfig& config) {
         config.maxTasksPerMeterPerCycle,
         config.realtimeMaxTasksPerMeterPerCycle
     );
+    config.maxGapRegisters = boundedInt(config.maxGapRegisters, 0, config.maxBatchRegisters - 1);
     config.backgroundTaskIntervalMs = std::max(0, config.backgroundTaskIntervalMs);
-    config.maxBackgroundTasksPerMeterPerCycle = std::max(0, config.maxBackgroundTasksPerMeterPerCycle);
-    config.realtimeMaxBackgroundTasksPerMeterPerCycle = std::max(
-        config.maxBackgroundTasksPerMeterPerCycle,
-        config.realtimeMaxBackgroundTasksPerMeterPerCycle
-    );
     config.realtimeAdaptiveSplitLeafProbeBudget = std::max(
         config.adaptiveSplitLeafProbeBudget,
         config.realtimeAdaptiveSplitLeafProbeBudget
@@ -492,6 +489,12 @@ ReadSpec parseReadSpec(const JsonValue* value) {
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
     spec.cachePolicy = parseCachePolicy(value->find("cachePolicy"));
+    if (value->find("byteOrder") == nullptr || spec.byteOrder.empty()) {
+        // Unset: the type's natural big-endian order (ABCD for 32-bit), never a 16-bit "AB" that
+        // cannot decode a 32-bit value.
+        const auto canonical = ModbusCodec::canonicalByteOrder(spec.dataType);
+        if (!canonical.empty()) spec.byteOrder = canonical;
+    }
     return spec;
 }
 
@@ -543,6 +546,12 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     }
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
+    if (value->find("byteOrder") == nullptr || spec.byteOrder.empty()) {
+        // Unset: the type's natural order. The old "AB" default silently wrote only the high word of
+        // 32-bit values.
+        const auto canonical = ModbusCodec::canonicalByteOrder(spec.dataType);
+        if (!canonical.empty()) spec.byteOrder = canonical;
+    }
     return spec;
 }
 
@@ -1283,21 +1292,8 @@ CollectConfig parseCollect(const JsonValue* value) {
         "realtimeMaxTasksPerMeterPerCycle",
         config.realtimeMaxTasksPerMeterPerCycle
     );
-    config.backgroundTaskIntervalMs = requireInt(
-        object,
-        "backgroundTaskIntervalMs",
-        config.backgroundTaskIntervalMs
-    );
-    config.maxBackgroundTasksPerMeterPerCycle = requireInt(
-        object,
-        "maxBackgroundTasksPerMeterPerCycle",
-        config.maxBackgroundTasksPerMeterPerCycle
-    );
-    config.realtimeMaxBackgroundTasksPerMeterPerCycle = requireInt(
-        object,
-        "realtimeMaxBackgroundTasksPerMeterPerCycle",
-        config.realtimeMaxBackgroundTasksPerMeterPerCycle
-    );
+    config.maxGapRegisters = requireInt(object, "maxGapRegisters", config.maxGapRegisters);
+    config.backgroundTaskIntervalMs = requireInt(object, "backgroundTaskIntervalMs", config.backgroundTaskIntervalMs);
     config.realtimeAdaptiveSplitLeafProbeBudget = requireInt(
         object,
         "realtimeAdaptiveSplitLeafProbeBudget",
