@@ -15,6 +15,7 @@
 #include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/dlt645_standard_points_loader.hpp"
 #include "edge_gateway/dlt645_client.hpp"
+#include "edge_gateway/dlt645_version.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mock_serial_port.hpp"
@@ -107,33 +108,9 @@ int main(int argc, char* argv[]) {
             config.collect.maxRequestRegisters,
             frameIntervalMs
         );
-    } else if (config.protocol.type == "dlt645_2007") {
-        SerialPortOptions serialOptions;
-        serialOptions.device = config.protocol.transport.serialPort;
-        serialOptions.baudRate = config.protocol.transport.baudRate;
-        serialOptions.dataBits = config.protocol.transport.dataBits;
-        serialOptions.stopBits = config.protocol.transport.stopBits;
-        serialOptions.parity = config.protocol.transport.parity;
-        serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
-        serialOptions.maxRequestRegisters = config.collect.maxRequestRegisters;
-        serialOptions.frameIntervalMs = frameIntervalMs;
-        serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
-        serialOptions.localEcho = config.protocol.transport.localEcho;
-
-        std::shared_ptr<ISerialPort> serialPort;
-#ifdef _WIN32
-        useMock = true;
-#endif
-        if (useMock) {
-            auto mock = std::make_shared<MockSerialPort>();
-            serialPort = mock;
-        }
-#ifndef _WIN32
-        else {
-            serialPort = std::make_shared<PosixSerialPort>(serialOptions);
-        }
-#endif
-        dlt645Client = std::make_shared<Dlt645Client>(serialPort, serialOptions);
+    } else if (isDlt645Protocol(config.protocol.type)) {
+        // DL/T 645 runs only in Dlt645Driver (wake-up preamble, writes, time sync, mock meters).
+        throw std::invalid_argument("protocol.type " + config.protocol.type + " is served by Dlt645Driver, not ModbusRtu");
     } else {
         SerialPortOptions serialOptions;
         serialOptions.device = config.protocol.transport.serialPort;

@@ -68,19 +68,31 @@ CommandResult Dlt645CommandExecutor::executeByIndex(
             }
         }
         const auto sentAtMs = wallNowMs();
-        client_->writeData(
-            config_.address,
-            point.write.dlt645.di,
-            config_.protocol.dlt645.write.password,
-            config_.protocol.dlt645.write.operatorCode,
-            payload
-        );
+        const bool remoteControl = dlt645WriteDataType(point.write) == "dlt645_remote_control";
+        if (remoteControl) {
+            // C=1CH: the command stays valid until now + validitySeconds (meter's local time).
+            client_->remoteControl(
+                config_.address,
+                config_.protocol.dlt645.write.password,
+                config_.protocol.dlt645.write.operatorCode,
+                Dlt645Codec::remoteControlCode(point.write.dlt645.controlType),
+                Dlt645Codec::localTime(sentAtMs + static_cast<std::int64_t>(point.write.dlt645.validitySeconds) * 1000)
+            );
+        } else {
+            client_->writeData(
+                config_.address,
+                point.write.dlt645.di,
+                config_.protocol.dlt645.write.password,
+                config_.protocol.dlt645.write.operatorCode,
+                payload
+            );
+        }
         if (!readBack) {
             result.success = true;
             result.message = "ok; DLT645 command accepted, physical state not verified";
             return result;
         }
-        if (isDlt645SwitchingControl(point.write) && value > 0.0) {
+        if (dlt645WriteDataType(point.write) == "dlt645_scheduled_control" && value > 0.0) {
             result.success = true;
             result.message = "ok; DLT645 delayed command accepted, " + label +
                 " changes after the delay and is not verified";
@@ -201,10 +213,10 @@ void Dlt645CommandExecutor::confirmByReadBack(
     std::ostringstream message;
     if (!haveValue) {
         result.outcomeUnknown = true;
-        message << "DLT645 command accepted (94H) but " << label
+        message << "DLT645 command acknowledged but " << label
                 << " could not be read back: " << lastError << "; outcome unknown";
     } else {
-        message << "DLT645 command accepted (94H) but " << label << "=" << lastValue
+        message << "DLT645 command acknowledged but " << label << "=" << lastValue
                 << ", expected " << expected << " within " << point.write.dlt645.verifyTimeoutMs << " ms";
     }
     result.message = message.str();
@@ -220,8 +232,8 @@ const PointDefinition& Dlt645CommandExecutor::findPointByIndex(std::uint32_t ind
 }
 
 void Dlt645CommandExecutor::validateWrite(const PointDefinition& point, double value) const {
-    if (config_.protocol.type != "dlt645_2007") {
-        throw std::invalid_argument("DLT645 command executor requires protocol.type=dlt645_2007");
+    if (!isDlt645Protocol(config_.protocol.type)) {
+        throw std::invalid_argument("DLT645 command executor requires protocol.type dlt645_2007 or dlt645_1997");
     }
     if (!config_.protocol.dlt645.write.enabled) {
         throw std::invalid_argument("DLT645 protocol write is disabled");
@@ -238,7 +250,7 @@ void Dlt645CommandExecutor::validateWrite(const PointDefinition& point, double v
     if (!point.write.enable) {
         throw std::invalid_argument("point write is disabled");
     }
-    if (point.write.dlt645.di.empty()) {
+    if (point.write.dlt645.di.empty() && dlt645WriteDataType(point.write) != "dlt645_remote_control") {
         throw std::invalid_argument("DLT645 writable point missing write.dlt645.di");
     }
     if (point.write.minValue && value < *point.write.minValue - 1e-9) {

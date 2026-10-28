@@ -435,6 +435,7 @@ void verifyDlt645WriteConfig() {
     const auto templatePath = tempPath();
     std::ofstream templateOutput(templatePath.c_str(), std::ios::binary | std::ios::trunc);
     templateOutput << R"JSON({
+      "protocol": "dlt645_2007",
       "points": [{
         "pointCode": "breaker_remote_close",
         "name": "Remote close",

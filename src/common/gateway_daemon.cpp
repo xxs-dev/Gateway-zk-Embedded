@@ -170,7 +170,7 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
     }
 
     std::vector<PointDefinition> dlt645StandardPoints;
-    if (config.protocol.type == "dlt645_2007" && !config.protocol.standardPointsFile.empty()) {
+    if (isDlt645Protocol(config.protocol.type) && !config.protocol.standardPointsFile.empty()) {
         dlt645StandardPoints = ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile);
     }
 
@@ -187,10 +187,10 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
         item.deviceName = logicalDevice.deviceName;
         item.address = logicalDevice.address;
         item.protocol.slave = logicalDevice.slave;
-        if (config.protocol.type == "dlt645_2007") {
-            item.points = expandDlt645MeterPoints(logicalDevice, meterIndex, dlt645StandardPoints);
+        if (isDlt645Protocol(config.protocol.type)) {
+            item.points = expandDlt645MeterPoints(config, meterIndex, dlt645StandardPoints);
             // The template is checked without per-meter read-back targets; check the meter as run.
-            validateDlt645PointList(item.points, "meter " + item.meterCode);
+            validateDlt645PointList(item.points, "meter " + item.meterCode, dlt645VersionOf(config.protocol.type));
         } else {
             item.points = logicalDevice.points;
         }
@@ -860,7 +860,7 @@ void GatewayDaemon::publishStatusEvent(
     if (!mqttPublisher_) {
         return;
     }
-    const auto serviceName = config_.protocol.type == "dlt645_2007"
+    const auto serviceName = isDlt645Protocol(config_.protocol.type)
         ? "dlt645-daemon"
         : config_.protocol.type == "local_dio"
             ? "dio-daemon"

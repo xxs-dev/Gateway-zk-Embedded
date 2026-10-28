@@ -790,13 +790,13 @@ std::vector<PointDefinition> effectiveMeterPoints(
     const LogicalDeviceConfig& device,
     std::size_t meterIndex
 ) {
-    if (config.protocol.type != "dlt645_2007") {
+    if (!isDlt645Protocol(config.protocol.type)) {
         return device.points;
     }
     const auto standardPoints = device.points.empty() && !config.protocol.standardPointsFile.empty()
         ? ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile)
         : std::vector<PointDefinition>();
-    return expandDlt645MeterPoints(device, meterIndex, standardPoints);
+    return expandDlt645MeterPoints(config, meterIndex, standardPoints);
 }
 
 std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<DeviceConfig>& deviceConfigs) {

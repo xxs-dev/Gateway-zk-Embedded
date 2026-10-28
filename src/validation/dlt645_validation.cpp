@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
+#include <utility>
 
 namespace edge_gateway {
 
@@ -20,8 +21,16 @@ const char* const kReadDataTypes[] = {
     "dlt645_hex", "dlt645_ascii", "dlt645_datetime", "device_online"
 };
 const char* const kWriteDataTypes[] = {
-    "dlt645_scheduled_control", "dlt645_none", "dlt645_fixed_hex", "dlt645_bcd", "dlt645_uint_le"
+    "dlt645_scheduled_control", "dlt645_remote_control", "dlt645_none", "dlt645_fixed_hex", "dlt645_bcd",
+    "dlt645_uint_le"
 };
+// DL/T 645-2007 only: the vendor trip/close DIs (0601xxxx) and the C=1CH remote control.
+const char* const k2007OnlyWriteDataTypes[] = {"dlt645_scheduled_control", "dlt645_remote_control"};
+const char* const kRemoteControlTypes[] = {
+    "trip", "close_permit", "close", "alarm", "alarm_release", "keep_power", "keep_power_release"
+};
+
+constexpr std::uint64_t kAutoIndexBlock = 10000;
 
 template <std::size_t N>
 bool contains(const char* const (&values)[N], const std::string& value) {
@@ -70,7 +79,7 @@ bool usesBit(const std::string& dataType) {
     return dataType == "dlt645_uint_le" || dataType == "dlt645_bitfield_le";
 }
 
-void validateRead(const PointDefinition& point, const Findings& findings) {
+void validateRead(const PointDefinition& point, Dlt645Version version, const Findings& findings) {
     const bool fatal = point.enabled && point.read.enable;
     const auto& read = point.read;
     if (!isDlt645ReadDataType(read.dataType)) {
@@ -79,8 +88,9 @@ void validateRead(const PointDefinition& point, const Findings& findings) {
         return;
     }
     if (read.dataType == "device_online") return;
-    if (!isHex(read.dlt645Di, 8)) {
-        findings.report(point, fatal, "read.dlt645.di '" + read.dlt645Di + "' must be 8 hex digits (DI3..DI0)");
+    if (!isHex(read.dlt645Di, dlt645DataIdHexLength(version))) {
+        findings.report(point, fatal, "read.dlt645.di '" + read.dlt645Di + "' must be " +
+            (version == Dlt645Version::V1997 ? "4 hex digits (DI1 DI0) for dlt645_1997" : "8 hex digits (DI3..DI0) for dlt645_2007"));
         return;
     }
     if (read.dlt645ByteCount < 0 || read.dlt645ByteCount > 200) {
@@ -115,6 +125,7 @@ void validateRead(const PointDefinition& point, const Findings& findings) {
 void validateWrite(
     const PointDefinition& point,
     const std::vector<PointDefinition>& points,
+    Dlt645Version version,
     const Findings& findings,
     bool templateList
 ) {
@@ -123,17 +134,36 @@ void validateWrite(
     if (!point.enabled) {
         configWarning("point " + point.pointCode + " has write.enable=true but is disabled; it is not writable");
     }
-    if (!isHex(write.dlt645.di, 8)) {
-        findings.report(point, fatal, "write.dlt645.di '" + write.dlt645.di + "' must be 8 hex digits");
-    }
     const auto dataType = dlt645WriteDataType(write);
-    if (!isDlt645WriteDataType(dataType)) {
+    if (!contains(kWriteDataTypes, dataType)) {
         findings.report(point, fatal, "write.dlt645.dataType '" + dataType +
             "' is not a DL/T 645 write type (allowed: " + joined(kWriteDataTypes) + ")");
         return;
     }
+    if (version == Dlt645Version::V1997 && contains(k2007OnlyWriteDataTypes, dataType)) {
+        findings.report(point, fatal, dataType + " is DL/T 645-2007 only (protocol.type is dlt645_1997)");
+        return;
+    }
     const auto byteCount = write.dlt645.byteCount;
-    if (dataType == "dlt645_scheduled_control") {
+    if (dataType == "dlt645_remote_control") {
+        // C=1CH has no DI: N1 comes from controlType.
+        if (!write.dlt645.di.empty() || byteCount != 0) {
+            findings.report(point, fatal, "dlt645_remote_control uses no write.dlt645.di / byteCount");
+        }
+        if (!contains(kRemoteControlTypes, write.dlt645.controlType)) {
+            findings.report(point, fatal, "write.dlt645.controlType '" + write.dlt645.controlType +
+                "' must be one of " + joined(kRemoteControlTypes));
+        }
+        if (write.dlt645.validitySeconds < 10 || write.dlt645.validitySeconds > 86400) {
+            findings.report(point, fatal, "write.dlt645.validitySeconds must be 10..86400");
+        }
+    } else if (!isHex(write.dlt645.di, dlt645DataIdHexLength(version))) {
+        findings.report(point, fatal, "write.dlt645.di '" + write.dlt645.di + "' must be " +
+            std::to_string(dlt645DataIdHexLength(version)) + " hex digits for " + dlt645ProtocolName(version));
+    }
+    if (dataType == "dlt645_remote_control") {
+        // checked above
+    } else if (dataType == "dlt645_scheduled_control") {
         if (byteCount != 2) findings.report(point, fatal, "dlt645_scheduled_control needs write.dlt645.byteCount=2");
         if (write.dlt645.unit != 2 && write.dlt645.unit != 3) {
             findings.report(point, fatal, "dlt645_scheduled_control write.dlt645.unit must be 2 (min) or 3 (h)");
@@ -213,8 +243,9 @@ bool isDlt645ReadDataType(const std::string& dataType) {
     return contains(kReadDataTypes, dataType);
 }
 
-bool isDlt645WriteDataType(const std::string& dataType) {
-    return contains(kWriteDataTypes, dataType);
+bool isDlt645WriteDataType(const std::string& dataType, Dlt645Version version) {
+    return contains(kWriteDataTypes, dataType) &&
+        (version == Dlt645Version::V2007 || !contains(k2007OnlyWriteDataTypes, dataType));
 }
 
 std::string dlt645WriteDataType(const WriteSpec& spec) {
@@ -222,13 +253,20 @@ std::string dlt645WriteDataType(const WriteSpec& spec) {
 }
 
 bool isDlt645SwitchingControl(const WriteSpec& spec) {
-    return dlt645WriteDataType(spec) == "dlt645_scheduled_control";
+    const auto dataType = dlt645WriteDataType(spec);
+    return dataType == "dlt645_scheduled_control" ||
+        (dataType == "dlt645_remote_control" && (spec.dlt645.controlType == "trip" || spec.dlt645.controlType == "close"));
 }
 
 bool isDlt645BlockDataId(const std::string& dataIdHex) {
+    const auto isF = [](char ch) { return ch == 'F' || ch == 'f'; };
+    if (dataIdHex.size() == 4) {
+        // 1997: a trailing F (e.g. 901F, B61F) or an FF byte addresses a block.
+        return isF(dataIdHex[3]) || (isF(dataIdHex[0]) && isF(dataIdHex[1]));
+    }
     if (dataIdHex.size() != 8) return false;
     for (std::size_t i = 0; i < 8; i += 2) {
-        if ((dataIdHex[i] == 'F' || dataIdHex[i] == 'f') && (dataIdHex[i + 1] == 'F' || dataIdHex[i + 1] == 'f')) {
+        if (isF(dataIdHex[i]) && isF(dataIdHex[i + 1])) {
             return true;
         }
     }
@@ -236,7 +274,7 @@ bool isDlt645BlockDataId(const std::string& dataIdHex) {
 }
 
 void validateDlt645PointList(const std::vector<PointDefinition>& points, const std::string& owner,
-                             bool templateList) {
+                             Dlt645Version version, bool templateList) {
     const Findings findings(owner);
     // Several points decoding exactly the same bytes of one DI: on a block DI that is the
     // "Ua/Ub/Uc all show Ua" mistake (missing offsets).
@@ -248,7 +286,7 @@ void validateDlt645PointList(const std::vector<PointDefinition>& points, const s
         }
         const bool readDefined = point.read.enable || !point.read.dlt645Di.empty();
         if (readDefined) {
-            validateRead(point, findings);
+            validateRead(point, version, findings);
             if (point.enabled && point.read.enable && point.read.dataType != "device_online") {
                 const auto key = std::make_tuple(point.read.dlt645Di, point.read.dlt645Offset,
                     point.read.dlt645ByteCount, point.read.bit, point.read.dataType);
@@ -262,12 +300,13 @@ void validateDlt645PointList(const std::vector<PointDefinition>& points, const s
             }
         }
         if (point.write.enable) {
-            validateWrite(point, points, findings, templateList);
+            validateWrite(point, points, version, findings, templateList);
         }
     }
 }
 
 void validateDlt645DeviceConfig(const DeviceConfig& config) {
+    const auto version = dlt645VersionOf(config.protocol.type);
     const auto& transport = config.protocol.transport;
     if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
         throw std::invalid_argument("protocol.transport.wakeupBytes must be 0..16");
@@ -275,6 +314,14 @@ void validateDlt645DeviceConfig(const DeviceConfig& config) {
     // Password/operator code format (8 hex digits, PA P0 P1 P2 / C0..C3) is checked by the parser.
     // The vendor's level-0 factory code 00000000 is a valid site password and is not refused.
     const auto& write = config.protocol.dlt645.write;
+    if (version == Dlt645Version::V1997 && !write.operatorCode.empty()) {
+        configWarning("dlt645.write.operatorCode is not used by DL/T 645-1997 writes");
+    }
+    const auto& timeSync = config.protocol.dlt645.timeSync;
+    if (timeSync.enabled && (timeSync.intervalMs < 3600000 || timeSync.intervalMs > 604800000)) {
+        // Meters accept one broadcast time sync per day; more often only adds bus traffic.
+        throw std::invalid_argument("dlt645.timeSync.intervalMs must be 3600000..604800000 (1 h .. 7 d)");
+    }
     const auto checkAddress = [](const std::string& owner, const std::string& address) {
         std::string normalized;
         try {
@@ -290,16 +337,42 @@ void validateDlt645DeviceConfig(const DeviceConfig& config) {
 
     bool anyWritablePoint = false;
     const auto inspect = [&](const std::vector<PointDefinition>& points, const std::string& owner) {
-        validateDlt645PointList(points, owner);
+        validateDlt645PointList(points, owner, version);
         for (const auto& point : points) {
             anyWritablePoint = anyWritablePoint || (point.enabled && point.write.enable);
         }
     };
 
+    // Auto-expanded meters (no points[]) own autoIndexBase + meter*10000 .. +9999.
+    const std::uint64_t base = config.protocol.dlt645.autoIndexBase;
+    std::vector<std::pair<std::uint64_t, std::string>> autoRanges;
+    for (std::size_t i = 0; i < config.meters.size(); ++i) {
+        if (!config.meters[i].points.empty()) continue;
+        const auto first = base + static_cast<std::uint64_t>(i) * kAutoIndexBlock;
+        if (first + kAutoIndexBlock - 1U > 0xFFFFFFFFULL) {
+            throw std::invalid_argument("dlt645.autoIndexBase " + std::to_string(base) + ": meter " +
+                config.meters[i].meterCode + " would get indexes beyond 4294967295");
+        }
+        autoRanges.emplace_back(first, config.meters[i].meterCode);
+    }
+    const auto checkExplicitIndexes = [&](const std::vector<PointDefinition>& points, const std::string& owner) {
+        for (const auto& point : points) {
+            for (const auto& range : autoRanges) {
+                if (point.index >= range.first && point.index < range.first + kAutoIndexBlock) {
+                    throw std::invalid_argument(owner + " point " + point.pointCode + " index " +
+                        std::to_string(point.index) + " lies in the auto-index block of meter " + range.second +
+                        " (" + std::to_string(range.first) + ".." + std::to_string(range.first + kAutoIndexBlock - 1U) +
+                        "); change dlt645.autoIndexBase or the index");
+                }
+            }
+        }
+    };
+
     std::set<std::string> addresses;
     for (const auto& meter : config.meters) {
-        if (!meter.enabled) continue;
         const auto owner = "meter " + meter.meterCode;
+        checkExplicitIndexes(meter.points, owner);
+        if (!meter.enabled) continue;
         const auto normalized = checkAddress(owner, meter.address);
         if (!addresses.insert(normalized).second) {
             throw std::invalid_argument(owner + " address " + normalized + " is used by another meter on this bus");
@@ -307,6 +380,7 @@ void validateDlt645DeviceConfig(const DeviceConfig& config) {
         inspect(meter.points, owner);
     }
     if (!config.points.empty()) {
+        checkExplicitIndexes(config.points, "device " + config.meterCode);
         if (!config.address.empty()) checkAddress("device " + config.meterCode, config.address);
         inspect(config.points, "device " + config.meterCode);
     }
@@ -316,15 +390,30 @@ void validateDlt645DeviceConfig(const DeviceConfig& config) {
 }
 
 std::vector<PointDefinition> expandDlt645MeterPoints(
-    const LogicalDeviceConfig& meter,
+    const DeviceConfig& config,
     std::size_t meterIndex,
     const std::vector<PointDefinition>& standardPoints
 ) {
+    const auto version = dlt645VersionOf(config.protocol.type);
+    const auto& meter = config.meters.at(meterIndex);
     auto points = meter.points.empty() ? standardPoints : meter.points;
     if (meter.points.empty()) {
-        const auto indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
+        for (const auto& point : points) {
+            if (!point.read.dlt645Di.empty() && point.read.dlt645Di.size() != dlt645DataIdHexLength(version)) {
+                throw std::invalid_argument("meter " + meter.meterCode + ": standard points file " +
+                    config.protocol.standardPointsFile + " does not match protocol.type " + config.protocol.type);
+            }
+        }
+        if (points.size() > kAutoIndexBlock) {
+            throw std::invalid_argument("DL/T 645 standard template has more than 10000 points");
+        }
+        const auto indexBase = static_cast<std::uint64_t>(config.protocol.dlt645.autoIndexBase) +
+            static_cast<std::uint64_t>(meterIndex) * kAutoIndexBlock;
+        if (indexBase + kAutoIndexBlock - 1U > 0xFFFFFFFFULL) {
+            throw std::invalid_argument("dlt645.autoIndexBase leaves no index block for meter " + meter.meterCode);
+        }
         for (std::size_t i = 0; i < points.size(); ++i) {
-            points[i].index = indexBase + static_cast<std::uint32_t>(i);
+            points[i].index = static_cast<std::uint32_t>(indexBase + i);
         }
     }
     if (meter.positionReadBackIndex != 0) {

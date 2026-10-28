@@ -64,6 +64,7 @@ add_library(edge_gateway
     src/dlt645_collector.cpp
     src/dlt645_codec.cpp
     src/dlt645_mock_serial_port.cpp
+    src/dlt645_time_sync.cpp
     src/dlt645_standard_points_loader.cpp
     src/event_engine_service.cpp
     src/event_commit_status.cpp
@@ -526,7 +527,8 @@ foreach(driver_review_modbus_test
     target_compile_options(${driver_review_modbus_test} PRIVATE -fdiagnostics-color=never)
 endforeach()
 # driver-review: dlt645
-foreach(dlt645_review_test dlt645_codec_test dlt645_link_test dlt645_collector_schedule_test dlt645_config_test)
+foreach(dlt645_review_test dlt645_codec_test dlt645_link_test dlt645_collector_schedule_test dlt645_config_test
+        dlt645_extensions_test)
     add_executable(${dlt645_review_test} tools/${dlt645_review_test}.cpp)
     target_link_libraries(${dlt645_review_test} PRIVATE edge_gateway)
     target_compile_options(${dlt645_review_test} PRIVATE -fdiagnostics-color=never)
@@ -942,6 +944,7 @@ if(BUILD_TESTING)
     add_test(NAME dlt645_link COMMAND dlt645_link_test)
     add_test(NAME dlt645_collector_schedule COMMAND dlt645_collector_schedule_test ${CMAKE_SOURCE_DIR})
     add_test(NAME dlt645_config COMMAND dlt645_config_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME dlt645_extensions COMMAND dlt645_extensions_test)
     # driver-review: iec
     add_test(NAME iec_ft12_link COMMAND iec_ft12_link_test)
     add_test(NAME iec104_semantics COMMAND iec104_semantics_test)
