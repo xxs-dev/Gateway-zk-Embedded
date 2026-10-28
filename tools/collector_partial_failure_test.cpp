@@ -31,6 +31,14 @@ public:
     std::int64_t clockMs = 0;
     int readDelayMs = 0;
     int minimumRequestGapMs = 0;
+    // Reported (not enforced) per-slave frame interval, like ModbusRtuClient::requestReadyInMs.
+    int frameIntervalMs = 0;
+    std::map<int, std::int64_t> lastStartBySlave;
+    int requestReadyInMs(int slave) const override {
+        const auto last = lastStartBySlave.find(slave);
+        if (frameIntervalMs <= 0 || last == lastStartBySlave.end()) return 0;
+        return static_cast<int>(std::max<std::int64_t>(0, last->second + frameIntervalMs - clockMs));
+    }
     std::int64_t lastRequestStartMs = -1;
     std::vector<std::pair<int, std::int64_t>> completedReads;
     std::vector<std::uint16_t> readCoils(int slave, int start, int count) override {
@@ -100,12 +108,13 @@ public:
 
 private:
     std::vector<std::uint16_t> readRange(int slave, int start, int count) {
-        require(slave == 1, "unexpected slave");
+        require(slave >= 1 && slave <= 2, "unexpected slave");
         ++readCounts_[start];
         if (lastRequestStartMs >= 0) {
             clockMs = std::max(clockMs, lastRequestStartMs + minimumRequestGapMs);
         }
         lastRequestStartMs = clockMs;
+        lastStartBySlave[slave] = clockMs;
         clockMs += readDelayMs;
         completedReads.emplace_back(start, clockMs);
         const auto key = std::make_pair(start, count);
@@ -141,9 +150,10 @@ class TestCollector : public edge_gateway::Collector {
 public:
     TestCollector(edge_gateway::DeviceConfig config, edge_gateway::MemoryPointStore& store,
                   const std::shared_ptr<FakeModbusClient>& client,
-                  std::shared_ptr<edge_gateway::IMqttPublisher> publisher = nullptr)
+                  std::shared_ptr<edge_gateway::IMqttPublisher> publisher = nullptr,
+                  std::shared_ptr<edge_gateway::ModbusLineSchedule> line = nullptr)
         : Collector(std::move(config), store, client, std::move(publisher),
-                    [client] { return client->clockMs; }) {}
+                    [client] { return client->clockMs; }, std::move(line)) {}
 };
 
 class ThrowingMqttPublisher : public edge_gateway::IMqttPublisher {
@@ -859,20 +869,23 @@ void verifyNoResponseParentTaskDoesNotSplitBeforeBudget() {
     cleanupStore(storeName);
 }
 
-void verifyBackgroundPointsKeepTheirOwnBlocks() {
+void verifyBackgroundJoinsRealtimeReadOnlyWhenBothRun() {
     const std::string storeName = "gateway_collector_base_priority_budget_test";
     cleanupStore(storeName);
     {
         auto config = buildConfig(storeName);
         config.collect.maxBatchRegisters = 8;
         config.collect.maxTasksPerMeterPerCycle = 2;
+        auto slow3 = lowPriorityPoint(500004, "low_priority_register_3", 3);
+        auto slow4 = lowPriorityPoint(500005, "low_priority_register_4", 4);
+        slow3.read.intervalMs = slow4.read.intervalMs = 1000;
         config.points = {
             onlinePoint(),
             registerPoint(500001, "base_register_0", 0),
             registerPoint(500002, "base_register_1", 1),
             registerPoint(500003, "base_register_2", 2),
-            lowPriorityPoint(500004, "low_priority_register_3", 3),
-            lowPriorityPoint(500005, "low_priority_register_4", 4)
+            slow3,
+            slow4
         };
 
         edge_gateway::MemoryPointStore store(config.memoryStore);
@@ -883,11 +896,14 @@ void verifyBackgroundPointsKeepTheirOwnBlocks() {
 
         TestCollector collector(config, store, client);
         auto collected = collector.collectOnce(6400);
-        require(collected.executedTasks.size() == 2, "the turn should read the realtime block, then the idle-time background block");
-        require(collected.executedTasks[0].start == 0 && collected.executedTasks[0].count == 3,
-            "realtime points are read first and background registers do not widen their block");
-        require(collected.executedTasks[1].start == 3 && collected.executedTasks[1].count == 2,
-            "background points form their own block");
+        require(collected.executedTasks.size() == 1 && collected.executedTasks[0].start == 0 &&
+                collected.executedTasks[0].count == 5,
+            "background points that run in the same turn share the realtime read");
+        require(collected.values.size() == 5 && collected.values.back().value == 14.0, "shared read decoded wrong offsets");
+
+        collected = collector.collectOnce(6500);
+        require(collected.executedTasks.size() == 1 && collected.executedTasks[0].count == 3,
+            "a background point that is not due must not widen the realtime read");
     }
     cleanupStore(storeName);
 }
@@ -1374,7 +1390,8 @@ void verifyBackgroundYieldsWhenRealtimeBecomesDue() {
         auto config = buildConfig(storeName);
         config.points.clear();
         config.collect.maxTasksPerMeterPerCycle = 32;
-        config.collect.backgroundTaskIntervalMs = 0;
+        // Background runs here only because realtime is idle; keep the starvation guard out of the way.
+        config.collect.backgroundTaskIntervalMs = 60000;
         for (int i = 0; i < 33; ++i) {
             auto point = registerPoint(500001 + i, "mid_batch_" + std::to_string(i), i);
             point.read.intervalMs = 1000;
@@ -1595,6 +1612,149 @@ void verifyEarliestDeadlineFirst() {
         const auto next = collector.collectOnce(2000);
         require(next.executedTasks.size() == 1 && next.executedTasks[0].start == 0,
                 "left-over due work must run on the next turn");
+    }
+    cleanupStore(name);
+}
+
+// A slave with frameIntervalMs serves one request per turn: the background share must open the turn,
+// otherwise it is never reached (found with the factory ttySP1 config: background never refreshed).
+void verifyBackgroundShareWithFrameInterval() {
+    const std::string name = "gateway_collector_background_share_frame_test";
+    cleanupStore(name);
+    {
+        auto config = buildConfig(name);
+        config.collect.maxBatchRegisters = 1;
+        config.collect.backgroundTaskIntervalMs = 1000;
+        config.points = {onlinePoint()};
+        for (int i = 0; i < 4; ++i) {
+            config.points.push_back(registerPoint(500001 + i, "rt_" + std::to_string(i), i * 2));
+        }
+        auto background = lowPriorityPoint(500100, "bg", 100);
+        background.read.intervalMs = 1000;
+        config.points.push_back(background);
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 10;
+        client->frameIntervalMs = 60;
+        TestCollector collector(config, store, client);
+        while (client->clockMs < 10000) {
+            const auto result = collector.collectOnce(1000 + client->clockMs);
+            client->clockMs += result.nextDelayMs > 0 ? result.nextDelayMs : 1;
+        }
+        require(client->readCount(100) >= 8, "background starved behind a busy frame-limited slave: " +
+                std::to_string(client->readCount(100)) + " reads in 10 s");
+        require(client->readCount(0) >= 25, "realtime reads collapsed while serving the background share");
+    }
+    cleanupStore(name);
+}
+
+// Background points of one meter yield to realtime points of the other meters on the same line
+// (factory ttySP1: per-meter idle time let background reads take a third of an overloaded line).
+void verifyBackgroundYieldsToRealtimeOfOtherMeters() {
+    const std::string name = "gateway_collector_line_schedule_test";
+    cleanupStore(name);
+    {
+        auto realtimeConfig = buildConfig(name);
+        // Three separate realtime requests per 100 ms but one request per turn: always behind.
+        realtimeConfig.collect.maxTasksPerMeterPerCycle = 1;
+        realtimeConfig.points = {onlinePoint(), registerPoint(500001, "rt_0", 0), registerPoint(500003, "rt_2", 2),
+                                 registerPoint(500005, "rt_4", 4)};
+        auto backgroundConfig = buildConfig(name);
+        backgroundConfig.meterCode = "METER_2";
+        backgroundConfig.collect.backgroundTaskIntervalMs = 1000;
+        auto background = lowPriorityPoint(500002, "bg", 10);
+        backgroundConfig.points = {background};
+        backgroundConfig.memoryStore = realtimeConfig.memoryStore;
+        edge_gateway::MemoryPointStore store(realtimeConfig.memoryStore);
+        auto line = std::make_shared<edge_gateway::ModbusLineSchedule>();
+        auto realtimeClient = std::make_shared<FakeModbusClient>();
+        auto backgroundClient = std::make_shared<FakeModbusClient>();
+        TestCollector realtimeMeter(realtimeConfig, store, realtimeClient, nullptr, line);
+        TestCollector backgroundMeter(backgroundConfig, store, backgroundClient, nullptr, line);
+        for (std::int64_t now = 1000; now < 4000; now += 100) {
+            realtimeMeter.collectOnce(now);
+            backgroundMeter.collectOnce(now);
+        }
+        const auto sharedReads = backgroundClient->readCount(10);
+        require(sharedReads >= 2 && sharedReads <= 4,
+                "while another meter has realtime work, background reads run only as the share: " +
+                std::to_string(sharedReads));
+
+        // The realtime meter's slave waits for its frameIntervalMs most of the time: the line is free.
+        auto frameLine = std::make_shared<edge_gateway::ModbusLineSchedule>();
+        auto sharedClient = std::make_shared<FakeModbusClient>();
+        sharedClient->frameIntervalMs = 300;
+        sharedClient->readDelayMs = 10;
+        auto frameBackgroundConfig = backgroundConfig;
+        frameBackgroundConfig.protocol.slave = 2;
+        TestCollector frameRealtime(realtimeConfig, store, sharedClient, nullptr, frameLine);
+        TestCollector frameBackground(frameBackgroundConfig, store, sharedClient, nullptr, frameLine);
+        while (sharedClient->clockMs < 3000) {
+            const auto a = frameRealtime.collectOnce(1000 + sharedClient->clockMs);
+            const auto b = frameBackground.collectOnce(1000 + sharedClient->clockMs);
+            int step = 1;
+            for (const auto delay : {a.nextDelayMs, b.nextDelayMs}) {
+                if (delay > 0) step = step == 1 ? delay : std::min(step, delay);
+            }
+            sharedClient->clockMs += step;
+        }
+        require(sharedClient->readCount(10) >= 7,
+                "a realtime slave waiting for its frame interval must leave the line to background reads: " +
+                std::to_string(sharedClient->readCount(10)));
+
+        auto idleLine = std::make_shared<edge_gateway::ModbusLineSchedule>();
+        auto idleClient = std::make_shared<FakeModbusClient>();
+        TestCollector aloneMeter(backgroundConfig, store, idleClient, nullptr, idleLine);
+        for (std::int64_t now = 1000; now < 4000; now += 100) {
+            aloneMeter.collectOnce(now);
+        }
+        require(idleClient->readCount(10) >= 25, "on an idle line background points must follow their interval");
+    }
+    cleanupStore(name);
+}
+
+// Review finding: on a shared line the 500 ms grid meter refreshed every 3.0 s while the 1000 ms
+// storage meter refreshed every 1.5 s. Meters now give way to more overdue realtime work on the line.
+void verifyEarliestDeadlineFirstAcrossMeters() {
+    const std::string name = "gateway_collector_line_edf_test";
+    cleanupStore(name);
+    {
+        auto fastConfig = buildConfig(name);
+        fastConfig.collect.maxTasksPerMeterPerCycle = 1;
+        fastConfig.points = {onlinePoint()};
+        auto slowConfig = fastConfig;
+        slowConfig.meterCode = "METER_2";
+        slowConfig.protocol.slave = 2;
+        for (int i = 0; i < 6; ++i) {
+            auto fast = registerPoint(500001 + i, "fast_" + std::to_string(i), i * 2);
+            fast.read.intervalMs = 100;
+            fastConfig.points.push_back(fast);
+            auto slow = registerPoint(500101 + i, "slow_" + std::to_string(i), 100 + i * 2);
+            slow.read.intervalMs = 300;
+            slowConfig.points.push_back(slow);
+        }
+        slowConfig.points.front().index = 500200;
+        edge_gateway::MemoryPointStore store(fastConfig.memoryStore);
+        auto line = std::make_shared<edge_gateway::ModbusLineSchedule>();
+        auto client = std::make_shared<FakeModbusClient>();
+        client->readDelayMs = 40;  // 25 requests/s for 60/s + 20/s of demand
+        TestCollector fastMeter(fastConfig, store, client, nullptr, line);
+        TestCollector slowMeter(slowConfig, store, client, nullptr, line);
+        while (client->clockMs < 20000) {
+            const auto slow = slowMeter.collectOnce(1000 + client->clockMs);
+            const auto fast = fastMeter.collectOnce(1000 + client->clockMs);
+            client->clockMs += (slow.workDeferred || fast.workDeferred) ? 1
+                : std::max(1, std::min(slow.nextDelayMs > 0 ? slow.nextDelayMs : 20, fast.nextDelayMs > 0 ? fast.nextDelayMs : 20));
+        }
+        int fastReads = 0;
+        int slowReads = 0;
+        for (int i = 0; i < 6; ++i) {
+            fastReads += client->readCount(i * 2);
+            slowReads += client->readCount(100 + i * 2);
+        }
+        // Equal turns gave both meters the same reads; deadlines give the 100 ms meter clearly more.
+        require(fastReads > slowReads * 13 / 10, "earliest deadline first across meters: fast=" +
+                std::to_string(fastReads) + " slow=" + std::to_string(slowReads));
     }
     cleanupStore(name);
 }
@@ -1853,6 +2013,9 @@ int main() {
         verifyMergeBoundariesAndFailureIsolation();
         verifyEarliestDeadlineFirst();
         verifyBackgroundShareWhileRealtimeOverloaded();
+        verifyBackgroundShareWithFrameInterval();
+        verifyBackgroundYieldsToRealtimeOfOtherMeters();
+        verifyEarliestDeadlineFirstAcrossMeters();
         verifySlowRequestsYieldAndRotateWithoutStarvation(false);
         verifySlowRequestsYieldAndRotateWithoutStarvation(true);
         verifyBackgroundYieldsWhenRealtimeBecomesDue();
@@ -1879,7 +2042,7 @@ int main() {
         verifyMeterTaskBudgetDefersBackedOffTasks();
         verifyBackedOffParentTaskSplitsBeforeBudget();
         verifyNoResponseParentTaskDoesNotSplitBeforeBudget();
-        verifyBackgroundPointsKeepTheirOwnBlocks();
+        verifyBackgroundJoinsRealtimeReadOnlyWhenBothRun();
         verifyLowPriorityTasksGetPeriodicBudgetSlot();
         verifyRealtimeFocusedRaisesTaskBudgetAndBackgroundSlot();
         verifyRealtimeFocusedRespectsSlowIntervalPoints();

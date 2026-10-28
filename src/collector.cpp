@@ -9,6 +9,7 @@
 #include <numeric>
 #include <set>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
 #include <stdexcept>
 
@@ -61,15 +62,48 @@ bool rangeCovers(int outerStart, int outerCount, int innerStart, int innerCount)
 
 }  // namespace
 
+void ModbusLineSchedule::update(const void* collector, int slave, std::int64_t realtimeDueMs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& entry = entries_[collector];
+    entry.slave = slave;
+    entry.realtimeDueMs = realtimeDueMs;
+}
+
+bool ModbusLineSchedule::realtimeWaitingElsewhere(
+    const void* collector, std::int64_t nowMs, const IModbusClient& client) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& entry : entries_) {
+        if (entry.first != collector && entry.second.realtimeDueMs <= nowMs &&
+            client.requestReadyInMs(entry.second.slave) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ModbusLineSchedule::earlierRealtimeElsewhere(
+    const void* collector, std::int64_t dueMs, std::int64_t nowMs, const IModbusClient& client) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& entry : entries_) {
+        if (entry.first != collector && entry.second.realtimeDueMs < dueMs && entry.second.realtimeDueMs <= nowMs &&
+            client.requestReadyInMs(entry.second.slave) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Collector::Collector(
     DeviceConfig config,
     MemoryPointStore& store,
     std::shared_ptr<IModbusClient> modbusClient,
     std::shared_ptr<IMqttPublisher> mqttPublisher,
-    std::function<std::int64_t()> monotonicClockMs
+    std::function<std::int64_t()> monotonicClockMs,
+    std::shared_ptr<ModbusLineSchedule> lineSchedule
 ) : CollectorBase(std::move(config), store, std::move(mqttPublisher)),
     modbusClient_(std::move(modbusClient)),
-    monotonicClockMs_(std::move(monotonicClockMs)) {
+    monotonicClockMs_(std::move(monotonicClockMs)),
+    lineSchedule_(std::move(lineSchedule)) {
     if (!modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
     }
@@ -135,6 +169,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     };
     ++collectCycle_;
     if (shouldSkipForBackoff(nowMs)) {
+        if (lineSchedule_) lineSchedule_->update(this, slave, std::numeric_limits<std::int64_t>::max());
         return result;
     }
     // Every point is due on its own intervalMs, counted from the completion of its last read.
@@ -148,6 +183,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         if (last != lastReadMs_.end() && nowMs - last->second < effectiveIntervalMs(point)) continue;
         (pointPriority(point) == 0 ? realtimePoints : backgroundPoints).push_back(&point);
     }
+
     auto tasks = ReadTaskPlanner::buildSorted(
         realtimePoints,
         config_.collect.maxBatchRegisters,
@@ -216,21 +252,31 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     auto turnQuantum = static_cast<std::size_t>(std::max(1,
         realtimeFocused ? config_.collect.realtimeMaxTasksPerMeterPerCycle
                         : config_.collect.maxTasksPerMeterPerCycle));
-    // Background share: realtime reads go first, but while they keep the meter busy a turn still adds
-    // one background read per backgroundTaskIntervalMs, so lower priorities are never starved.
+    // Background points (collectPriority > 0) use idle line time: they run after this meter's realtime
+    // reads only while no other meter on the line has realtime work. While realtime work is pending
+    // they still get one read per backgroundTaskIntervalMs (the share) so they are never starved; the
+    // share opens the turn because a slave with frameIntervalMs serves one request per turn.
     if (lastBackgroundRequestMs_ < 0) {
         lastBackgroundRequestMs_ = nowMs;
     }
-    if (plannedTasks.size() > 1 && taskPriority(plannedTasks.front()) == 0 &&
-        nowMs - lastBackgroundRequestMs_ >= std::max(0, config_.collect.backgroundTaskIntervalMs)) {
+    const bool realtimeFirst = !plannedTasks.empty() && taskPriority(plannedTasks.front()) == 0;
+    const bool lineBusy = lineSchedule_ && lineSchedule_->realtimeWaitingElsewhere(this, nowMs, *modbusClient_);
+    if (realtimeFirst || lineBusy) {
         const auto background = std::find_if(plannedTasks.begin(), plannedTasks.end(), [&](const ReadTask& task) {
             return taskPriority(task) > 0 && !shouldSkipTaskForBackoff(task, nowMs, realtimeFocused);
         });
-        if (background != plannedTasks.end()) {
-            std::rotate(plannedTasks.begin() + 1, background, background + 1);
+        const bool share = background != plannedTasks.end() &&
+            nowMs - lastBackgroundRequestMs_ >= std::max(0, config_.collect.backgroundTaskIntervalMs);
+        if (share) {
+            std::rotate(plannedTasks.begin(), background, background + 1);
             ++turnQuantum;
         }
+        if (lineBusy) {
+            plannedTasks.erase(std::remove_if(plannedTasks.begin() + (share ? 1 : 0), plannedTasks.end(),
+                [this](const ReadTask& task) { return taskPriority(task) > 0; }), plannedTasks.end());
+        }
     }
+    coalesceTurnTasks(plannedTasks, std::min(plannedTasks.size(), turnQuantum), nowMs, realtimeFocused);
 
     int skippedTasks = 0;
     // Set when the turn stopped in the middle of its work (time slice, realtime preemption, busy
@@ -404,6 +450,13 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         return true;
     };
 
+    // Points of backed-off tasks cannot be read now; they must not make other meters wait.
+    std::unordered_set<std::uint32_t> heldPoints;
+    for (const auto& task : plannedTasks) {
+        if (shouldSkipTaskForBackoff(task, nowMs, realtimeFocused)) {
+            for (const auto& point : task.points) heldPoints.insert(point.definition.index);
+        }
+    }
     std::size_t turnsUsed = 0;
     for (const auto& task : plannedTasks) {
         if (turnsUsed >= turnQuantum) {
@@ -411,6 +464,15 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             if (!shouldSkipTaskForBackoff(task, nowMs, realtimeFocused)) {
                 result.workDeferred = true;
             }
+            break;
+        }
+        // Earliest deadline first across the line: give way to a meter whose realtime work is more
+        // overdue (a meter watched through the realtime lease keeps its turn).
+        if (lineSchedule_ && !realtimeFocused && taskPriority(task) == 0 &&
+            !shouldSkipTaskForBackoff(task, nowMs, realtimeFocused) &&
+            lineSchedule_->earlierRealtimeElsewhere(this, taskDueMs(task), schedulingNowMs(), *modbusClient_)) {
+            result.workDeferred = true;
+            turnInterrupted = true;
             break;
         }
         const auto executedBefore = result.executedTasks.size();
@@ -432,6 +494,12 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             result.nextDelayMs = result.nextDelayMs > 0
                 ? std::min(result.nextDelayMs, static_cast<int>(delay)) : static_cast<int>(delay);
         }
+    }
+
+    if (lineSchedule_) {
+        // A meter that is not online is only probed; it must not hold back the line's background reads.
+        lineSchedule_->update(this, slave,
+            online_ ? earliestRealtimeDueMs(heldPoints) : std::numeric_limits<std::int64_t>::max());
     }
 
     if (result.executedTasks.empty() && skippedTasks > 0) {
@@ -818,6 +886,59 @@ std::vector<ReadTask> Collector::orderTasksByDeadline(
         ordered.push_back(std::move(tasks[std::get<3>(rank)]));
     }
     return ordered;
+}
+
+void Collector::coalesceTurnTasks(
+    std::vector<ReadTask>& tasks,
+    std::size_t turnSize,
+    std::int64_t nowMs,
+    bool realtimeFocused
+) const {
+    // Requests that run in this turn anyway (e.g. the background share next to a realtime block) are
+    // read as one request when adjacent: one round trip, and with frameIntervalMs one turn serves both.
+    // While a range is failing (backoff / adaptive split) keep requests as planned: merging split
+    // leaves would recreate the rejected range.
+    if (!config_.collect.batchOptimize || !taskFailureStates_.empty()) {
+        return;
+    }
+    const auto gap = std::max(0, config_.collect.maxGapRegisters);
+    const auto maxRegisters = std::max(1, config_.collect.maxBatchRegisters);
+    for (std::size_t i = 0; i < turnSize && i < tasks.size(); ++i) {
+        if (shouldSkipTaskForBackoff(tasks[i], nowMs, realtimeFocused)) continue;
+        for (std::size_t j = i + 1; j < turnSize && j < tasks.size();) {
+            auto& base = tasks[i];
+            const auto& other = tasks[j];
+            const auto start = std::min(base.start, other.start);
+            const auto end = std::max(base.start + base.count, other.start + other.count);
+            const bool mergeable = base.function == other.function &&
+                !shouldSkipTaskForBackoff(other, nowMs, realtimeFocused) &&
+                other.start <= base.start + base.count + gap && base.start <= other.start + other.count + gap &&
+                end - start <= maxRegisters;
+            if (!mergeable) {
+                ++j;
+                continue;
+            }
+            base.points.insert(base.points.end(), other.points.begin(), other.points.end());
+            base.start = start;
+            base.count = end - start;
+            for (auto& point : base.points) point.offset = point.definition.address - start;
+            tasks.erase(tasks.begin() + static_cast<std::ptrdiff_t>(j));
+            --turnSize;
+            j = i + 1;
+        }
+    }
+}
+
+std::int64_t Collector::earliestRealtimeDueMs(const std::unordered_set<std::uint32_t>& heldPoints) const {
+    std::int64_t due = std::numeric_limits<std::int64_t>::max();
+    for (const auto index : readablePointOrder_) {
+        const auto& point = config_.points[index];
+        if (pointPriority(point) != 0 || heldPoints.count(point.index) != 0) continue;
+        const auto last = lastReadMs_.find(point.index);
+        if (last == lastReadMs_.end()) return std::numeric_limits<std::int64_t>::min();
+        due = std::min(due, last->second + effectiveIntervalMs(point));
+    }
+    return due;
 }
 
 std::int64_t Collector::taskDueMs(const ReadTask& task) const {

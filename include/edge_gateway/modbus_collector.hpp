@@ -3,14 +3,40 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "edge_gateway/common/collector_base.hpp"
 #include "edge_gateway/modbus_error.hpp"
 
 namespace edge_gateway {
+
+// Shared by the collectors of one Modbus line (one daemon): background points of a meter yield to the
+// realtime points of every meter on the line, not only to its own.
+class ModbusLineSchedule {
+public:
+    // Earliest due time of the meter's realtime points; INT64_MAX when it has none or is not
+    // collecting (offline, backed off).
+    void update(const void* collector, int slave, std::int64_t realtimeDueMs);
+    // True when another meter has realtime work due at nowMs whose slave can take a request now
+    // (a slave waiting for its frameIntervalMs leaves the line free).
+    bool realtimeWaitingElsewhere(const void* collector, std::int64_t nowMs, const IModbusClient& client) const;
+    // True when another meter has realtime work due before dueMs (and due at nowMs) whose slave can take a
+    // request now: earliest deadline first across the meters of the line.
+    bool earlierRealtimeElsewhere(const void* collector, std::int64_t dueMs, std::int64_t nowMs,
+                                  const IModbusClient& client) const;
+
+private:
+    struct Entry {
+        int slave = 0;
+        std::int64_t realtimeDueMs = 0;
+    };
+    mutable std::mutex mutex_;
+    std::unordered_map<const void*, Entry> entries_;
+};
 
 // Historical class name kept so existing tests/tools that instantiate
 // Collector continue to mean "Modbus collector".
@@ -21,7 +47,8 @@ public:
         MemoryPointStore& store,
         std::shared_ptr<IModbusClient> modbusClient,
         std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
-        std::function<std::int64_t()> monotonicClockMs = {}
+        std::function<std::int64_t()> monotonicClockMs = {},
+        std::shared_ptr<ModbusLineSchedule> lineSchedule = nullptr
     );
 
     CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
@@ -65,6 +92,14 @@ private:
         std::int64_t nowMs,
         bool realtimeFocused
     ) const;
+    void coalesceTurnTasks(
+        std::vector<ReadTask>& tasks,
+        std::size_t turnSize,
+        std::int64_t nowMs,
+        bool realtimeFocused
+    ) const;
+    // Earliest due time of the realtime points that can be read now (points of backed-off tasks excluded).
+    std::int64_t earliestRealtimeDueMs(const std::unordered_set<std::uint32_t>& heldPoints) const;
     // Earliest due time of the task's points (lastRead + interval); minimum for never-read points.
     std::int64_t taskDueMs(const ReadTask& task) const;
     std::int64_t taskOldestValueUpdateMs(const ReadTask& task) const;
@@ -77,6 +112,7 @@ private:
 
     std::shared_ptr<IModbusClient> modbusClient_;
     std::function<std::int64_t()> monotonicClockMs_;
+    std::shared_ptr<ModbusLineSchedule> lineSchedule_;
     // Shortened to the fastest point interval; a single in-flight request may overrun.
     int timeSliceMs_ = 1000;
     std::vector<std::size_t> readablePointOrder_;
