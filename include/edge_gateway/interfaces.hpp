@@ -66,6 +66,13 @@ public:
         setDirection(gpio, "out");
         writeValue(gpio, initialHigh);
     }
+    // Make gpio an output at initialHigh only if it is not an output yet; an existing output keeps
+    // its level. Returns true when the pin was changed. Default (direction unknown): no change.
+    virtual bool ensureOutput(int gpio, bool initialHigh) {
+        (void)gpio;
+        (void)initialHigh;
+        return false;
+    }
 };
 
 class IMqttPublisher {

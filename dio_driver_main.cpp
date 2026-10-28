@@ -118,6 +118,14 @@ int main(int argc, char* argv[]) {
     // A peer resetting a TCP connection must fail the send, not kill the driver.
     std::signal(SIGPIPE, SIG_IGN);
 #endif
+    // Every DO starts as an output in a defined state (write.startupValue, default inactive) before
+    // collection reports it or a write is executed. Not done for --once, which must not disturb a
+    // running driver. On exit the outputs are left as they are.
+    const auto startupFailures = applyDioStartupOutputs(config, *gpioPort);
+    if (!startupFailures.empty()) {
+        std::cerr << "dio driver: " << startupFailures.size()
+                  << " DO point(s) not set to their startup state; retried by collection" << std::endl;
+    }
     daemon.start();
     const auto runtimeMeterCount = config.meters.empty() ? 1 : config.meters.size();
     std::cout << "dio driver started"

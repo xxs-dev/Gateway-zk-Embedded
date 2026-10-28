@@ -21,13 +21,15 @@ public:
     CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
 
 private:
-    PointValue collectLocalDioPoint(const PointDefinition& point, std::int64_t nowMs);
+    // wallMs timestamps the value; debouncing runs on the steady clock so a wall-clock step cannot
+    // hold back (or prematurely accept) an input change.
+    PointValue collectLocalDioPoint(const PointDefinition& point, std::int64_t wallMs, std::int64_t monoMs);
 
     std::shared_ptr<IGpioPort> gpioPort_;
     std::unordered_set<int> initializedReadGpios_;
     std::unordered_map<std::uint32_t, double> lastDioRawValues_;
     std::unordered_map<std::uint32_t, double> lastDioStableValues_;
-    std::unordered_map<std::uint32_t, std::int64_t> lastDioRawChangeMs_;
+    std::unordered_map<std::uint32_t, std::int64_t> lastDioRawChangeMonoMs_;
 };
 
 }  // namespace edge_gateway
