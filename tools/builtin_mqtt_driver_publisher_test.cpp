@@ -1,5 +1,6 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/event_store_clock.hpp"
+#include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -2014,6 +2015,128 @@ void testRealtimeLegacyEscapingAndTxOnlyIsolation() {
 
 }  // namespace
 
+
+// Regression: reply JSON copied control characters raw (invalid JSON for any strict parser).
+void testCommandReplyJsonEscapesControlCharacters() {
+    edge_gateway::MqttCommandReply reply;
+    reply.cmdId = std::string("X\x01Y\x1f\b\f\"\\Z");
+    reply.machineCode = "GW_TEST";
+    reply.message = "line1\nline2\x7f";
+    reply.stage = "writeback-timeout";
+    reply.outcome = "unknown";
+    reply.isFinal = false;
+    const auto json = edge_gateway::encodeBuiltinCommandReplyJson(reply);
+    for (const auto ch : json) {
+        require(static_cast<unsigned char>(ch) >= 0x20, "reply JSON must not contain raw control characters");
+    }
+    const auto root = edge_gateway::json::JsonParser(json).parse();
+    require(root.find("cmdId")->asString() == reply.cmdId, "escaped cmdId must round-trip");
+    require(root.find("message")->asString() == reply.message, "escaped message must round-trip");
+    require(root.find("outcome")->asString() == "unknown", "reply must carry the outcome");
+    require(!root.find("final")->asBool(), "reply must carry the final flag");
+    require(!root.find("success")->asBool(), "unknown outcome is not success");
+}
+
+#ifndef _WIN32
+// Regression: an inbound QoS 2 PUBLISH redelivered before PUBREL was handed to the service again
+// (a control command executed twice).
+void testInboundQos2RedeliveryIsDeliveredOnce() {
+    const int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+    require(listenFd >= 0, "qos2 broker socket failed");
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    require(bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "qos2 broker bind failed");
+    socklen_t len = sizeof(addr);
+    require(getsockname(listenFd, reinterpret_cast<sockaddr*>(&addr), &len) == 0, "qos2 broker name failed");
+    require(listen(listenFd, 2) == 0, "qos2 broker listen failed");
+    std::vector<std::vector<std::uint8_t>> acks;
+    std::atomic<int> ackCount{0};
+    std::atomic<bool> clientDone{false};
+    std::thread broker([&]() {
+        const int fd = accept(listenFd, nullptr, nullptr);
+        if (fd < 0) return;
+        try {
+            (void)readMqttPacket(fd);
+            const std::uint8_t connAck[] = {0x20, 0x02, 0x00, 0x00};
+            send(fd, connAck, sizeof(connAck), 0);
+            const auto subscribe = readMqttPacket(fd);
+            std::size_t idOffset = 1;
+            while ((subscribe[idOffset++] & 0x80) != 0) {}
+            const auto count = subscribeTopicCount(subscribe);
+            std::vector<std::uint8_t> subAck{0x90};
+            appendRemainingLength(subAck, 2 + count);
+            subAck.push_back(subscribe[idOffset]);
+            subAck.push_back(subscribe[idOffset + 1]);
+            for (std::size_t i = 0; i < count; ++i) subAck.push_back(0x02);
+            send(fd, subAck.data(), subAck.size(), 0);
+            const auto qos2 = [](const std::string& payload, std::uint16_t id, bool dup) {
+                auto packet = publishPacket("edge/command/request/GW_Q2", payload);
+                std::size_t cursor = 1;
+                while ((packet[cursor++] & 0x80) != 0) {}
+                const auto topicLength = (static_cast<std::size_t>(packet[cursor]) << 8) | packet[cursor + 1];
+                std::vector<std::uint8_t> body(packet.begin() + static_cast<std::ptrdiff_t>(cursor), packet.end());
+                body.insert(body.begin() + static_cast<std::ptrdiff_t>(2 + topicLength),
+                    {static_cast<std::uint8_t>(id >> 8), static_cast<std::uint8_t>(id & 0xFF)});
+                std::vector<std::uint8_t> out{static_cast<std::uint8_t>(dup ? 0x3C : 0x34)};
+                appendRemainingLength(out, body.size());
+                out.insert(out.end(), body.begin(), body.end());
+                return out;
+            };
+            const auto sendPacket = [&](const std::vector<std::uint8_t>& packet) {
+                send(fd, packet.data(), packet.size(), 0);
+            };
+            // First delivery, a DUP redelivery before PUBREL, release, then id 5 reused for a new message.
+            sendPacket(qos2("{\"cmdId\":\"Q2_A\"}", 5, false));
+            acks.push_back(readMqttPacket(fd));
+            ++ackCount;
+            sendPacket(qos2("{\"cmdId\":\"Q2_A\"}", 5, true));
+            acks.push_back(readMqttPacket(fd));
+            ++ackCount;
+            sendPacket({0x62, 0x02, 0x00, 0x05});
+            acks.push_back(readMqttPacket(fd));
+            ++ackCount;
+            sendPacket(qos2("{\"cmdId\":\"Q2_B\"}", 5, false));
+            acks.push_back(readMqttPacket(fd));
+            ++ackCount;
+        } catch (...) {
+        }
+        // Keep the session open until the client stops polling.
+        for (int i = 0; i < 200 && !clientDone.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        close(fd);
+    });
+    edge_gateway::MqttConfig config;
+    config.broker = std::string("tcp://127.0.0.1:") + std::to_string(ntohs(addr.sin_port));
+    config.clientId = "GW_Q2";
+    config.topicMachineCode = "GW_Q2";
+    config.commandRequestTopic = "edge/command/request";
+    config.offlineBufferEnabled = false;
+    config.connectTimeoutMs = 2000;
+    edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+    std::vector<edge_gateway::MqttIncomingMessage> messages;
+    for (int attempt = 0; attempt < 50 && (ackCount.load() < 4 || messages.size() < 2); ++attempt) {
+        auto batch = publisher.pollIncoming(100);
+        messages.insert(messages.end(), batch.begin(), batch.end());
+    }
+    // Drain anything a duplicate delivery would still produce.
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        auto batch = publisher.pollIncoming(50);
+        messages.insert(messages.end(), batch.begin(), batch.end());
+    }
+    clientDone.store(true);
+    broker.join();
+    close(listenFd);
+    require(acks.size() == 4, "broker must see PUBREC, PUBREC, PUBCOMP, PUBREC");
+    require(acks[0][0] == 0x50 && acks[1][0] == 0x50 && acks[2][0] == 0x70 && acks[3][0] == 0x50,
+            "QoS 2 redelivery must be acknowledged with PUBREC again and released with PUBCOMP");
+    require(messages.size() == 2 && messages[0].payload == "{\"cmdId\":\"Q2_A\"}" &&
+            messages[1].payload == "{\"cmdId\":\"Q2_B\"}",
+            "a QoS 2 redelivery before PUBREL must not be delivered twice; a released id is reusable");
+}
+#endif
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::string(argv[1]) == "--subscribe-wire") {
 #ifndef _WIN32
@@ -2138,7 +2261,9 @@ int main(int argc, char** argv) {
     testRealtimeBatchKeepsMqtt5Serial();
     testRealtimeRingReplayPreservesSerializedSessionId();
     testRealtimeLegacyEscapingAndTxOnlyIsolation();
+    testInboundQos2RedeliveryIsDeliveredOnce();
 #endif
+    testCommandReplyJsonEscapesControlCharacters();
 
     std::cout << "builtin_mqtt_driver_publisher_test passed" << std::endl;
     return 0;

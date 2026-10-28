@@ -81,6 +81,25 @@ int main() {
         require(store.dispatch("machine", "meter", command, 8, execute).stage == "writeback-timeout" && calls == 1,
                 "finalize failure pending must never redispatch");
 
+        // CommandResult.outcomeUnknown stays unknown in the ledger; a conclusive failure is final.
+        for (const bool outcomeUnknown : {true, false}) {
+            auto attempt = command;
+            attempt.cmdId = outcomeUnknown ? "outcome-unknown" : "outcome-failed";
+            store.bind("machine", "meter", attempt);
+            const auto result = store.dispatch("machine", "meter", attempt, 9, [&] {
+                auto r = beginWritebackResult(attempt, 9);
+                completeWritebackResult(r, false, outcomeUnknown ? "no reply" : "device exception 02",
+                                        "writeback-failed", 10);
+                r.outcomeUnknown = outcomeUnknown;
+                return r;
+            });
+            const auto replay = store.bind("machine", "meter", attempt);
+            require(!result.success && result.outcomeUnknown == outcomeUnknown &&
+                    result.stage == (outcomeUnknown ? "writeback-timeout" : "writeback-failed") &&
+                    replay && replay->outcomeUnknown == outcomeUnknown && replay->stage == result.stage,
+                    "ledger must keep unknown and conclusive failures apart");
+        }
+
         ControlDedupStore capped(path, 3);
         auto newCommand = command; newCommand.cmdId = "full";
         bool full = false;

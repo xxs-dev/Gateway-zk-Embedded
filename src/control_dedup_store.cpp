@@ -171,6 +171,8 @@ WritebackResultRecord decode(const std::string& data) {
           >> r.queueDelayMs >> r.deviceWriteMs >> r.edgeElapsedMs >> r.totalElapsedMs
           >> r.verifyAttempted >> r.verifyPassed >> r.highPriority))
         throw std::runtime_error("control dedup corrupt result");
+    // The ledger marks an unknown outcome by its stage (see unknown()).
+    r.outcomeUnknown = !r.success && r.stage == "writeback-timeout";
     return r;
 }
 struct Row { std::string semantic, wire, state, result, meter; };
@@ -182,6 +184,7 @@ Optional<Row> read(Db& db, const std::string& machine, const std::string& meter,
 }
 WritebackResultRecord unknown(WritebackResultRecord result, const std::string& message) {
     result.success = false;
+    result.outcomeUnknown = true;
     result.stage = "writeback-timeout";
     result.message = message;
     return result;
@@ -327,17 +330,21 @@ WritebackResultRecord ControlDedupStore::dispatch(const std::string& machine, co
         if (!claimed.owner) return claimed.result;
         reserved = true;
         auto result = execute();
-        if (!result.success) result = unknown(result, result.message);
+        // A failure is final only when the executor established it (rejected before the wire, or a
+        // conclusive device reply); CommandResult.outcomeUnknown failures stay unknown.
+        if (!result.success && result.outcomeUnknown) result = unknown(result, result.message);
         finish(machine, meter, result);
         return result;
     } catch (const std::exception& ex) {
         auto result = beginWritebackResult(c, now);
         completeWritebackResult(result, false, ex.what(), reserved ? "writeback-timeout" : "writeback-failed", now);
+        result.outcomeUnknown = reserved;
         return result;
     } catch (...) {
         auto result = beginWritebackResult(c, now);
         completeWritebackResult(result, false, "non-standard control exception",
                                reserved ? "writeback-timeout" : "writeback-failed", now);
+        result.outcomeUnknown = reserved;
         return result;
     }
 }

@@ -552,6 +552,21 @@ if(BUILD_TESTING)
     add_test(NAME can_signal_layout COMMAND can_signal_layout_test ${CMAKE_SOURCE_DIR})
     add_test(NAME can_driver_runtime COMMAND can_driver_runtime_test)
     add_test(NAME dio_driver_review COMMAND dio_driver_review_test)
+# driver-review: nb-mqtt
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING
+   AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # ThreadSanitizer build of the northbound server alone (point store read stubbed in the test).
+    add_executable(modbus_northbound_tsan_test tools/modbus_northbound_tsan_test.cpp src/modbus_northbound_server.cpp)
+    target_include_directories(modbus_northbound_tsan_test PRIVATE include)
+    target_compile_options(modbus_northbound_tsan_test PRIVATE -fsanitize=thread -O1 -g)
+    target_link_options(modbus_northbound_tsan_test PRIVATE -fsanitize=thread)
+    target_link_libraries(modbus_northbound_tsan_test PRIVATE pthread)
+    add_test(NAME modbus_northbound_tsan COMMAND modbus_northbound_tsan_test)
+endif()
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(mqtt_command_outcome_test tools/mqtt_command_outcome_test.cpp)
+    target_link_libraries(mqtt_command_outcome_test PRIVATE edge_gateway)
+    add_test(NAME mqtt_command_outcome COMMAND mqtt_command_outcome_test)
 endif()
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)

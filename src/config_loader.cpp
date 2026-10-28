@@ -639,7 +639,11 @@ ModbusNorthboundMappingConfig parseNorthboundMapping(const JsonValue* value, con
     mapping.byteOrder = requireString(object, "byteOrder", mapping.byteOrder);
     mapping.writeEnabled = requireBool(object, "writeEnabled", mapping.writeEnabled);
     mapping.writeFunction = requireInt(object, "writeFunction", mapping.writeFunction);
-    mapping.stalePolicy = requireString(object, "stalePolicy", mapping.stalePolicy);
+    mapping.onInvalid = requireString(object, "onInvalid", mapping.onInvalid);
+    const auto* sentinel = value->find("sentinel");
+    if (sentinel != nullptr && !sentinel->isNull()) {
+        mapping.sentinel = sentinel->asNumber();
+    }
     mapping.readFunction = normalizeNorthboundReadFunction(mapping.area, mapping.readFunction);
     mapping.unitId = boundedInt(mapping.unitId, 0, 255);
     mapping.length = std::max(1, mapping.length);
@@ -1507,6 +1511,8 @@ NorthboundServerConfig parseNorthboundServerConfig(const JsonValue* value) {
     config.idleTimeoutMs = requireInt(object, "idleTimeoutMs", config.idleTimeoutMs);
     config.allowUnrestrictedClients = requireBool(
         object, "allowUnrestrictedClients", config.allowUnrestrictedClients);
+    config.bindRetryIntervalMs = boundedInt(
+        requireInt(object, "bindRetryIntervalMs", config.bindRetryIntervalMs), 100, 600000);
     config.idleTimeoutMs = boundedInt(config.idleTimeoutMs, 1000, 3600000);
     config.port = boundedInt(config.port, 1, 65535);
     config.requestTimeoutMs = boundedInt(config.requestTimeoutMs, 100, 60000);

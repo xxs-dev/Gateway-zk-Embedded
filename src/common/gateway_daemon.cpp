@@ -586,8 +586,10 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                         auto receipt = beginWritebackResult(command, startedAt);
                         completeWritebackResult(receipt, result.success, result.message,
                             result.success ? "writeback-succeeded"
-                                : result.outcomeUnknown ? "writeback-timeout" : "writeback-failed",
+                                : (expiredBeforeSend ? "expired"
+                                    : result.outcomeUnknown ? "writeback-timeout" : "writeback-failed"),
                             nowMs(), result.verifyAttempted, result.verifyPassed);
+                        receipt.outcomeUnknown = !result.success && !expiredBeforeSend && result.outcomeUnknown;
                         return receipt;
                     });
             } catch (const std::exception& ex) {
@@ -606,10 +608,10 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             const auto& runtimeDevice = runtimeDevices_[it->second];
             if (!result.success) {
                 const auto completedAt = nowMs();
-                // writeback-timeout: the request reached the device but no conclusive reply came back
-                // (CommandResult.outcomeUnknown); the command must not be retried under a new cmdId.
-                const auto stage = expiredBeforeSend ? "expired"
-                    : result.outcomeUnknown ? "writeback-timeout" : "writeback-failed";
+                // The request may have reached the device without a conclusive reply: report the
+                // outcome as unknown (never as a plain failure a caller could retry).
+                const bool unknown = !expiredBeforeSend && result.outcomeUnknown;
+                const auto stage = expiredBeforeSend ? "expired" : (unknown ? "writeback-timeout" : "writeback-failed");
                 completeWritebackResult(
                     writebackResult,
                     false,
@@ -619,6 +621,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                     result.verifyAttempted,
                     result.verifyPassed
                 );
+                writebackResult.outcomeUnknown = unknown;
                 store_.recordWritebackResult(writebackResult);
                 std::cerr << "writeback failed"
                           << " device=" << runtimeDevice.config.meterCode

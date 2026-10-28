@@ -138,7 +138,11 @@ struct ModbusNorthboundMappingConfig {
     std::string byteOrder = "AB";
     bool writeEnabled = false;
     int writeFunction = 6;
-    std::string stalePolicy = "exception";
+    // What a read returns for a value that is missing, bad quality, stale or not encodable in
+    // dataType: "sentinel" (default; the sentinel raw value, or the dataType's "not available"
+    // marker) or "hold" (the last valid value served since start, sentinel before that).
+    std::string onInvalid = "sentinel";
+    Optional<double> sentinel;
 };
 
 struct ValueNormalizeMapping {
@@ -333,6 +337,9 @@ struct WritebackResultRecord {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
+    // Copied from CommandResult.outcomeUnknown (success is then false): the device may have
+    // executed the write. Stage is "writeback-timeout" for such results.
+    bool outcomeUnknown = false;
 };
 
 struct MqttCommandRequest {
@@ -369,6 +376,12 @@ struct MqttCommandReply {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
+    // "succeeded", "failed" or "unknown" (the write may or may not have taken effect; do not
+    // retry with a new cmdId). success is true only for "succeeded".
+    std::string outcome = "failed";
+    // false only for the result-wait timeout reply: a later reply with the same cmdId carries the
+    // final result.
+    bool isFinal = true;
 };
 
 struct OtaRequest {
@@ -707,6 +720,8 @@ struct NorthboundServerConfig {
     // Secure default: a wildcard bindHost (0.0.0.0 / :: / empty) without an
     // allowedClientCidrs list is refused unless this is explicitly true.
     bool allowUnrestrictedClients = false;
+    // A failed bind/listen is retried at this interval (and reported as northbound-bind-failed).
+    int bindRetryIntervalMs = 5000;
 };
 
 struct MemoryStoreStats {

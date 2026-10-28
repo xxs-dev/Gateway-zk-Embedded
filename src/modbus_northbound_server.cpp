@@ -8,8 +8,10 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <sstream>
+#include <tuple>
 #include <utility>
 
 #ifdef _WIN32
@@ -19,6 +21,7 @@
 #else
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/types.h>
@@ -42,7 +45,6 @@ constexpr SocketHandle kInvalidSocket = -1;
 constexpr std::uint8_t kIllegalFunction = 0x01;
 constexpr std::uint8_t kIllegalDataAddress = 0x02;
 constexpr std::uint8_t kIllegalDataValue = 0x03;
-constexpr std::uint8_t kServerDeviceFailure = 0x04;
 
 void ensureSocketRuntime() {
 #ifdef _WIN32
@@ -86,43 +88,56 @@ void appendWord(std::vector<std::uint8_t>& bytes, std::uint16_t value) {
     bytes.push_back(static_cast<std::uint8_t>(value & 0xFF));
 }
 
-std::size_t dataTypeRegisterLength(const std::string& dataType, int fallback) {
+bool isBitFunction(int function) {
+    return function == 1 || function == 2;
+}
+
+// Registers occupied by one value of a register-area dataType; 0 for unsupported types.
+int registerSpanOf(const std::string& dataType) {
+    if (dataType.empty() || dataType == "uint16" || dataType == "int16" ||
+        dataType == "bool" || dataType == "bit") {
+        return 1;
+    }
     if (dataType == "uint32" || dataType == "int32" || dataType == "float32") {
         return 2;
     }
     if (dataType == "uint64" || dataType == "int64" || dataType == "float64" || dataType == "double") {
         return 4;
     }
-    return static_cast<std::size_t>(std::max(1, fallback));
+    return 0;
 }
 
-std::vector<std::uint8_t> writeUint16BigEndian(std::uint16_t value) {
-    return {
-        static_cast<std::uint8_t>((value >> 8) & 0xFF),
-        static_cast<std::uint8_t>(value & 0xFF)
-    };
+std::vector<std::uint8_t> bigEndianBytes(std::uint64_t value, std::size_t width) {
+    std::vector<std::uint8_t> bytes(width);
+    for (std::size_t i = 0; i < width; ++i) {
+        bytes[width - 1 - i] = static_cast<std::uint8_t>((value >> (8 * i)) & 0xFF);
+    }
+    return bytes;
 }
 
-std::vector<std::uint8_t> writeUint32BigEndian(std::uint32_t value) {
-    return {
-        static_cast<std::uint8_t>((value >> 24) & 0xFF),
-        static_cast<std::uint8_t>((value >> 16) & 0xFF),
-        static_cast<std::uint8_t>((value >> 8) & 0xFF),
-        static_cast<std::uint8_t>(value & 0xFF)
-    };
-}
-
-std::vector<std::uint8_t> writeUint64BigEndian(std::uint64_t value) {
-    return {
-        static_cast<std::uint8_t>((value >> 56) & 0xFF),
-        static_cast<std::uint8_t>((value >> 48) & 0xFF),
-        static_cast<std::uint8_t>((value >> 40) & 0xFF),
-        static_cast<std::uint8_t>((value >> 32) & 0xFF),
-        static_cast<std::uint8_t>((value >> 24) & 0xFF),
-        static_cast<std::uint8_t>((value >> 16) & 0xFF),
-        static_cast<std::uint8_t>((value >> 8) & 0xFF),
-        static_cast<std::uint8_t>(value & 0xFF)
-    };
+// Empty when byteOrder is usable for a value of width bytes: either empty (big-endian) or a
+// permutation of the first width letters (A = most significant canonical byte).
+std::string byteOrderProblem(const std::string& byteOrder, std::size_t width) {
+    if (byteOrder.empty()) {
+        return {};
+    }
+    if (byteOrder.size() != width) {
+        return "byteOrder \"" + byteOrder + "\" has " + std::to_string(byteOrder.size()) +
+            " letters but the dataType is " + std::to_string(width) + " bytes";
+    }
+    std::vector<bool> seen(width, false);
+    for (const auto token : byteOrder) {
+        const auto position = static_cast<int>(token) - 'A';
+        if (position < 0 || static_cast<std::size_t>(position) >= width) {
+            return "byteOrder \"" + byteOrder + "\" uses a letter outside A.." +
+                std::string(1, static_cast<char>('A' + width - 1));
+        }
+        if (seen[static_cast<std::size_t>(position)]) {
+            return "byteOrder \"" + byteOrder + "\" repeats a letter";
+        }
+        seen[static_cast<std::size_t>(position)] = true;
+    }
+    return {};
 }
 
 std::vector<std::uint8_t> reorderBytesForEncode(
@@ -132,85 +147,22 @@ std::vector<std::uint8_t> reorderBytesForEncode(
     if (byteOrder.empty()) {
         return canonicalBytes;
     }
-    if (byteOrder.size() != canonicalBytes.size()) {
-        throw std::invalid_argument("northbound byteOrder size does not match data width");
-    }
     std::vector<std::uint8_t> reordered(byteOrder.size());
     for (std::size_t i = 0; i < byteOrder.size(); ++i) {
-        const auto token = byteOrder[i];
-        if (token < 'A' || static_cast<std::size_t>(token - 'A') >= canonicalBytes.size()) {
-            throw std::invalid_argument("invalid northbound byteOrder token");
-        }
-        reordered[static_cast<std::size_t>(token - 'A')] = canonicalBytes[i];
+        reordered[static_cast<std::size_t>(byteOrder[i] - 'A')] = canonicalBytes[i];
     }
     return reordered;
 }
 
 std::vector<std::uint16_t> bytesToRegisters(const std::vector<std::uint8_t>& bytes) {
-    if (bytes.size() % 2 != 0) {
-        throw std::invalid_argument("northbound register bytes must be even");
-    }
     std::vector<std::uint16_t> registers;
     registers.reserve(bytes.size() / 2);
-    for (std::size_t i = 0; i < bytes.size(); i += 2) {
+    for (std::size_t i = 0; i + 1 < bytes.size(); i += 2) {
         registers.push_back(static_cast<std::uint16_t>(
             static_cast<std::uint16_t>(bytes[i] << 8) | bytes[i + 1]
         ));
     }
     return registers;
-}
-
-template <typename T>
-std::vector<std::uint8_t> writeBigEndian(T value);
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<std::uint16_t>(std::uint16_t value) {
-    return writeUint16BigEndian(value);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<std::int16_t>(std::int16_t value) {
-    std::uint16_t raw = 0;
-    std::memcpy(&raw, &value, sizeof(raw));
-    return writeUint16BigEndian(raw);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<std::uint32_t>(std::uint32_t value) {
-    return writeUint32BigEndian(value);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<std::int32_t>(std::int32_t value) {
-    std::uint32_t raw = 0;
-    std::memcpy(&raw, &value, sizeof(raw));
-    return writeUint32BigEndian(raw);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<std::uint64_t>(std::uint64_t value) {
-    return writeUint64BigEndian(value);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<std::int64_t>(std::int64_t value) {
-    std::uint64_t raw = 0;
-    std::memcpy(&raw, &value, sizeof(raw));
-    return writeUint64BigEndian(raw);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<float>(float value) {
-    std::uint32_t raw = 0;
-    std::memcpy(&raw, &value, sizeof(raw));
-    return writeUint32BigEndian(raw);
-}
-
-template <>
-std::vector<std::uint8_t> writeBigEndian<double>(double value) {
-    std::uint64_t raw = 0;
-    std::memcpy(&raw, &value, sizeof(raw));
-    return writeUint64BigEndian(raw);
 }
 
 #if defined(MSG_NOSIGNAL)
@@ -222,74 +174,114 @@ constexpr int kSendFlags = 0;
 // Rounds rawValue to T, refusing values T cannot represent instead of letting
 // the cast wrap (e.g. -5 or 70000 into a uint16 register).
 template <typename T>
-T checkedIntegral(double rawValue, const std::string& dataType) {
+bool checkedIntegral(double rawValue, T* out) {
     if (!std::isfinite(rawValue)) {
-        throw std::invalid_argument("northbound value is not finite for dataType " + dataType);
+        return false;
     }
     const auto rounded = static_cast<long double>(std::round(rawValue));
     if (rounded < static_cast<long double>(std::numeric_limits<T>::min()) ||
         rounded > static_cast<long double>(std::numeric_limits<T>::max())) {
-        throw std::out_of_range("northbound value out of range for dataType " + dataType);
+        return false;
     }
-    return static_cast<T>(std::llround(rawValue));
+    *out = static_cast<T>(std::llround(rawValue));
+    return true;
 }
 
 template <>
-std::uint64_t checkedIntegral<std::uint64_t>(double rawValue, const std::string& dataType) {
+bool checkedIntegral<std::uint64_t>(double rawValue, std::uint64_t* out) {
     if (!std::isfinite(rawValue)) {
-        throw std::invalid_argument("northbound value is not finite for dataType " + dataType);
+        return false;
     }
     const auto rounded = std::round(rawValue);
     if (rounded < 0.0 || rounded >= 18446744073709551616.0) {
-        throw std::out_of_range("northbound value out of range for dataType " + dataType);
+        return false;
     }
-    return static_cast<std::uint64_t>(rounded);
+    *out = static_cast<std::uint64_t>(rounded);
+    return true;
 }
 
-double removeScale(double businessValue, const ModbusNorthboundMappingConfig& mapping) {
-    if (std::abs(mapping.scale) < std::numeric_limits<double>::epsilon()) {
-        throw std::invalid_argument("northbound scale must not be zero");
+template <typename Signed, typename Unsigned>
+bool signedBytes(double rawValue, std::vector<std::uint8_t>* canonical) {
+    Signed value = 0;
+    if (!checkedIntegral<Signed>(rawValue, &value)) {
+        return false;
     }
-    return (businessValue - mapping.offset) / mapping.scale;
+    Unsigned raw = 0;
+    std::memcpy(&raw, &value, sizeof(raw));
+    *canonical = bigEndianBytes(raw, sizeof(raw));
+    return true;
 }
 
-std::vector<std::uint16_t> encodeNumericRegisters(
-    double businessValue,
-    const ModbusNorthboundMappingConfig& mapping
-) {
-    const auto rawValue = removeScale(businessValue, mapping);
-    std::vector<std::uint8_t> canonicalBytes;
-    if (mapping.dataType == "bit" || mapping.dataType == "bool") {
-        canonicalBytes = writeBigEndian(static_cast<std::uint16_t>(std::abs(rawValue) > 0.0 ? 1 : 0));
-    } else if (mapping.dataType == "uint16" || mapping.dataType.empty()) {
-        canonicalBytes = writeBigEndian(checkedIntegral<std::uint16_t>(rawValue, "uint16"));
-    } else if (mapping.dataType == "int16") {
-        canonicalBytes = writeBigEndian(checkedIntegral<std::int16_t>(rawValue, mapping.dataType));
-    } else if (mapping.dataType == "uint32") {
-        canonicalBytes = writeBigEndian(checkedIntegral<std::uint32_t>(rawValue, mapping.dataType));
-    } else if (mapping.dataType == "int32") {
-        canonicalBytes = writeBigEndian(checkedIntegral<std::int32_t>(rawValue, mapping.dataType));
-    } else if (mapping.dataType == "uint64") {
-        canonicalBytes = writeBigEndian(checkedIntegral<std::uint64_t>(rawValue, mapping.dataType));
-    } else if (mapping.dataType == "int64") {
-        canonicalBytes = writeBigEndian(checkedIntegral<std::int64_t>(rawValue, mapping.dataType));
-    } else if (mapping.dataType == "float32") {
-        const auto narrowed = static_cast<float>(rawValue);
-        if (!std::isfinite(narrowed)) {
-            throw std::out_of_range("northbound value is not representable as float32");
-        }
-        canonicalBytes = writeBigEndian(narrowed);
-    } else if (mapping.dataType == "float64" || mapping.dataType == "double") {
+template <typename Unsigned>
+bool unsignedBytes(double rawValue, std::vector<std::uint8_t>* canonical) {
+    Unsigned value = 0;
+    if (!checkedIntegral<Unsigned>(rawValue, &value)) {
+        return false;
+    }
+    *canonical = bigEndianBytes(value, sizeof(value));
+    return true;
+}
+
+// Canonical (big-endian) bytes of a raw (unscaled) value; false when dataType cannot represent it.
+bool canonicalBytesFor(double rawValue, const std::string& dataType, std::vector<std::uint8_t>* canonical) {
+    if (dataType == "bit" || dataType == "bool") {
         if (!std::isfinite(rawValue)) {
-            throw std::invalid_argument("northbound value is not finite");
+            return false;
         }
-        canonicalBytes = writeBigEndian(static_cast<double>(rawValue));
-    } else {
-        throw std::invalid_argument("unsupported northbound dataType: " + mapping.dataType);
+        *canonical = bigEndianBytes(std::abs(rawValue) > 0.0 ? 1U : 0U, 2);
+        return true;
     }
+    if (dataType.empty() || dataType == "uint16") {
+        return unsignedBytes<std::uint16_t>(rawValue, canonical);
+    }
+    if (dataType == "int16") {
+        return signedBytes<std::int16_t, std::uint16_t>(rawValue, canonical);
+    }
+    if (dataType == "uint32") {
+        return unsignedBytes<std::uint32_t>(rawValue, canonical);
+    }
+    if (dataType == "int32") {
+        return signedBytes<std::int32_t, std::uint32_t>(rawValue, canonical);
+    }
+    if (dataType == "uint64") {
+        return unsignedBytes<std::uint64_t>(rawValue, canonical);
+    }
+    if (dataType == "int64") {
+        return signedBytes<std::int64_t, std::uint64_t>(rawValue, canonical);
+    }
+    if (dataType == "float32") {
+        const auto narrowed = static_cast<float>(rawValue);
+        if (!std::isfinite(rawValue) || !std::isfinite(narrowed)) {
+            return false;
+        }
+        std::uint32_t raw = 0;
+        std::memcpy(&raw, &narrowed, sizeof(raw));
+        *canonical = bigEndianBytes(raw, 4);
+        return true;
+    }
+    if (dataType == "float64" || dataType == "double") {
+        if (!std::isfinite(rawValue)) {
+            return false;
+        }
+        std::uint64_t raw = 0;
+        std::memcpy(&raw, &rawValue, sizeof(raw));
+        *canonical = bigEndianBytes(raw, 8);
+        return true;
+    }
+    return false;
+}
 
-    const auto deviceBytes = reorderBytesForEncode(canonicalBytes, mapping.byteOrder);
-    return bytesToRegisters(deviceBytes);
+// The dataType's "not available" marker (SunSpec convention): all ones for unsigned, the minimum
+// for signed, quiet NaN for floats.
+std::vector<std::uint8_t> defaultSentinelBytes(const std::string& dataType) {
+    if (dataType == "int16") return bigEndianBytes(0x8000U, 2);
+    if (dataType == "uint32") return bigEndianBytes(0xFFFFFFFFULL, 4);
+    if (dataType == "int32") return bigEndianBytes(0x80000000ULL, 4);
+    if (dataType == "uint64") return bigEndianBytes(0xFFFFFFFFFFFFFFFFULL, 8);
+    if (dataType == "int64") return bigEndianBytes(0x8000000000000000ULL, 8);
+    if (dataType == "float32") return bigEndianBytes(0x7FC00000ULL, 4);
+    if (dataType == "float64" || dataType == "double") return bigEndianBytes(0x7FF8000000000000ULL, 8);
+    return bigEndianBytes(0xFFFFU, 2);
 }
 
 std::vector<std::uint8_t> makeException(std::uint8_t function, std::uint8_t code) {
@@ -297,10 +289,6 @@ std::vector<std::uint8_t> makeException(std::uint8_t function, std::uint8_t code
         static_cast<std::uint8_t>(function | 0x80U),
         code
     };
-}
-
-bool isReadFunction(std::uint8_t function) {
-    return function == 1 || function == 2 || function == 3 || function == 4;
 }
 
 bool parseIpv4(const std::string& value, std::uint32_t& out) {
@@ -311,12 +299,11 @@ bool parseIpv4(const std::string& value, std::uint32_t& out) {
         if (!std::getline(stream, part, '.')) {
             return false;
         }
-        if (part.empty()) {
+        if (part.empty() || part.size() > 3 || part.find_first_not_of("0123456789") != std::string::npos) {
             return false;
         }
-        char* end = nullptr;
-        const auto octet = std::strtol(part.c_str(), &end, 10);
-        if (end == nullptr || *end != '\0' || octet < 0 || octet > 255) {
+        const auto octet = std::strtol(part.c_str(), nullptr, 10);
+        if (octet < 0 || octet > 255) {
             return false;
         }
         result = (result << 8) | static_cast<std::uint32_t>(octet);
@@ -328,6 +315,14 @@ bool parseIpv4(const std::string& value, std::uint32_t& out) {
     return true;
 }
 
+bool parseCidrPrefix(const std::string& text, long* prefix) {
+    if (text.empty() || text.size() > 2 || text.find_first_not_of("0123456789") != std::string::npos) {
+        return false;
+    }
+    *prefix = std::strtol(text.c_str(), nullptr, 10);
+    return *prefix >= 0 && *prefix <= 32;
+}
+
 bool ipv4MatchesCidr(const std::string& address, const std::string& cidr) {
     const auto slash = cidr.find('/');
     if (slash == std::string::npos) {
@@ -335,12 +330,9 @@ bool ipv4MatchesCidr(const std::string& address, const std::string& cidr) {
     }
     std::uint32_t addressValue = 0;
     std::uint32_t networkValue = 0;
-    if (!parseIpv4(address, addressValue) || !parseIpv4(cidr.substr(0, slash), networkValue)) {
-        return false;
-    }
-    char* end = nullptr;
-    const auto prefix = std::strtol(cidr.substr(slash + 1).c_str(), &end, 10);
-    if (end == nullptr || *end != '\0' || prefix < 0 || prefix > 32) {
+    long prefix = 0;
+    if (!parseIpv4(address, addressValue) || !parseIpv4(cidr.substr(0, slash), networkValue) ||
+        !parseCidrPrefix(cidr.substr(slash + 1), &prefix)) {
         return false;
     }
     const auto mask = prefix == 0
@@ -349,7 +341,139 @@ bool ipv4MatchesCidr(const std::string& address, const std::string& cidr) {
     return (addressValue & mask) == (networkValue & mask);
 }
 
+bool isIpv6Literal(const std::string& value) {
+    in6_addr address;
+    return inet_pton(AF_INET6, value.c_str(), &address) == 1;
+}
+
+// An accepted IPv4 client of a dual-stack (::) listener is reported as ::ffff:a.b.c.d.
+std::string normalizeClientAddress(const std::string& address) {
+    static const std::string mappedPrefix = "::ffff:";
+    if (address.size() > mappedPrefix.size() && address.compare(0, mappedPrefix.size(), mappedPrefix) == 0) {
+        std::uint32_t ignored = 0;
+        const auto tail = address.substr(mappedPrefix.size());
+        if (parseIpv4(tail, ignored)) {
+            return tail;
+        }
+    }
+    return address;
+}
+
+bool isWildcardBindHost(const std::string& host) {
+    return host.empty() || host == "0.0.0.0" || host == "::" || host == "[::]" || host == "*";
+}
+
+std::string mappingLabel(const PointDefinition& point) {
+    return "point " + point.pointCode + " (index " + std::to_string(point.index) + ")";
+}
+
 }  // namespace
+
+std::vector<std::string> northboundConfigProblems(const DeviceConfig& config) {
+    std::vector<std::string> problems;
+    const auto& server = config.northboundServer;
+    if (!server.enabled) {
+        return problems;
+    }
+    if (server.protocol != "modbus_tcp") {
+        problems.push_back("northboundServer.protocol \"" + server.protocol +
+            "\" is not supported (only modbus_tcp)");
+    }
+    if (server.mode != "mapped" && server.mode != "hybrid") {
+        problems.push_back("northboundServer.mode \"" + server.mode +
+            "\" is reserved (use mapped)");
+    }
+    for (const auto& item : server.allowedClientCidrs) {
+        std::uint32_t ignored = 0;
+        const auto slash = item.find('/');
+        long prefix = 0;
+        const bool ipv4Cidr = slash != std::string::npos &&
+            parseIpv4(item.substr(0, slash), ignored) && parseCidrPrefix(item.substr(slash + 1), &prefix);
+        if (!ipv4Cidr && !parseIpv4(item, ignored) && !isIpv6Literal(item)) {
+            problems.push_back("northboundServer.allowedClientCidrs entry \"" + item +
+                "\" is not an IPv4 address, IPv4 CIDR or IPv6 address");
+        }
+    }
+    if (!server.allowUnrestrictedClients && server.allowedClientCidrs.empty() &&
+        isWildcardBindHost(server.bindHost)) {
+        problems.push_back(
+            "bindHost=" + (server.bindHost.empty() ? std::string("<any>") : server.bindHost) +
+            " listens on all interfaces with an empty allowedClientCidrs list. Remedy: set"
+            " northboundServer.allowedClientCidrs (e.g. [\"192.168.1.0/24\"]), or a specific"
+            " northboundServer.bindHost, or explicitly northboundServer.allowUnrestrictedClients=true");
+    }
+
+    std::map<std::tuple<int, int, int>, std::string> occupied;
+    const auto checkPoint = [&](const PointDefinition& point) {
+        const auto& mapping = point.northbound;
+        if (!point.enabled || !mapping.enabled) {
+            return;
+        }
+        const auto label = mappingLabel(point) + " northbound";
+        const auto before = problems.size();
+        if (mapping.readFunction < 1 || mapping.readFunction > 4) {
+            problems.push_back(label + ".readFunction must be 1, 2, 3 or 4");
+            return;
+        }
+        if (mapping.unitId < 0 || mapping.unitId > 255) {
+            problems.push_back(label + ".unitId must be 0..255");
+        }
+        if (mapping.onInvalid != "sentinel" && mapping.onInvalid != "hold") {
+            problems.push_back(label + ".onInvalid \"" + mapping.onInvalid + "\" must be sentinel or hold");
+        }
+        int span = 1;
+        if (!isBitFunction(mapping.readFunction)) {
+            span = registerSpanOf(mapping.dataType);
+            if (span == 0) {
+                problems.push_back(label + ".dataType \"" + mapping.dataType +
+                    "\" is not a register type (uint16/int16/uint32/int32/uint64/int64/float32/float64/bool)");
+                return;
+            }
+            if (mapping.length != span) {
+                problems.push_back(label + ".length " + std::to_string(mapping.length) + " does not match dataType " +
+                    (mapping.dataType.empty() ? std::string("uint16") : mapping.dataType) + " (" +
+                    std::to_string(span) + " register" + (span == 1 ? "" : "s") + ")");
+            }
+            const auto orderProblem = byteOrderProblem(mapping.byteOrder, static_cast<std::size_t>(span) * 2);
+            if (!orderProblem.empty()) {
+                problems.push_back(label + "." + orderProblem);
+            }
+            if (!std::isfinite(mapping.scale) || std::abs(mapping.scale) < std::numeric_limits<double>::epsilon() ||
+                !std::isfinite(mapping.offset)) {
+                problems.push_back(label + ".scale must be finite and non-zero, offset finite");
+            }
+            std::vector<std::uint8_t> ignored;
+            if (mapping.sentinel && !canonicalBytesFor(*mapping.sentinel, mapping.dataType, &ignored)) {
+                problems.push_back(label + ".sentinel is not representable as " + mapping.dataType);
+            }
+        }
+        if (mapping.address < 0 || mapping.address + span - 1 > 65535) {
+            problems.push_back(label + ".address must be configured within 0.." + std::to_string(65536 - span));
+        }
+        if (problems.size() != before) {
+            return;
+        }
+        for (int offset = 0; offset < span; ++offset) {
+            const auto key = std::make_tuple(mapping.unitId, mapping.readFunction, mapping.address + offset);
+            const auto inserted = occupied.emplace(key, mappingLabel(point));
+            if (!inserted.second) {
+                problems.push_back(label + " overlaps " + inserted.first->second + " at unit/function/address " +
+                    std::to_string(mapping.unitId) + "/" + std::to_string(mapping.readFunction) + "/" +
+                    std::to_string(mapping.address + offset));
+                return;
+            }
+        }
+    };
+    for (const auto& point : config.points) {
+        checkPoint(point);
+    }
+    for (const auto& meter : config.meters) {
+        for (const auto& point : meter.points) {
+            checkPoint(point);
+        }
+    }
+    return problems;
+}
 
 std::size_t ModbusNorthboundServer::AddressKeyHash::operator()(const AddressKey& key) const {
     std::size_t value = static_cast<std::size_t>(key.unitId);
@@ -367,10 +491,17 @@ bool ModbusNorthboundServer::AddressKeyEqual::operator()(
            lhs.address == rhs.address;
 }
 
-ModbusNorthboundServer::ModbusNorthboundServer(DeviceConfig config, MemoryPointStore& store)
-    : config_(std::move(config)),
-      store_(store) {
-    buildMappings();
+ModbusNorthboundServer::ModbusNorthboundServer(
+    DeviceConfig config,
+    MemoryPointStore& store,
+    StatusSink statusSink
+) : config_(std::move(config)),
+    store_(store),
+    statusSink_(std::move(statusSink)),
+    configProblems_(northboundConfigProblems(config_)) {
+    if (configProblems_.empty()) {
+        buildMappings();
+    }
 }
 
 ModbusNorthboundServer::~ModbusNorthboundServer() {
@@ -381,66 +512,45 @@ void ModbusNorthboundServer::start() {
     if (!config_.northboundServer.enabled) {
         return;
     }
-    if (config_.northboundServer.protocol != "modbus_tcp") {
-        throw std::invalid_argument("northboundServer currently supports protocol=modbus_tcp only");
-    }
-    if (config_.northboundServer.mode != "mapped" && config_.northboundServer.mode != "hybrid") {
-        throw std::invalid_argument("northboundServer mode passthrough is reserved and must not be enabled in this build");
-    }
-    if (isUnrestrictedWildcardBind()) {
-        // Secure default: do not expose the listener to every host on every
-        // interface. Collection keeps running; only the northbound server is
-        // refused.
-        const auto bindHost = config_.northboundServer.bindHost.empty()
-            ? std::string("<any>")
-            : config_.northboundServer.bindHost;
-        {
-            std::lock_guard<std::mutex> lock(clientsMutex_);
-            startError_ =
-                "northbound modbus tcp REFUSED to start: bindHost=" + bindHost +
-                " port=" + std::to_string(config_.northboundServer.port) +
-                " listens on all interfaces with an empty allowedClientCidrs list. Remedy: set"
-                " northboundServer.allowedClientCidrs (e.g. [\"192.168.1.0/24\"]), or a specific"
-                " northboundServer.bindHost, or explicitly northboundServer.allowUnrestrictedClients=true";
+    if (!configProblems_.empty()) {
+        // A bad northbound definition disables only this server; collection keeps running.
+        std::string message = "northbound modbus tcp REFUSED to start:";
+        for (const auto& problem : configProblems_) {
+            message += " " + problem + ";";
         }
-        std::cerr << "ERROR " << startError() << std::endl;
+        setStartError(message);
+        std::cerr << "ERROR " << message << std::endl;
+        report("northbound-refused", message);
         return;
-    }
-    {
-        std::lock_guard<std::mutex> lock(clientsMutex_);
-        startError_.clear();
     }
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
     }
-    acceptThread_ = std::thread(&ModbusNorthboundServer::acceptLoop, this);
+    if (acceptThread_.joinable()) {
+        acceptThread_.join();
+    }
+    try {
+        acceptThread_ = std::thread(&ModbusNorthboundServer::acceptLoop, this);
+    } catch (const std::exception& ex) {
+        running_.store(false);
+        setStartError(std::string("northbound listener thread start failed: ") + ex.what());
+        report("northbound-refused", startError());
+    }
 }
 
 void ModbusNorthboundServer::stop() {
     running_.store(false);
-    closeListenSocket();
     if (acceptThread_.joinable()) {
         acceptThread_.join();
     }
-    {
-        std::lock_guard<std::mutex> lock(clientsMutex_);
-        for (auto& client : clientThreads_) {
-            if (client.thread.joinable()) {
-                client.thread.join();
-            }
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& client : clientThreads_) {
+        if (client.thread.joinable()) {
+            client.thread.join();
         }
-        clientThreads_.clear();
     }
-}
-
-bool ModbusNorthboundServer::isUnrestrictedWildcardBind() const {
-    const auto& server = config_.northboundServer;
-    if (server.allowUnrestrictedClients || !server.allowedClientCidrs.empty()) {
-        return false;
-    }
-    const auto& host = server.bindHost;
-    return host.empty() || host == "0.0.0.0" || host == "::" || host == "[::]" || host == "*";
+    clientThreads_.clear();
 }
 
 void ModbusNorthboundServer::reapFinishedClientsLocked() {
@@ -461,6 +571,21 @@ std::string ModbusNorthboundServer::startError() const {
     return startError_;
 }
 
+void ModbusNorthboundServer::setStartError(const std::string& message) {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    startError_ = message;
+}
+
+void ModbusNorthboundServer::report(const std::string& event, const std::string& message) const {
+    if (!statusSink_) {
+        return;
+    }
+    try {
+        statusSink_(event, message);
+    } catch (...) {
+    }
+}
+
 bool ModbusNorthboundServer::isRunning() const {
     return running_.load();
 }
@@ -470,167 +595,211 @@ int ModbusNorthboundServer::boundPort() const {
 }
 
 void ModbusNorthboundServer::buildMappings() {
-    const auto addPoints = [this](const std::vector<PointDefinition>& points) {
-        for (const auto& point : points) {
+    for (const auto& point : config_.points) {
+        addPointMapping(point);
+    }
+    for (const auto& meter : config_.meters) {
+        for (const auto& point : meter.points) {
             addPointMapping(point);
         }
-    };
-    addPoints(config_.points);
-    for (const auto& meter : config_.meters) {
-        addPoints(meter.points);
     }
+    lastGood_.resize(mappings_.size());
 }
 
 void ModbusNorthboundServer::addPointMapping(const PointDefinition& point) {
-    const auto& mapping = point.northbound;
-    if (!point.enabled || !mapping.enabled) {
+    const auto& config = point.northbound;
+    if (!point.enabled || !config.enabled) {
         return;
     }
-    if (!isReadFunction(static_cast<std::uint8_t>(mapping.readFunction))) {
-        throw std::invalid_argument("northbound readFunction must be 1, 2, 3, or 4");
-    }
-    if (mapping.address < 0) {
-        throw std::invalid_argument("northbound mapping address must be configured for point " + point.pointCode);
-    }
-    const auto span = mapping.readFunction == 1 || mapping.readFunction == 2
-        ? 1
-        : static_cast<int>(dataTypeRegisterLength(mapping.dataType, mapping.length));
-    for (int offset = 0; offset < span; ++offset) {
-        AddressKey key{mapping.unitId, mapping.readFunction, mapping.address + offset};
-        const auto inserted = addressMappings_.emplace(key, Mapping{point, mapping});
-        if (!inserted.second) {
-            throw std::invalid_argument(
-                "duplicate northbound mapping unit/function/address: " +
-                std::to_string(mapping.unitId) + "/" +
-                std::to_string(mapping.readFunction) + "/" +
-                std::to_string(mapping.address + offset)
-            );
+    // Validated by northboundConfigProblems(): known dataType, matching length/byteOrder, no overlap.
+    Mapping mapping;
+    mapping.point = point;
+    mapping.config = config;
+    if (isBitFunction(config.readFunction)) {
+        mapping.span = 1;
+        mapping.invalidRegisters = {
+            static_cast<std::uint16_t>(config.sentinel && *config.sentinel != 0.0 ? 1 : 0)
+        };
+    } else {
+        mapping.span = registerSpanOf(config.dataType);
+        std::vector<std::uint8_t> canonical;
+        if (!config.sentinel || !canonicalBytesFor(*config.sentinel, config.dataType, &canonical)) {
+            canonical = defaultSentinelBytes(config.dataType);
         }
+        mapping.invalidRegisters = bytesToRegisters(reorderBytesForEncode(canonical, config.byteOrder));
+    }
+    const auto slot = mappings_.size();
+    mappings_.push_back(std::move(mapping));
+    for (int offset = 0; offset < mappings_.back().span; ++offset) {
+        addressMappings_.emplace(AddressKey{config.unitId, config.readFunction, config.address + offset}, slot);
+    }
+    if (std::find(unitIds_.begin(), unitIds_.end(), config.unitId) == unitIds_.end()) {
+        unitIds_.push_back(config.unitId);
     }
 }
 
 void ModbusNorthboundServer::acceptLoop() {
-    try {
-        ensureSocketRuntime();
-        addrinfo hints;
-        std::memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        hints.ai_protocol = IPPROTO_TCP;
-        hints.ai_flags = AI_PASSIVE;
-
-        addrinfo* result = nullptr;
-        const auto port = std::to_string(config_.northboundServer.port);
-        const char* host = config_.northboundServer.bindHost.empty()
-            ? nullptr
-            : config_.northboundServer.bindHost.c_str();
-        if (getaddrinfo(host, port.c_str(), &hints, &result) != 0) {
-            throw std::runtime_error("northbound getaddrinfo failed");
-        }
-
+    bool failureReported = false;
+    const auto retryMs = std::max(100, config_.northboundServer.bindRetryIntervalMs);
+    while (running_.load()) {
+        std::string error;
         SocketHandle listenSocket = kInvalidSocket;
-        for (auto* addr = result; addr != nullptr; addr = addr->ai_next) {
-            listenSocket = static_cast<SocketHandle>(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
-            if (listenSocket == kInvalidSocket) {
-                continue;
+        try {
+            ensureSocketRuntime();
+            addrinfo hints;
+            std::memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_UNSPEC;
+            hints.ai_socktype = SOCK_STREAM;
+            hints.ai_protocol = IPPROTO_TCP;
+            hints.ai_flags = AI_PASSIVE;
+            addrinfo* result = nullptr;
+            const auto port = std::to_string(config_.northboundServer.port);
+            const auto& bindHost = config_.northboundServer.bindHost;
+            const char* host = bindHost.empty() || bindHost == "*" ? nullptr
+                : (bindHost == "[::]" ? "::" : bindHost.c_str());
+            const auto rc = getaddrinfo(host, port.c_str(), &hints, &result);
+            if (rc != 0) {
+                error = std::string("getaddrinfo failed: ") + gai_strerror(rc);
             }
-            int reuse = 1;
-            setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-            if (bind(listenSocket, addr->ai_addr, static_cast<int>(addr->ai_addrlen)) == 0 &&
-                listen(listenSocket, std::max(1, config_.northboundServer.maxClients)) == 0) {
-                break;
+            for (auto* addr = result; addr != nullptr && listenSocket == kInvalidSocket; addr = addr->ai_next) {
+                listenSocket = static_cast<SocketHandle>(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
+                if (listenSocket == kInvalidSocket) {
+                    error = std::string("socket failed: ") + std::strerror(errno);
+                    continue;
+                }
+                int reuse = 1;
+                setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+                if (addr->ai_family == AF_INET6) {
+                    // "::" serves IPv4 clients too (as ::ffff:a.b.c.d), matching the IPv4 allowlist.
+                    int v6only = 0;
+                    setsockopt(listenSocket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&v6only), sizeof(v6only));
+                }
+                if (bind(listenSocket, addr->ai_addr, static_cast<int>(addr->ai_addrlen)) != 0 ||
+                    listen(listenSocket, std::max(1, config_.northboundServer.maxClients)) != 0) {
+                    error = std::string("bind/listen failed: ") + std::strerror(errno);
+                    closeSocket(listenSocket);
+                    listenSocket = kInvalidSocket;
+                }
             }
-            closeSocket(listenSocket);
-            listenSocket = kInvalidSocket;
+            if (result != nullptr) {
+                freeaddrinfo(result);
+            }
+        } catch (const std::exception& ex) {
+            error = ex.what();
         }
-        freeaddrinfo(result);
 
         if (listenSocket == kInvalidSocket) {
-            throw std::runtime_error("northbound listen failed");
-        }
-
-        listenSocket_ = static_cast<std::intptr_t>(listenSocket);
-        int effectivePort = config_.northboundServer.port;
-        if (effectivePort == 0) {
-            sockaddr_storage boundAddr;
-            std::memset(&boundAddr, 0, sizeof(boundAddr));
-            socklen_t boundLen = sizeof(boundAddr);
-            if (getsockname(listenSocket, reinterpret_cast<sockaddr*>(&boundAddr), &boundLen) == 0) {
-                if (boundAddr.ss_family == AF_INET) {
-                    effectivePort = ntohs(reinterpret_cast<sockaddr_in*>(&boundAddr)->sin_port);
-                } else if (boundAddr.ss_family == AF_INET6) {
-                    effectivePort = ntohs(reinterpret_cast<sockaddr_in6*>(&boundAddr)->sin6_port);
-                }
+            const auto message = "northbound modbus tcp cannot listen on " +
+                (config_.northboundServer.bindHost.empty() ? std::string("<any>") : config_.northboundServer.bindHost) +
+                ":" + std::to_string(config_.northboundServer.port) + " (" + error + "); retrying every " +
+                std::to_string(retryMs) + " ms";
+            setStartError(message);
+            if (!failureReported) {
+                failureReported = true;
+                std::cerr << "ERROR " << message << std::endl;
+                report("northbound-bind-failed", message);
             }
-        }
-        boundPort_.store(effectivePort);
-        std::cerr << "northbound modbus tcp started"
-                  << " host=" << config_.northboundServer.bindHost
-                  << " port=" << effectivePort
-                  << " mappings=" << addressMappings_.size()
-                  << std::endl;
-
-        while (running_.load()) {
-            sockaddr_storage clientAddr;
-            std::memset(&clientAddr, 0, sizeof(clientAddr));
-            socklen_t clientLen = sizeof(clientAddr);
-            const auto client = accept(listenSocket, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
-            if (client == kInvalidSocket) {
-                if (!running_.load()) {
-                    break;
-                }
-                // e.g. EMFILE: back off instead of spinning on the listener.
+            const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(retryMs);
+            while (running_.load() && std::chrono::steady_clock::now() < until) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                continue;
             }
+            continue;
+        }
 
-            char hostBuffer[NI_MAXHOST] = {};
-            if (getnameinfo(
-                    reinterpret_cast<sockaddr*>(&clientAddr),
-                    clientLen,
-                    hostBuffer,
-                    sizeof(hostBuffer),
-                    nullptr,
-                    0,
-                    NI_NUMERICHOST) != 0) {
-                std::strncpy(hostBuffer, "unknown", sizeof(hostBuffer) - 1);
-            }
-            const std::string clientAddress(hostBuffer);
-            if (!isClientAllowed(clientAddress)) {
-                closeSocket(client);
-                continue;
-            }
-            if (activeClients_.load() >= config_.northboundServer.maxClients) {
-                closeSocket(client);
-                continue;
-            }
-            activeClients_.fetch_add(1);
-            std::lock_guard<std::mutex> lock(clientsMutex_);
-            // Join handlers of closed connections so reconnecting masters do
-            // not accumulate unjoined threads (and their stacks) forever.
-            reapFinishedClientsLocked();
-            try {
-                auto done = std::make_shared<std::atomic<bool>>(false);
-                ClientThread entry;
-                entry.done = done;
-                entry.thread = std::thread(
-                    &ModbusNorthboundServer::handleClient,
-                    this,
-                    static_cast<std::intptr_t>(client),
-                    clientAddress,
-                    done
-                );
-                clientThreads_.push_back(std::move(entry));
-            } catch (const std::exception& ex) {
-                std::cerr << "northbound client thread start failed: " << ex.what() << std::endl;
-                closeSocket(client);
-                activeClients_.fetch_sub(1);
+        int effectivePort = config_.northboundServer.port;
+        sockaddr_storage boundAddr;
+        std::memset(&boundAddr, 0, sizeof(boundAddr));
+        socklen_t boundLen = sizeof(boundAddr);
+        if (getsockname(listenSocket, reinterpret_cast<sockaddr*>(&boundAddr), &boundLen) == 0) {
+            if (boundAddr.ss_family == AF_INET) {
+                effectivePort = ntohs(reinterpret_cast<sockaddr_in*>(&boundAddr)->sin_port);
+            } else if (boundAddr.ss_family == AF_INET6) {
+                effectivePort = ntohs(reinterpret_cast<sockaddr_in6*>(&boundAddr)->sin6_port);
             }
         }
-    } catch (const std::exception& ex) {
-        if (running_.load()) {
-            std::cerr << "northbound modbus tcp stopped by error: " << ex.what() << std::endl;
-            running_.store(false);
+        setStartError(std::string());
+        boundPort_.store(effectivePort);
+        const auto started = "northbound modbus tcp listening host=" + config_.northboundServer.bindHost +
+            " port=" + std::to_string(effectivePort) + " mappings=" + std::to_string(mappings_.size());
+        std::cerr << started << std::endl;
+        if (failureReported) {
+            failureReported = false;
+            report("northbound-listening", started);
+        }
+        serveListener(static_cast<std::intptr_t>(listenSocket));
+        closeSocket(listenSocket);
+    }
+}
+
+void ModbusNorthboundServer::serveListener(std::intptr_t listenHandle) {
+    const auto listenSocket = static_cast<SocketHandle>(listenHandle);
+    while (running_.load()) {
+        // Wait in short slices so stop() is honoured promptly; the listener is owned by this thread.
+        timeval wait{};
+        wait.tv_sec = 0;
+        wait.tv_usec = 200000;
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(listenSocket, &readSet);
+#ifdef _WIN32
+        const auto ready = select(0, &readSet, nullptr, nullptr, &wait);
+#else
+        const auto ready = select(listenSocket + 1, &readSet, nullptr, nullptr, &wait);
+#endif
+        if (ready <= 0) {
+            continue;
+        }
+        sockaddr_storage clientAddr;
+        std::memset(&clientAddr, 0, sizeof(clientAddr));
+        socklen_t clientLen = sizeof(clientAddr);
+        const auto client = accept(listenSocket, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
+        if (client == kInvalidSocket) {
+            // e.g. EMFILE: back off instead of spinning on the listener.
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
+
+        char hostBuffer[NI_MAXHOST] = {};
+        if (getnameinfo(
+                reinterpret_cast<sockaddr*>(&clientAddr),
+                clientLen,
+                hostBuffer,
+                sizeof(hostBuffer),
+                nullptr,
+                0,
+                NI_NUMERICHOST) != 0) {
+            std::strncpy(hostBuffer, "unknown", sizeof(hostBuffer) - 1);
+        }
+        const std::string clientAddress(hostBuffer);
+        if (!northboundClientAllowed(config_.northboundServer, clientAddress)) {
+            closeSocket(client);
+            continue;
+        }
+        if (activeClients_.load() >= config_.northboundServer.maxClients) {
+            closeSocket(client);
+            continue;
+        }
+        activeClients_.fetch_add(1);
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        // Join handlers of closed connections so reconnecting masters do
+        // not accumulate unjoined threads (and their stacks) forever.
+        reapFinishedClientsLocked();
+        try {
+            auto done = std::make_shared<std::atomic<bool>>(false);
+            ClientThread entry;
+            entry.done = done;
+            entry.thread = std::thread(
+                &ModbusNorthboundServer::handleClient,
+                this,
+                static_cast<std::intptr_t>(client),
+                clientAddress,
+                done
+            );
+            clientThreads_.push_back(std::move(entry));
+        } catch (const std::exception& ex) {
+            std::cerr << "northbound client thread start failed: " << ex.what() << std::endl;
+            closeSocket(client);
+            activeClients_.fetch_sub(1);
         }
     }
 }
@@ -705,11 +874,24 @@ void ModbusNorthboundServer::handleClient(
     }
 }
 
+// Modbus TCP convention: unit 255 (and 0) address "this server". They alias the only configured
+// unit; with several units configured they must be mapped explicitly.
+int ModbusNorthboundServer::resolveUnit(std::uint8_t unitId) const {
+    const int unit = static_cast<int>(unitId);
+    if (std::find(unitIds_.begin(), unitIds_.end(), unit) != unitIds_.end()) {
+        return unit;
+    }
+    if ((unit == 0 || unit == 255) && unitIds_.size() == 1) {
+        return unitIds_.front();
+    }
+    return -1;
+}
+
 std::vector<std::uint8_t> ModbusNorthboundServer::handleRequest(
     std::uint8_t unitId,
     const std::vector<std::uint8_t>& pdu
 ) {
-    if (pdu.size() < 1) {
+    if (pdu.empty()) {
         return makeException(0, kIllegalDataValue);
     }
     const auto function = pdu[0];
@@ -719,10 +901,19 @@ std::vector<std::uint8_t> ModbusNorthboundServer::handleRequest(
         }
         const auto start = static_cast<int>(readWord(pdu, 1));
         const auto count = static_cast<int>(readWord(pdu, 3));
-        if (function == 1 || function == 2) {
-            return handleBitRead(unitId, function, start, count);
+        const auto unit = resolveUnit(unitId);
+        if (isBitFunction(function)) {
+            if (count <= 0 || count > config_.northboundServer.maxReadBits) {
+                return makeException(function, kIllegalDataValue);
+            }
+            return unit < 0 ? makeException(function, kIllegalDataAddress)
+                            : handleBitRead(unit, function, start, count);
         }
-        return handleRegisterRead(unitId, function, start, count);
+        if (count <= 0 || count > config_.northboundServer.maxReadRegisters) {
+            return makeException(function, kIllegalDataValue);
+        }
+        return unit < 0 ? makeException(function, kIllegalDataAddress)
+                        : handleRegisterRead(unit, function, start, count);
     }
     if (function == 5 || function == 6 || function == 15 || function == 16) {
         return makeException(function, config_.northboundServer.writesEnabled
@@ -733,48 +924,29 @@ std::vector<std::uint8_t> ModbusNorthboundServer::handleRequest(
 }
 
 std::vector<std::uint8_t> ModbusNorthboundServer::handleRegisterRead(
-    std::uint8_t unitId,
+    int unitId,
     std::uint8_t function,
     int start,
     int count
 ) {
-    if (count <= 0 || count > config_.northboundServer.maxReadRegisters) {
-        return makeException(function, kIllegalDataValue);
-    }
-    std::vector<std::uint16_t> registers(static_cast<std::size_t>(count), 0);
-    std::vector<std::uint8_t> filled(static_cast<std::size_t>(count), 0);
+    std::vector<std::uint16_t> registers;
+    registers.reserve(static_cast<std::size_t>(count));
     const auto now = currentTimeMs();
-
-    for (int offset = 0; offset < count; ++offset) {
-        AddressKey key{unitId, function, start + offset};
-        const auto it = addressMappings_.find(key);
+    // Walk value by value. A request must cover whole values: starting or ending inside a
+    // multi-register value would return half of one snapshot and half of another (02).
+    int offset = 0;
+    while (offset < count) {
+        const auto it = addressMappings_.find(AddressKey{unitId, function, start + offset});
         if (it == addressMappings_.end()) {
             return makeException(function, kIllegalDataAddress);
         }
-        std::vector<std::uint16_t> encoded;
-        try {
-            encoded = encodeRegistersForMapping(it->second, now);
-        } catch (const std::exception& ex) {
-            std::cerr << "northbound register read failed"
-                      << " unit=" << static_cast<int>(unitId)
-                      << " function=" << static_cast<int>(function)
-                      << " address=" << (start + offset)
-                      << " point=" << it->second.point.pointCode
-                      << " error=" << ex.what()
-                      << std::endl;
-            return makeException(function, kServerDeviceFailure);
-        }
-        const auto mappingAddress = it->second.config.address;
-        const auto relative = start + offset - mappingAddress;
-        if (relative < 0 || static_cast<std::size_t>(relative) >= encoded.size()) {
+        const auto& mapping = mappings_[it->second];
+        if (mapping.config.address != start + offset || offset + mapping.span > count) {
             return makeException(function, kIllegalDataAddress);
         }
-        registers[static_cast<std::size_t>(offset)] = encoded[static_cast<std::size_t>(relative)];
-        filled[static_cast<std::size_t>(offset)] = 1;
-    }
-
-    if (std::find(filled.begin(), filled.end(), 0) != filled.end()) {
-        return makeException(function, kIllegalDataAddress);
+        const auto encoded = readMapping(it->second, now);
+        registers.insert(registers.end(), encoded.begin(), encoded.end());
+        offset += mapping.span;
     }
 
     std::vector<std::uint8_t> response;
@@ -788,14 +960,11 @@ std::vector<std::uint8_t> ModbusNorthboundServer::handleRegisterRead(
 }
 
 std::vector<std::uint8_t> ModbusNorthboundServer::handleBitRead(
-    std::uint8_t unitId,
+    int unitId,
     std::uint8_t function,
     int start,
     int count
 ) {
-    if (count <= 0 || count > config_.northboundServer.maxReadBits) {
-        return makeException(function, kIllegalDataValue);
-    }
     std::vector<std::uint8_t> response;
     const auto byteCount = static_cast<std::size_t>((count + 7) / 8);
     response.assign(2 + byteCount, 0);
@@ -803,25 +972,11 @@ std::vector<std::uint8_t> ModbusNorthboundServer::handleBitRead(
     response[1] = static_cast<std::uint8_t>(byteCount);
     const auto now = currentTimeMs();
     for (int offset = 0; offset < count; ++offset) {
-        AddressKey key{unitId, function, start + offset};
-        const auto it = addressMappings_.find(key);
+        const auto it = addressMappings_.find(AddressKey{unitId, function, start + offset});
         if (it == addressMappings_.end()) {
             return makeException(function, kIllegalDataAddress);
         }
-        std::uint16_t bit = 0;
-        try {
-            bit = encodeBitForMapping(it->second, now);
-        } catch (const std::exception& ex) {
-            std::cerr << "northbound bit read failed"
-                      << " unit=" << static_cast<int>(unitId)
-                      << " function=" << static_cast<int>(function)
-                      << " address=" << (start + offset)
-                      << " point=" << it->second.point.pointCode
-                      << " error=" << ex.what()
-                      << std::endl;
-            return makeException(function, kServerDeviceFailure);
-        }
-        if (bit != 0) {
+        if (readMapping(it->second, now).front() != 0) {
             response[2 + static_cast<std::size_t>(offset / 8)] |=
                 static_cast<std::uint8_t>(1U << (offset % 8));
         }
@@ -829,43 +984,34 @@ std::vector<std::uint8_t> ModbusNorthboundServer::handleBitRead(
     return response;
 }
 
-std::vector<std::uint16_t> ModbusNorthboundServer::encodeRegistersForMapping(
-    const Mapping& mapping,
-    std::int64_t nowMs
-) const {
+std::vector<std::uint16_t> ModbusNorthboundServer::readMapping(std::size_t slot, std::int64_t nowMs) {
+    const auto& mapping = mappings_[slot];
+    const bool hold = mapping.config.onInvalid == "hold";
+    std::vector<std::uint16_t> encoded;
+    bool valid = false;
     const auto latest = store_.getLatestByIndex(mapping.point.index, nowMs);
-    if (!latest || latest->quality != 1 || latest->stale) {
-        if (mapping.config.stalePolicy == "zero") {
-            return zeroRegistersForMapping(mapping);
+    if (latest && latest->quality == 1 && !latest->stale && std::isfinite(latest->value)) {
+        if (isBitFunction(mapping.config.readFunction)) {
+            encoded.assign(1, static_cast<std::uint16_t>(latest->value != 0.0 ? 1 : 0));
+            valid = true;
+        } else {
+            const auto raw = (latest->value - mapping.config.offset) / mapping.config.scale;
+            std::vector<std::uint8_t> canonical;
+            if (canonicalBytesFor(raw, mapping.config.dataType, &canonical)) {
+                encoded = bytesToRegisters(reorderBytesForEncode(canonical, mapping.config.byteOrder));
+                valid = true;
+            }
         }
-        if (mapping.config.stalePolicy == "last_value" && latest) {
-            return encodeNumericRegisters(latest->value, mapping.config);
-        }
-        throw std::runtime_error("northbound mapped point is stale or missing");
     }
-    return encodeNumericRegisters(latest->value, mapping.config);
-}
-
-std::vector<std::uint16_t> ModbusNorthboundServer::zeroRegistersForMapping(const Mapping& mapping) const {
-    const auto length = dataTypeRegisterLength(mapping.config.dataType, mapping.config.length);
-    return std::vector<std::uint16_t>(length, 0);
-}
-
-std::uint16_t ModbusNorthboundServer::encodeBitForMapping(
-    const Mapping& mapping,
-    std::int64_t nowMs
-) const {
-    const auto latest = store_.getLatestByIndex(mapping.point.index, nowMs);
-    if (!latest || latest->quality != 1 || latest->stale) {
-        if (mapping.config.stalePolicy == "zero") {
-            return 0;
+    if (hold) {
+        std::lock_guard<std::mutex> lock(holdMutex_);
+        if (valid) {
+            lastGood_[slot] = encoded;
+            return encoded;
         }
-        if (mapping.config.stalePolicy == "last_value" && latest) {
-            return std::abs(latest->value) > 0.0 ? 1 : 0;
-        }
-        throw std::runtime_error("northbound mapped bit is stale or missing");
+        return lastGood_[slot].empty() ? mapping.invalidRegisters : lastGood_[slot];
     }
-    return std::abs(latest->value) > 0.0 ? 1 : 0;
+    return valid ? encoded : mapping.invalidRegisters;
 }
 
 void ModbusNorthboundServer::sendAll(std::intptr_t socket, const std::vector<std::uint8_t>& bytes) const {
@@ -940,32 +1086,19 @@ bool ModbusNorthboundServer::readExact(
     return true;
 }
 
-bool ModbusNorthboundServer::isClientAllowed(const std::string& clientAddress) const {
-    if (config_.northboundServer.allowedClientCidrs.empty()) {
+// Empty allowedClientCidrs admits every client: northboundConfigProblems() already refuses that
+// combination on a wildcard bindHost unless allowUnrestrictedClients is true.
+bool northboundClientAllowed(const NorthboundServerConfig& server, const std::string& clientAddress) {
+    if (server.allowedClientCidrs.empty()) {
         return true;
     }
-    for (const auto& item : config_.northboundServer.allowedClientCidrs) {
-        if (item == clientAddress) {
-            return true;
-        }
-        if (ipv4MatchesCidr(clientAddress, item)) {
+    const auto address = normalizeClientAddress(clientAddress);
+    for (const auto& item : server.allowedClientCidrs) {
+        if (item == address || item == clientAddress || ipv4MatchesCidr(address, item)) {
             return true;
         }
     }
     return false;
-}
-
-void ModbusNorthboundServer::closeListenSocket() {
-    const auto socket = static_cast<SocketHandle>(listenSocket_);
-    listenSocket_ = static_cast<std::intptr_t>(kInvalidSocket);
-    if (socket != kInvalidSocket) {
-#ifdef _WIN32
-        shutdown(socket, SD_BOTH);
-#else
-        shutdown(socket, SHUT_RDWR);
-#endif
-    }
-    closeSocket(socket);
 }
 
 }  // namespace edge_gateway
