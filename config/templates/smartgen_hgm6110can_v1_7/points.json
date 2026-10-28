@@ -1,0 +1,7665 @@
+{
+  "catalogSchemaVersion": "1.0",
+  "artifactKind": "offline-protocol-point-catalog",
+  "vendor": "SmartGen",
+  "model": "HGM6110CAN",
+  "protocol": "modbus_rtu",
+  "source": {
+    "fileName": "HGM6100N_HGM6100CAN_Protocol_cn.pdf",
+    "sha256": "1da4756aaa7825e0609d87639a2946770b779be7b2d038cd6c923244839cf210",
+    "revision": "V1.7",
+    "revisionDate": "2025-07-01",
+    "pageCount": 23
+  },
+  "deploymentReady": false,
+  "modelConfirmedByUser": true,
+  "deviceConnection": null,
+  "pointCount": 336,
+  "countsByFunctionCode": {
+    "1": 113,
+    "3": 216,
+    "5": 7
+  },
+  "transportReference": {
+    "defaultSlave": 1,
+    "defaultBaudRate": 9600,
+    "dataBits": 8,
+    "stopBits": 1,
+    "defaultParity": "none",
+    "timeoutMsExclusiveMinimum": 200,
+    "maxReadRegisters": 120
+  },
+  "reservedAddresses": {
+    "1": [
+      5,
+      54,
+      55,
+      70,
+      71,
+      85,
+      86,
+      87,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127
+    ],
+    "3": [
+      70,
+      205
+    ]
+  },
+  "integrationNotes": [
+    "适用型号：用户确认HGM6110CAN；通信为RS485 Modbus RTU，不是CAN总线点表。",
+    "这是离线协议点表，不是可直接下发的网关设备配置。未连接或修改104。所有点默认禁用，控制另有writeEnabled=false。",
+    "地址为十进制、从0开始；PLC地址仅用于对照，不能直接作为报文地址。FC01状态区与FC05命令区独立。",
+    "工厂通信默认9600/8N1、从站1；现场端口、地址、速率未知，不假定104使用这些默认值。支持2400/4800/9600/19200/115200bps，从站1..254。",
+    "协议要求超时>200ms，单次最多120字。接入建议先用1000ms轮询和1000ms超时，非设备刷新率承诺。保持串口独占，不跨保留区合并。",
+    "第10页频率行倍率0.1Hz与第17页示例0.01Hz冲突；点表暂记录表格0.1并标记待核，不可直接用于控制。",
+    "第18页FC05表格写00FFH，示例实际FF00；按示例保存报文候选值，但未启用写。6110地址5为分闸、6为合闸，不采用6120的切换命令。",
+    "第17页规定原始数据32766表示无正常数据，应显示无效/###而非工程数值。现有通用数值解码路径没有本协议专用无效值过滤，接入必须补齐并验证。",
+    "32766规则对双字、组合故障码的适用粒度未细说；双字整体值或任一组成字出现0x7FFE时保留原始数据并标记待核，不判正常、不随意置零。",
+    "累计小时、累计开机次数、累计电能为高位*10000+低位；分开保留原始字，不能按uint32拼接。派生规则是文档元数据，尚未绑定运行时计算点。",
+    "普通4字节值按高字*65536+低字，点表采用ABCD高字在前待现场核对；有符号采用二进制补码。DM1/DM2的SPN明确低字在前，不能套用同一字序。",
+    "CAN扩展字段是否有效取决于发动机ECU支持；ECU型号未确认时条件枚举不得落入other分支。未知枚举显示未知(原始码)，不能显示正常。",
+    "市电/ATS字段按家族协议保留，6110是否实现须接入确认；不将未支持字段的0值当作有效状态。CAN地址98..157为DM故障码，不混入N版油位历史。",
+    "16位、206扩展区、2500扩展区功率/电流为替代表示，不累加；优先核验2500公共扩展区的0.1分辨率。",
+    "协议称支持FC06但没有给出可写参数地址表，本点表不生成FC06写点。",
+    "接入104前确认串口、从站地址、波特率/校验、固件及ECU型号，分配现场pointCode/index，补齐无效值/派生量/中文状态映射，再做只读对照。电气控制须另行授权验证。"
+  ],
+  "derivedDefinitions": [
+    {
+      "name": "累计运行小时",
+      "addresses": [
+        42,
+        43
+      ],
+      "expression": "R42 * 10000 + R43",
+      "unit": "h",
+      "sourcePage": 17
+    },
+    {
+      "name": "累计运行时间",
+      "addresses": [
+        42,
+        43,
+        44,
+        45
+      ],
+      "expression": "(R42 * 10000 + R43) * 3600 + R44 * 60 + R45",
+      "unit": "s",
+      "sourcePage": 17
+    },
+    {
+      "name": "累计开机次数",
+      "addresses": [
+        46,
+        47
+      ],
+      "expression": "R46 * 10000 + R47",
+      "unit": "次",
+      "sourcePage": 17
+    },
+    {
+      "name": "累计电能",
+      "addresses": [
+        48,
+        49
+      ],
+      "expression": "R48 * 10000 + R49",
+      "unit": "kWh",
+      "sourcePage": 17
+    },
+    {
+      "name": "上位机兼容版本",
+      "addresses": [
+        203,
+        204
+      ],
+      "expression": "join('.', [R203 >> 8, R203 & 255, R204 >> 8, R204 & 255])",
+      "sourcePage": 17
+    }
+  ],
+  "points": [
+    {
+      "pointCode": "hgm6110can_fc01_0000",
+      "name": "公共报警",
+      "functionCode": 1,
+      "address": 0,
+      "plcAddress": 1,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "公共报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0001",
+      "name": "公共警告报警",
+      "functionCode": 1,
+      "address": 1,
+      "plcAddress": 2,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "公共警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0002",
+      "name": "公共停机报警",
+      "functionCode": 1,
+      "address": 2,
+      "plcAddress": 3,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "公共停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0003",
+      "name": "远程模式",
+      "functionCode": 1,
+      "address": 3,
+      "plcAddress": 4,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "远程模式（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0004",
+      "name": "远程锁机",
+      "functionCode": 1,
+      "address": 4,
+      "plcAddress": 5,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "远程锁机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0006",
+      "name": "市电带负载",
+      "functionCode": 1,
+      "address": 6,
+      "plcAddress": 7,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电带负载（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0007",
+      "name": "发电带负载",
+      "functionCode": 1,
+      "address": 7,
+      "plcAddress": 8,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电带负载（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0008",
+      "name": "紧急停机",
+      "functionCode": 1,
+      "address": 8,
+      "plcAddress": 9,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "紧急停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0009",
+      "name": "超速报警停机",
+      "functionCode": 1,
+      "address": 9,
+      "plcAddress": 10,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "超速报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0010",
+      "name": "欠速报警停机",
+      "functionCode": 1,
+      "address": 10,
+      "plcAddress": 11,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "欠速报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0011",
+      "name": "速度信号丢失停机",
+      "functionCode": 1,
+      "address": 11,
+      "plcAddress": 12,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "速度信号丢失停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0012",
+      "name": "超频报警停机",
+      "functionCode": 1,
+      "address": 12,
+      "plcAddress": 13,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "超频报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0013",
+      "name": "欠频报警停机",
+      "functionCode": 1,
+      "address": 13,
+      "plcAddress": 14,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "欠频报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0014",
+      "name": "过压报警停机",
+      "functionCode": 1,
+      "address": 14,
+      "plcAddress": 15,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "过压报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0015",
+      "name": "欠压报警停机",
+      "functionCode": 1,
+      "address": 15,
+      "plcAddress": 16,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "欠压报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0016",
+      "name": "发电过流停机",
+      "functionCode": 1,
+      "address": 16,
+      "plcAddress": 17,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电过流停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0017",
+      "name": "起动失败",
+      "functionCode": 1,
+      "address": 17,
+      "plcAddress": 18,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "起动失败（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0018",
+      "name": "水温高报警停机",
+      "functionCode": 1,
+      "address": 18,
+      "plcAddress": 19,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "水温高报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0019",
+      "name": "油压低报警停机",
+      "functionCode": 1,
+      "address": 19,
+      "plcAddress": 20,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "油压低报警停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0020",
+      "name": "频率丢失报警",
+      "functionCode": 1,
+      "address": 20,
+      "plcAddress": 21,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "频率丢失报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0021",
+      "name": "输入口停机报警",
+      "functionCode": 1,
+      "address": 21,
+      "plcAddress": 22,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "输入口停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0022",
+      "name": "燃油位低停机报警",
+      "functionCode": 1,
+      "address": 22,
+      "plcAddress": 23,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "燃油位低停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0023",
+      "name": "冷却液低停机报警",
+      "functionCode": 1,
+      "address": 23,
+      "plcAddress": 24,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "冷却液低停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0024",
+      "name": "水温高警告报警",
+      "functionCode": 1,
+      "address": 24,
+      "plcAddress": 25,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "水温高警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0025",
+      "name": "油压低警告报警",
+      "functionCode": 1,
+      "address": 25,
+      "plcAddress": 26,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "油压低警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0026",
+      "name": "发电过流警告报警",
+      "functionCode": 1,
+      "address": 26,
+      "plcAddress": 27,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电过流警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0027",
+      "name": "停机失败警告报警",
+      "functionCode": 1,
+      "address": 27,
+      "plcAddress": 28,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "停机失败警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0028",
+      "name": "油位低警告",
+      "functionCode": 1,
+      "address": 28,
+      "plcAddress": 29,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "油位低警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0029",
+      "name": "充电失败警告",
+      "functionCode": 1,
+      "address": 29,
+      "plcAddress": 30,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "充电失败警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0030",
+      "name": "电池电压过低警告报警",
+      "functionCode": 1,
+      "address": 30,
+      "plcAddress": 31,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "电池电压过低警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0031",
+      "name": "电池电压过高警告报警",
+      "functionCode": 1,
+      "address": 31,
+      "plcAddress": 32,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "电池电压过高警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0032",
+      "name": "输入口警告报警",
+      "functionCode": 1,
+      "address": 32,
+      "plcAddress": 33,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "输入口警告报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0033",
+      "name": "速度信号丢失警告",
+      "functionCode": 1,
+      "address": 33,
+      "plcAddress": 34,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "速度信号丢失警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0034",
+      "name": "冷却液低警告",
+      "functionCode": 1,
+      "address": 34,
+      "plcAddress": 35,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "冷却液低警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0035",
+      "name": "温度传感器开路警告",
+      "functionCode": 1,
+      "address": 35,
+      "plcAddress": 36,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "温度传感器开路警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0036",
+      "name": "油压传感器开路警告",
+      "functionCode": 1,
+      "address": 36,
+      "plcAddress": 37,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        6
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "油压传感器开路警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0037",
+      "name": "维护时间到警告",
+      "functionCode": 1,
+      "address": 37,
+      "plcAddress": 38,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "维护时间到警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0038",
+      "name": "充电器充电失败警告",
+      "functionCode": 1,
+      "address": 38,
+      "plcAddress": 39,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "充电器充电失败警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0039",
+      "name": "过功率警告",
+      "functionCode": 1,
+      "address": 39,
+      "plcAddress": 40,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "过功率警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0040",
+      "name": "系统在测试模式",
+      "functionCode": 1,
+      "address": 40,
+      "plcAddress": 41,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "系统在测试模式（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0041",
+      "name": "系统在自动模式",
+      "functionCode": 1,
+      "address": 41,
+      "plcAddress": 42,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "系统在自动模式（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0042",
+      "name": "系统在手动模式",
+      "functionCode": 1,
+      "address": 42,
+      "plcAddress": 43,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "系统在手动模式（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0043",
+      "name": "系统在停机模式",
+      "functionCode": 1,
+      "address": 43,
+      "plcAddress": 44,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "系统在停机模式（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0044",
+      "name": "温度传感器开路停机",
+      "functionCode": 1,
+      "address": 44,
+      "plcAddress": 45,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "温度传感器开路停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0045",
+      "name": "油压传感器开路停机",
+      "functionCode": 1,
+      "address": 45,
+      "plcAddress": 46,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "油压传感器开路停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0046",
+      "name": "维护时间到停机报警",
+      "functionCode": 1,
+      "address": 46,
+      "plcAddress": 47,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "维护时间到停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0047",
+      "name": "过功率停机报警",
+      "functionCode": 1,
+      "address": 47,
+      "plcAddress": 48,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "过功率停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0048",
+      "name": "紧急停机输入",
+      "functionCode": 1,
+      "address": 48,
+      "plcAddress": 49,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "紧急停机输入（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0049",
+      "name": "可编程输入口1",
+      "functionCode": 1,
+      "address": 49,
+      "plcAddress": 50,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输入口1（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0050",
+      "name": "可编程输入口2",
+      "functionCode": 1,
+      "address": 50,
+      "plcAddress": 51,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输入口2（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0051",
+      "name": "可编程输入口3",
+      "functionCode": 1,
+      "address": 51,
+      "plcAddress": 52,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输入口3（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0052",
+      "name": "可编程输入口4",
+      "functionCode": 1,
+      "address": 52,
+      "plcAddress": 53,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输入口4（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0053",
+      "name": "可编程输入口5",
+      "functionCode": 1,
+      "address": 53,
+      "plcAddress": 54,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输入口5（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0056",
+      "name": "起动继电器输出",
+      "functionCode": 1,
+      "address": 56,
+      "plcAddress": 57,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "起动继电器输出（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0057",
+      "name": "燃油继电器输出",
+      "functionCode": 1,
+      "address": 57,
+      "plcAddress": 58,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "燃油继电器输出（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0058",
+      "name": "可编程输出口1",
+      "functionCode": 1,
+      "address": 58,
+      "plcAddress": 59,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输出口1（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0059",
+      "name": "可编程输出口2",
+      "functionCode": 1,
+      "address": 59,
+      "plcAddress": 60,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输出口2（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0060",
+      "name": "可编程输出口3",
+      "functionCode": 1,
+      "address": 60,
+      "plcAddress": 61,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输出口3（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0061",
+      "name": "可编程输出口4",
+      "functionCode": 1,
+      "address": 61,
+      "plcAddress": 62,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "可编程输出口4（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0062",
+      "name": "燃油1输出控制",
+      "functionCode": 1,
+      "address": 62,
+      "plcAddress": 63,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "燃油1输出控制（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0063",
+      "name": "漏液警告",
+      "functionCode": 1,
+      "address": 63,
+      "plcAddress": 64,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "漏液警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0064",
+      "name": "市电故障",
+      "functionCode": 1,
+      "address": 64,
+      "plcAddress": 65,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电故障（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0065",
+      "name": "市电正常",
+      "functionCode": 1,
+      "address": 65,
+      "plcAddress": 66,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电正常（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0066",
+      "name": "市电过压",
+      "functionCode": 1,
+      "address": 66,
+      "plcAddress": 67,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电过压（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0067",
+      "name": "市电欠压",
+      "functionCode": 1,
+      "address": 67,
+      "plcAddress": 68,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电欠压（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0068",
+      "name": "市电缺相",
+      "functionCode": 1,
+      "address": 68,
+      "plcAddress": 69,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电缺相（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0069",
+      "name": "市电无",
+      "functionCode": 1,
+      "address": 69,
+      "plcAddress": 70,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        7
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "市电无（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0072",
+      "name": "发电正常",
+      "functionCode": 1,
+      "address": 72,
+      "plcAddress": 73,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电正常（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0073",
+      "name": "发电过压",
+      "functionCode": 1,
+      "address": 73,
+      "plcAddress": 74,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电过压（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0074",
+      "name": "发电欠压",
+      "functionCode": 1,
+      "address": 74,
+      "plcAddress": 75,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电欠压（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0075",
+      "name": "发电过频",
+      "functionCode": 1,
+      "address": 75,
+      "plcAddress": 76,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电过频（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0076",
+      "name": "发电欠频",
+      "functionCode": 1,
+      "address": 76,
+      "plcAddress": 77,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电欠频（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0077",
+      "name": "发电过流",
+      "functionCode": 1,
+      "address": 77,
+      "plcAddress": 78,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发电过流（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0078",
+      "name": "定时不开机时间指示",
+      "functionCode": 1,
+      "address": 78,
+      "plcAddress": 79,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "定时不开机时间指示（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0079",
+      "name": "ECU警告",
+      "functionCode": 1,
+      "address": 79,
+      "plcAddress": 80,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "ECU警告（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0080",
+      "name": "ECU停机报警",
+      "functionCode": 1,
+      "address": 80,
+      "plcAddress": 81,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "ECU停机报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0081",
+      "name": "ECU通信失败报警",
+      "functionCode": 1,
+      "address": 81,
+      "plcAddress": 82,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "ECU通信失败报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0082",
+      "name": "高温报警停机（模拟量温度传感器）",
+      "functionCode": 1,
+      "address": 82,
+      "plcAddress": 83,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "高温报警停机（模拟量温度传感器）（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0083",
+      "name": "低油压报警停机（模拟量油压传感器）",
+      "functionCode": 1,
+      "address": 83,
+      "plcAddress": 84,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "低油压报警停机（模拟量油压传感器）（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0084",
+      "name": "漏液停机",
+      "functionCode": 1,
+      "address": 84,
+      "plcAddress": 85,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "漏液停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0088",
+      "name": "再生中",
+      "functionCode": 1,
+      "address": 88,
+      "plcAddress": 89,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "再生中（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0089",
+      "name": "即将激活严重限制",
+      "functionCode": 1,
+      "address": 89,
+      "plcAddress": 90,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "即将激活严重限制（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0090",
+      "name": "DPF过载需要服务再生",
+      "functionCode": 1,
+      "address": 90,
+      "plcAddress": 91,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF过载需要服务再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0091",
+      "name": "DPF满载请进行驻车再生",
+      "functionCode": 1,
+      "address": 91,
+      "plcAddress": 92,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF满载请进行驻车再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0092",
+      "name": "DPF正在再生请不要停机",
+      "functionCode": 1,
+      "address": 92,
+      "plcAddress": 93,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF正在再生请不要停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0093",
+      "name": "DPF再生被禁止",
+      "functionCode": 1,
+      "address": 93,
+      "plcAddress": 94,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF再生被禁止（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0094",
+      "name": "DPF需要再生请不要停机",
+      "functionCode": 1,
+      "address": 94,
+      "plcAddress": 95,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF需要再生请不要停机（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0095",
+      "name": "发动机警告故障",
+      "functionCode": 1,
+      "address": 95,
+      "plcAddress": 96,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发动机警告故障（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0096",
+      "name": "行车再生",
+      "functionCode": 1,
+      "address": 96,
+      "plcAddress": 97,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "行车再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0097",
+      "name": "需进行驻车再生",
+      "functionCode": 1,
+      "address": 97,
+      "plcAddress": 98,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "需进行驻车再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0098",
+      "name": "需服务站进行再生",
+      "functionCode": 1,
+      "address": 98,
+      "plcAddress": 99,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "需服务站进行再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0099",
+      "name": "需进行驻车再生",
+      "functionCode": 1,
+      "address": 99,
+      "plcAddress": 100,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "需进行驻车再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0100",
+      "name": "后处理排温高",
+      "functionCode": 1,
+      "address": 100,
+      "plcAddress": 101,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "后处理排温高（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0101",
+      "name": "再生请勿合闸带载",
+      "functionCode": 1,
+      "address": 101,
+      "plcAddress": 102,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "再生请勿合闸带载（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0102",
+      "name": "请在水温>50°C下再生",
+      "functionCode": 1,
+      "address": 102,
+      "plcAddress": 103,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "请在水温>50°C下再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0103",
+      "name": "需进行主动再生",
+      "functionCode": 1,
+      "address": 103,
+      "plcAddress": 104,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "需进行主动再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0104",
+      "name": "HEST指示",
+      "functionCode": 1,
+      "address": 104,
+      "plcAddress": 105,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "HEST指示（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0105",
+      "name": "DPF禁止指示",
+      "functionCode": 1,
+      "address": 105,
+      "plcAddress": 106,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF禁止指示（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0106",
+      "name": "NCD报警",
+      "functionCode": 1,
+      "address": 106,
+      "plcAddress": 107,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "NCD报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0107",
+      "name": "NCD即将限制",
+      "functionCode": 1,
+      "address": 107,
+      "plcAddress": 108,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "NCD即将限制（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0108",
+      "name": "NCD初级限制",
+      "functionCode": 1,
+      "address": 108,
+      "plcAddress": 109,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "NCD初级限制（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0109",
+      "name": "NCD严重限制",
+      "functionCode": 1,
+      "address": 109,
+      "plcAddress": 110,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "NCD严重限制（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0110",
+      "name": "需服务再生",
+      "functionCode": 1,
+      "address": 110,
+      "plcAddress": 111,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "需服务再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0111",
+      "name": "正在驻车再生",
+      "functionCode": 1,
+      "address": 111,
+      "plcAddress": 112,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        8
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "正在驻车再生（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0112",
+      "name": "MIL",
+      "functionCode": 1,
+      "address": 112,
+      "plcAddress": 113,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "MIL（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0113",
+      "name": "SVS",
+      "functionCode": 1,
+      "address": 113,
+      "plcAddress": 114,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "SVS（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0114",
+      "name": "巡航指示",
+      "functionCode": 1,
+      "address": 114,
+      "plcAddress": 115,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "巡航指示（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0115",
+      "name": "油中含水",
+      "functionCode": 1,
+      "address": 115,
+      "plcAddress": 116,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "油中含水（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0116",
+      "name": "排气制动",
+      "functionCode": 1,
+      "address": 116,
+      "plcAddress": 117,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "排气制动（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0117",
+      "name": "尿素液位低",
+      "functionCode": 1,
+      "address": 117,
+      "plcAddress": 118,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "尿素液位低（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0118",
+      "name": "驾驶员报警",
+      "functionCode": 1,
+      "address": 118,
+      "plcAddress": 119,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "驾驶员报警（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0119",
+      "name": "DPF",
+      "functionCode": 1,
+      "address": 119,
+      "plcAddress": 120,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "DPF（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc01_0120",
+      "name": "发动机停机故障",
+      "functionCode": 1,
+      "address": 120,
+      "plcAddress": 121,
+      "access": "read",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        9
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "valueMap": {
+        "0": "未置位",
+        "1": "发动机停机故障（有效）"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0000",
+      "name": "市电UA",
+      "functionCode": 3,
+      "address": 0,
+      "plcAddress": 40001,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0001",
+      "name": "市电UB",
+      "functionCode": 3,
+      "address": 1,
+      "plcAddress": 40002,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0002",
+      "name": "市电UC",
+      "functionCode": 3,
+      "address": 2,
+      "plcAddress": 40003,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0003",
+      "name": "市电UAB",
+      "functionCode": 3,
+      "address": 3,
+      "plcAddress": 40004,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0004",
+      "name": "市电UBC",
+      "functionCode": 3,
+      "address": 4,
+      "plcAddress": 40005,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0005",
+      "name": "市电UCA",
+      "functionCode": 3,
+      "address": 5,
+      "plcAddress": 40006,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0006",
+      "name": "市电频率",
+      "functionCode": 3,
+      "address": 6,
+      "plcAddress": 40007,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "Hz",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "notes": "表6为0.1Hz；第17页注1示例为0.01Hz，现场核实前不可用于控制或合格判定。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0007",
+      "name": "发电UA",
+      "functionCode": 3,
+      "address": 7,
+      "plcAddress": 40008,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0008",
+      "name": "发电UB",
+      "functionCode": 3,
+      "address": 8,
+      "plcAddress": 40009,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0009",
+      "name": "发电UC",
+      "functionCode": 3,
+      "address": 9,
+      "plcAddress": 40010,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0010",
+      "name": "发电UAB",
+      "functionCode": 3,
+      "address": 10,
+      "plcAddress": 40011,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0011",
+      "name": "发电UBC",
+      "functionCode": 3,
+      "address": 11,
+      "plcAddress": 40012,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0012",
+      "name": "发电UCA",
+      "functionCode": 3,
+      "address": 12,
+      "plcAddress": 40013,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0013",
+      "name": "发电频率",
+      "functionCode": 3,
+      "address": 13,
+      "plcAddress": 40014,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "Hz",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "notes": "表6为0.1Hz；第17页注1示例为0.01Hz，现场核实前不可用于控制或合格判定。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0014",
+      "name": "A相电流（16位）",
+      "functionCode": 3,
+      "address": 14,
+      "plcAddress": 40015,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0015",
+      "name": "B相电流（16位）",
+      "functionCode": 3,
+      "address": 15,
+      "plcAddress": 40016,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0016",
+      "name": "C相电流（16位）",
+      "functionCode": 3,
+      "address": 16,
+      "plcAddress": 40017,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0017",
+      "name": "水温温度值",
+      "functionCode": 3,
+      "address": 17,
+      "plcAddress": 40018,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "按协议无符号2Bytes整理；负温表示未说明。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0018",
+      "name": "水温电阻值",
+      "functionCode": 3,
+      "address": 18,
+      "plcAddress": 40019,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "Ω",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0019",
+      "name": "油压值",
+      "functionCode": 3,
+      "address": 19,
+      "plcAddress": 40020,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0020",
+      "name": "油压电阻值",
+      "functionCode": 3,
+      "address": 20,
+      "plcAddress": 40021,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "Ω",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0021",
+      "name": "液位值",
+      "functionCode": 3,
+      "address": 21,
+      "plcAddress": 40022,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0022",
+      "name": "液位电阻值",
+      "functionCode": 3,
+      "address": 22,
+      "plcAddress": 40023,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "Ω",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0023",
+      "name": "转速",
+      "functionCode": 3,
+      "address": 23,
+      "plcAddress": 40024,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "RPM",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0024",
+      "name": "电池电压",
+      "functionCode": 3,
+      "address": 24,
+      "plcAddress": 40025,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0025",
+      "name": "D+电压",
+      "functionCode": 3,
+      "address": 25,
+      "plcAddress": 40026,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "V",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0026",
+      "name": "有功功率（16位）",
+      "functionCode": 3,
+      "address": 26,
+      "plcAddress": 40027,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kW",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0027",
+      "name": "无功功率（16位）",
+      "functionCode": 3,
+      "address": 27,
+      "plcAddress": 40028,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kvar",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0028",
+      "name": "视在功率（16位）",
+      "functionCode": 3,
+      "address": 28,
+      "plcAddress": 40029,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kVA",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0029",
+      "name": "功率因数",
+      "functionCode": 3,
+      "address": 29,
+      "plcAddress": 40030,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.01,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0030",
+      "name": "维护倒计时小时",
+      "functionCode": 3,
+      "address": 30,
+      "plcAddress": 40031,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "h",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0031",
+      "name": "维护倒计时分",
+      "functionCode": 3,
+      "address": 31,
+      "plcAddress": 40032,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "min",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0032",
+      "name": "点火提前角（原始字）",
+      "functionCode": 3,
+      "address": 32,
+      "plcAddress": 40033,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": null,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "verificationRequired": true,
+      "notes": "有无符号未注明；ECU51/73倍率1、单位deg，其他ECU倍率0.1、单位CA。确认前仅保留原始字。",
+      "scaleProfiles": [
+        {
+          "ecuTypes": [
+            51,
+            73
+          ],
+          "scale": 1,
+          "unit": "deg"
+        },
+        {
+          "ecuTypes": "other",
+          "scale": 0.1,
+          "unit": "CA"
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0033",
+      "name": "燃气阀开度",
+      "functionCode": 3,
+      "address": 33,
+      "plcAddress": 40034,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.01,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        10
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0034",
+      "name": "控制器运行状态",
+      "functionCode": 3,
+      "address": 34,
+      "plcAddress": 40035,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11,
+        18,
+        19
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "valueMap": {
+        "0": "待机",
+        "1": "预热",
+        "2": "燃油输出",
+        "3": "起动",
+        "4": "起动间隔",
+        "5": "安全延时",
+        "6": "开机怠速",
+        "7": "高速暖机",
+        "8": "等待带载",
+        "9": "正常运行",
+        "10": "高速散热",
+        "11": "停机怠速",
+        "12": "得电停机",
+        "13": "等待停稳",
+        "14": "停机失败",
+        "15": "过停稳"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0035",
+      "name": "控制器运行延时",
+      "functionCode": 3,
+      "address": 35,
+      "plcAddress": 40036,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "s",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "倍率栏留空，按原始秒值保留。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0036",
+      "name": "自动运行状态",
+      "functionCode": 3,
+      "address": 36,
+      "plcAddress": 40037,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11,
+        19
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "valueMap": {
+        "0": "开机延时",
+        "1": "停机延时",
+        "2": "无延时"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0037",
+      "name": "自动运行延时",
+      "functionCode": 3,
+      "address": 37,
+      "plcAddress": 40038,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "s",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "倍率栏留空，按原始秒值保留。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0038",
+      "name": "ATS运行状态（原始码）",
+      "functionCode": 3,
+      "address": 38,
+      "plcAddress": 40039,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "协议未提供状态枚举，不猜测含义。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0039",
+      "name": "ATS运行延时",
+      "functionCode": 3,
+      "address": 39,
+      "plcAddress": 40040,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "s",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "倍率栏留空，按原始秒值保留。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0040",
+      "name": "市电状态",
+      "functionCode": 3,
+      "address": 40,
+      "plcAddress": 40041,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "valueMap": {
+        "0": "正常",
+        "1": "异常",
+        "2": "无延时"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0041",
+      "name": "市电状态延时",
+      "functionCode": 3,
+      "address": 41,
+      "plcAddress": 40042,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "s",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "倍率栏留空，按原始秒值保留。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0042",
+      "name": "累计运行小时高位",
+      "functionCode": 3,
+      "address": 42,
+      "plcAddress": 40043,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "h",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "组成量；实际总量=R42*10000+R43，不是二进制uint32。",
+      "rawRange": [
+        0,
+        9000
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0043",
+      "name": "累计运行小时低位",
+      "functionCode": 3,
+      "address": 43,
+      "plcAddress": 40044,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "h",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "组成量；实际总量=R42*10000+R43，不是二进制uint32。",
+      "rawRange": [
+        0,
+        9999
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0044",
+      "name": "累计运行分钟",
+      "functionCode": 3,
+      "address": 44,
+      "plcAddress": 40045,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "min",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0045",
+      "name": "累计运行秒",
+      "functionCode": 3,
+      "address": 45,
+      "plcAddress": 40046,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "s",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0046",
+      "name": "累计开机次数高位",
+      "functionCode": 3,
+      "address": 46,
+      "plcAddress": 40047,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "次",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "组成量；实际总量=R46*10000+R47，不是二进制uint32。",
+      "rawRange": [
+        0,
+        9000
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0047",
+      "name": "累计开机次数低位",
+      "functionCode": 3,
+      "address": 47,
+      "plcAddress": 40048,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "次",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "组成量；实际总量=R46*10000+R47，不是二进制uint32。",
+      "rawRange": [
+        0,
+        9999
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0048",
+      "name": "累计电能高位",
+      "functionCode": 3,
+      "address": 48,
+      "plcAddress": 40049,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "kWh",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "组成量；实际总量=R48*10000+R49，不是二进制uint32。",
+      "rawRange": [
+        0,
+        9000
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0049",
+      "name": "累计电能低位",
+      "functionCode": 3,
+      "address": 49,
+      "plcAddress": 40050,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "kWh",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "组成量；实际总量=R48*10000+R49，不是二进制uint32。",
+      "rawRange": [
+        0,
+        9999
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0050",
+      "name": "软件版本",
+      "functionCode": 3,
+      "address": 50,
+      "plcAddress": 40051,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0051",
+      "name": "硬件版本",
+      "functionCode": 3,
+      "address": 51,
+      "plcAddress": 40052,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0052",
+      "name": "A相有功功率",
+      "functionCode": 3,
+      "address": 52,
+      "plcAddress": 40053,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kW",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0053",
+      "name": "B相有功功率",
+      "functionCode": 3,
+      "address": 53,
+      "plcAddress": 40054,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kW",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0054",
+      "name": "C相有功功率",
+      "functionCode": 3,
+      "address": 54,
+      "plcAddress": 40055,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kW",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0055",
+      "name": "负载输出百分比",
+      "functionCode": 3,
+      "address": 55,
+      "plcAddress": 40056,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "倍率栏留空，暂按原始百分数记录，现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0056",
+      "name": "空燃比",
+      "functionCode": 3,
+      "address": 56,
+      "plcAddress": 40057,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.01,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0057",
+      "name": "节气门开度",
+      "functionCode": 3,
+      "address": 57,
+      "plcAddress": 40058,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0058",
+      "name": "冷却液位",
+      "functionCode": 3,
+      "address": 58,
+      "plcAddress": 40059,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0059",
+      "name": "机油温度",
+      "functionCode": 3,
+      "address": 59,
+      "plcAddress": 40060,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0060",
+      "name": "冷却液压力",
+      "functionCode": 3,
+      "address": 60,
+      "plcAddress": 40061,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0061",
+      "name": "燃油压力",
+      "functionCode": 3,
+      "address": 61,
+      "plcAddress": 40062,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0062",
+      "name": "燃油温度",
+      "functionCode": 3,
+      "address": 62,
+      "plcAddress": 40063,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0063",
+      "name": "进气口温度",
+      "functionCode": 3,
+      "address": 63,
+      "plcAddress": 40064,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0064",
+      "name": "排气口温度",
+      "functionCode": 3,
+      "address": 64,
+      "plcAddress": 40065,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0065",
+      "name": "涡轮压力",
+      "functionCode": 3,
+      "address": 65,
+      "plcAddress": 40066,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0066",
+      "name": "燃油消耗",
+      "functionCode": 3,
+      "address": 66,
+      "plcAddress": 40067,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "L/h",
+      "sourcePages": [
+        11
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0067",
+      "name": "进气压力",
+      "functionCode": 3,
+      "address": 67,
+      "plcAddress": 40068,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0068",
+      "name": "累计燃油消耗",
+      "functionCode": 3,
+      "address": 68,
+      "plcAddress": 40069,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "L",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0071",
+      "name": "控制器型号（原始码）",
+      "functionCode": 3,
+      "address": 71,
+      "plcAddress": 40072,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "协议未给出码值对照，不臆造枚举。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0072",
+      "name": "控制器时间：年",
+      "functionCode": 3,
+      "address": 72,
+      "plcAddress": 40073,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        99
+      ],
+      "notes": "年基准及星期0对应哪天未注明；不擅自转换日历。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0073",
+      "name": "控制器时间：月",
+      "functionCode": 3,
+      "address": 73,
+      "plcAddress": 40074,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        1,
+        12
+      ],
+      "notes": ""
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0074",
+      "name": "控制器时间：日",
+      "functionCode": 3,
+      "address": 74,
+      "plcAddress": 40075,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        1,
+        31
+      ],
+      "notes": ""
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0075",
+      "name": "控制器时间：星期",
+      "functionCode": 3,
+      "address": 75,
+      "plcAddress": 40076,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        6
+      ],
+      "notes": "年基准及星期0对应哪天未注明；不擅自转换日历。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0076",
+      "name": "控制器时间：时",
+      "functionCode": 3,
+      "address": 76,
+      "plcAddress": 40077,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        23
+      ],
+      "notes": ""
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0077",
+      "name": "控制器时间：分",
+      "functionCode": 3,
+      "address": 77,
+      "plcAddress": 40078,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        59
+      ],
+      "notes": ""
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0078",
+      "name": "控制器时间：秒",
+      "functionCode": 3,
+      "address": 78,
+      "plcAddress": 40079,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        59
+      ],
+      "notes": ""
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0079",
+      "name": "发布年",
+      "functionCode": 3,
+      "address": 79,
+      "plcAddress": 40080,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0080",
+      "name": "发布月",
+      "functionCode": 3,
+      "address": 80,
+      "plcAddress": 40081,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0081",
+      "name": "发布日",
+      "functionCode": 3,
+      "address": 81,
+      "plcAddress": 40082,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0082",
+      "name": "点火转速",
+      "functionCode": 3,
+      "address": 82,
+      "plcAddress": 40083,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "RPM",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0083",
+      "name": "尿素液位",
+      "functionCode": 3,
+      "address": 83,
+      "plcAddress": 40084,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0084",
+      "name": "ECU温度",
+      "functionCode": 3,
+      "address": 84,
+      "plcAddress": 40085,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0085",
+      "name": "环境压力",
+      "functionCode": 3,
+      "address": 85,
+      "plcAddress": 40086,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0086",
+      "name": "ECU运行时间",
+      "functionCode": 3,
+      "address": 86,
+      "plcAddress": 40087,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "h",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0088",
+      "name": "MTU FC",
+      "functionCode": 3,
+      "address": 88,
+      "plcAddress": 40089,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "RPM",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0089",
+      "name": "MTU Droop",
+      "functionCode": 3,
+      "address": 89,
+      "plcAddress": 40090,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0090",
+      "name": "MTU Demand Source（原始码）",
+      "functionCode": 3,
+      "address": 90,
+      "plcAddress": 40091,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "协议未给出码值对照，不臆造枚举。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0091",
+      "name": "MTU SSD（原始码）",
+      "functionCode": 3,
+      "address": 91,
+      "plcAddress": 40092,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "协议未给出码值对照，不臆造枚举。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0092",
+      "name": "发电UA相位",
+      "functionCode": 3,
+      "address": 92,
+      "plcAddress": 40093,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        360
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0093",
+      "name": "发电UB相位",
+      "functionCode": 3,
+      "address": 93,
+      "plcAddress": 40094,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        360
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0094",
+      "name": "发电UC相位",
+      "functionCode": 3,
+      "address": 94,
+      "plcAddress": 40095,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        360
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0095",
+      "name": "市电UA相位",
+      "functionCode": 3,
+      "address": 95,
+      "plcAddress": 40096,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        360
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0096",
+      "name": "市电UB相位",
+      "functionCode": 3,
+      "address": 96,
+      "plcAddress": 40097,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        360
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0097",
+      "name": "市电UC相位",
+      "functionCode": 3,
+      "address": 97,
+      "plcAddress": 40098,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°",
+      "sourcePages": [
+        12
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawRange": [
+        0,
+        360
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0098",
+      "name": "DM1报警1 SPN低16位",
+      "functionCode": 3,
+      "address": 98,
+      "plcAddress": 40099,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R99*65536+R98；OC=(R100>>8)&255；FMI=R100&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0099",
+      "name": "DM1报警1 SPN高16位",
+      "functionCode": 3,
+      "address": 99,
+      "plcAddress": 40100,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R99*65536+R98；OC=(R100>>8)&255；FMI=R100&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0100",
+      "name": "DM1报警1 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 100,
+      "plcAddress": 40101,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R99*65536+R98；OC=(R100>>8)&255；FMI=R100&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0101",
+      "name": "DM1报警2 SPN低16位",
+      "functionCode": 3,
+      "address": 101,
+      "plcAddress": 40102,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R102*65536+R101；OC=(R103>>8)&255；FMI=R103&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0102",
+      "name": "DM1报警2 SPN高16位",
+      "functionCode": 3,
+      "address": 102,
+      "plcAddress": 40103,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R102*65536+R101；OC=(R103>>8)&255；FMI=R103&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0103",
+      "name": "DM1报警2 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 103,
+      "plcAddress": 40104,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R102*65536+R101；OC=(R103>>8)&255；FMI=R103&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0104",
+      "name": "DM1报警3 SPN低16位",
+      "functionCode": 3,
+      "address": 104,
+      "plcAddress": 40105,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R105*65536+R104；OC=(R106>>8)&255；FMI=R106&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0105",
+      "name": "DM1报警3 SPN高16位",
+      "functionCode": 3,
+      "address": 105,
+      "plcAddress": 40106,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R105*65536+R104；OC=(R106>>8)&255；FMI=R106&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0106",
+      "name": "DM1报警3 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 106,
+      "plcAddress": 40107,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R105*65536+R104；OC=(R106>>8)&255；FMI=R106&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0107",
+      "name": "DM1报警4 SPN低16位",
+      "functionCode": 3,
+      "address": 107,
+      "plcAddress": 40108,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R108*65536+R107；OC=(R109>>8)&255；FMI=R109&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0108",
+      "name": "DM1报警4 SPN高16位",
+      "functionCode": 3,
+      "address": 108,
+      "plcAddress": 40109,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R108*65536+R107；OC=(R109>>8)&255；FMI=R109&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0109",
+      "name": "DM1报警4 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 109,
+      "plcAddress": 40110,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R108*65536+R107；OC=(R109>>8)&255；FMI=R109&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0110",
+      "name": "DM1报警5 SPN低16位",
+      "functionCode": 3,
+      "address": 110,
+      "plcAddress": 40111,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R111*65536+R110；OC=(R112>>8)&255；FMI=R112&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0111",
+      "name": "DM1报警5 SPN高16位",
+      "functionCode": 3,
+      "address": 111,
+      "plcAddress": 40112,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R111*65536+R110；OC=(R112>>8)&255；FMI=R112&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0112",
+      "name": "DM1报警5 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 112,
+      "plcAddress": 40113,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R111*65536+R110；OC=(R112>>8)&255；FMI=R112&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0113",
+      "name": "DM1报警6 SPN低16位",
+      "functionCode": 3,
+      "address": 113,
+      "plcAddress": 40114,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R114*65536+R113；OC=(R115>>8)&255；FMI=R115&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0114",
+      "name": "DM1报警6 SPN高16位",
+      "functionCode": 3,
+      "address": 114,
+      "plcAddress": 40115,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R114*65536+R113；OC=(R115>>8)&255；FMI=R115&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0115",
+      "name": "DM1报警6 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 115,
+      "plcAddress": 40116,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R114*65536+R113；OC=(R115>>8)&255；FMI=R115&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0116",
+      "name": "DM1报警7 SPN低16位",
+      "functionCode": 3,
+      "address": 116,
+      "plcAddress": 40117,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R117*65536+R116；OC=(R118>>8)&255；FMI=R118&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0117",
+      "name": "DM1报警7 SPN高16位",
+      "functionCode": 3,
+      "address": 117,
+      "plcAddress": 40118,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R117*65536+R116；OC=(R118>>8)&255；FMI=R118&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0118",
+      "name": "DM1报警7 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 118,
+      "plcAddress": 40119,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R117*65536+R116；OC=(R118>>8)&255；FMI=R118&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0119",
+      "name": "DM1报警8 SPN低16位",
+      "functionCode": 3,
+      "address": 119,
+      "plcAddress": 40120,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R120*65536+R119；OC=(R121>>8)&255；FMI=R121&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0120",
+      "name": "DM1报警8 SPN高16位",
+      "functionCode": 3,
+      "address": 120,
+      "plcAddress": 40121,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R120*65536+R119；OC=(R121>>8)&255；FMI=R121&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0121",
+      "name": "DM1报警8 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 121,
+      "plcAddress": 40122,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R120*65536+R119；OC=(R121>>8)&255；FMI=R121&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0122",
+      "name": "DM1报警9 SPN低16位",
+      "functionCode": 3,
+      "address": 122,
+      "plcAddress": 40123,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R123*65536+R122；OC=(R124>>8)&255；FMI=R124&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0123",
+      "name": "DM1报警9 SPN高16位",
+      "functionCode": 3,
+      "address": 123,
+      "plcAddress": 40124,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R123*65536+R122；OC=(R124>>8)&255；FMI=R124&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0124",
+      "name": "DM1报警9 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 124,
+      "plcAddress": 40125,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R123*65536+R122；OC=(R124>>8)&255；FMI=R124&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0125",
+      "name": "DM1报警10 SPN低16位",
+      "functionCode": 3,
+      "address": 125,
+      "plcAddress": 40126,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        13
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R126*65536+R125；OC=(R127>>8)&255；FMI=R127&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0126",
+      "name": "DM1报警10 SPN高16位",
+      "functionCode": 3,
+      "address": 126,
+      "plcAddress": 40127,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R126*65536+R125；OC=(R127>>8)&255；FMI=R127&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0127",
+      "name": "DM1报警10 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 127,
+      "plcAddress": 40128,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R126*65536+R125；OC=(R127>>8)&255；FMI=R127&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0128",
+      "name": "DM2报警1 SPN低16位",
+      "functionCode": 3,
+      "address": 128,
+      "plcAddress": 40129,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R129*65536+R128；OC=(R130>>8)&255；FMI=R130&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0129",
+      "name": "DM2报警1 SPN高16位",
+      "functionCode": 3,
+      "address": 129,
+      "plcAddress": 40130,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R129*65536+R128；OC=(R130>>8)&255；FMI=R130&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0130",
+      "name": "DM2报警1 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 130,
+      "plcAddress": 40131,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R129*65536+R128；OC=(R130>>8)&255；FMI=R130&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0131",
+      "name": "DM2报警2 SPN低16位",
+      "functionCode": 3,
+      "address": 131,
+      "plcAddress": 40132,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R132*65536+R131；OC=(R133>>8)&255；FMI=R133&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0132",
+      "name": "DM2报警2 SPN高16位",
+      "functionCode": 3,
+      "address": 132,
+      "plcAddress": 40133,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R132*65536+R131；OC=(R133>>8)&255；FMI=R133&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0133",
+      "name": "DM2报警2 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 133,
+      "plcAddress": 40134,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R132*65536+R131；OC=(R133>>8)&255；FMI=R133&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0134",
+      "name": "DM2报警3 SPN低16位",
+      "functionCode": 3,
+      "address": 134,
+      "plcAddress": 40135,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R135*65536+R134；OC=(R136>>8)&255；FMI=R136&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0135",
+      "name": "DM2报警3 SPN高16位",
+      "functionCode": 3,
+      "address": 135,
+      "plcAddress": 40136,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R135*65536+R134；OC=(R136>>8)&255；FMI=R136&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0136",
+      "name": "DM2报警3 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 136,
+      "plcAddress": 40137,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R135*65536+R134；OC=(R136>>8)&255；FMI=R136&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0137",
+      "name": "DM2报警4 SPN低16位",
+      "functionCode": 3,
+      "address": 137,
+      "plcAddress": 40138,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R138*65536+R137；OC=(R139>>8)&255；FMI=R139&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0138",
+      "name": "DM2报警4 SPN高16位",
+      "functionCode": 3,
+      "address": 138,
+      "plcAddress": 40139,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R138*65536+R137；OC=(R139>>8)&255；FMI=R139&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0139",
+      "name": "DM2报警4 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 139,
+      "plcAddress": 40140,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R138*65536+R137；OC=(R139>>8)&255；FMI=R139&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0140",
+      "name": "DM2报警5 SPN低16位",
+      "functionCode": 3,
+      "address": 140,
+      "plcAddress": 40141,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R141*65536+R140；OC=(R142>>8)&255；FMI=R142&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0141",
+      "name": "DM2报警5 SPN高16位",
+      "functionCode": 3,
+      "address": 141,
+      "plcAddress": 40142,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R141*65536+R140；OC=(R142>>8)&255；FMI=R142&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0142",
+      "name": "DM2报警5 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 142,
+      "plcAddress": 40143,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R141*65536+R140；OC=(R142>>8)&255；FMI=R142&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0143",
+      "name": "DM2报警6 SPN低16位",
+      "functionCode": 3,
+      "address": 143,
+      "plcAddress": 40144,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R144*65536+R143；OC=(R145>>8)&255；FMI=R145&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0144",
+      "name": "DM2报警6 SPN高16位",
+      "functionCode": 3,
+      "address": 144,
+      "plcAddress": 40145,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R144*65536+R143；OC=(R145>>8)&255；FMI=R145&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0145",
+      "name": "DM2报警6 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 145,
+      "plcAddress": 40146,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R144*65536+R143；OC=(R145>>8)&255；FMI=R145&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0146",
+      "name": "DM2报警7 SPN低16位",
+      "functionCode": 3,
+      "address": 146,
+      "plcAddress": 40147,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R147*65536+R146；OC=(R148>>8)&255；FMI=R148&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0147",
+      "name": "DM2报警7 SPN高16位",
+      "functionCode": 3,
+      "address": 147,
+      "plcAddress": 40148,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R147*65536+R146；OC=(R148>>8)&255；FMI=R148&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0148",
+      "name": "DM2报警7 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 148,
+      "plcAddress": 40149,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R147*65536+R146；OC=(R148>>8)&255；FMI=R148&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0149",
+      "name": "DM2报警8 SPN低16位",
+      "functionCode": 3,
+      "address": 149,
+      "plcAddress": 40150,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R150*65536+R149；OC=(R151>>8)&255；FMI=R151&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0150",
+      "name": "DM2报警8 SPN高16位",
+      "functionCode": 3,
+      "address": 150,
+      "plcAddress": 40151,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R150*65536+R149；OC=(R151>>8)&255；FMI=R151&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0151",
+      "name": "DM2报警8 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 151,
+      "plcAddress": 40152,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R150*65536+R149；OC=(R151>>8)&255；FMI=R151&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0152",
+      "name": "DM2报警9 SPN低16位",
+      "functionCode": 3,
+      "address": 152,
+      "plcAddress": 40153,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R153*65536+R152；OC=(R154>>8)&255；FMI=R154&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0153",
+      "name": "DM2报警9 SPN高16位",
+      "functionCode": 3,
+      "address": 153,
+      "plcAddress": 40154,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R153*65536+R152；OC=(R154>>8)&255；FMI=R154&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0154",
+      "name": "DM2报警9 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 154,
+      "plcAddress": 40155,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R153*65536+R152；OC=(R154>>8)&255；FMI=R154&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0155",
+      "name": "DM2报警10 SPN低16位",
+      "functionCode": 3,
+      "address": 155,
+      "plcAddress": 40156,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R156*65536+R155；OC=(R157>>8)&255；FMI=R157&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0156",
+      "name": "DM2报警10 SPN高16位",
+      "functionCode": 3,
+      "address": 156,
+      "plcAddress": 40157,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R156*65536+R155；OC=(R157>>8)&255；FMI=R157&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0157",
+      "name": "DM2报警10 OC/FMI组合字",
+      "functionCode": 3,
+      "address": 157,
+      "plcAddress": 40158,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        14
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "SPN=R156*65536+R155；OC=(R157>>8)&255；FMI=R157&255。SPN低字在前；故障语义需匹配发动机故障字典。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0158",
+      "name": "ECU报警停机数量",
+      "functionCode": 3,
+      "address": 158,
+      "plcAddress": 40159,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0159",
+      "name": "ECU警告数量",
+      "functionCode": 3,
+      "address": 159,
+      "plcAddress": 40160,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0160",
+      "name": "瞬时油耗",
+      "functionCode": 3,
+      "address": 160,
+      "plcAddress": 40161,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "Km/L",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "notes": "单位Km/L按原文保留，不转换成L/h。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0161",
+      "name": "燃气压力（原始字）",
+      "functionCode": 3,
+      "address": 161,
+      "plcAddress": 40162,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": null,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "verificationRequired": true,
+      "notes": "有无符号未注明；ECU46倍率0.01，其他ECU倍率1，单位kPa。确认前仅保留原始字。",
+      "scaleProfiles": [
+        {
+          "ecuTypes": [
+            46
+          ],
+          "scale": 0.01,
+          "unit": "kPa"
+        },
+        {
+          "ecuTypes": "other",
+          "scale": 1,
+          "unit": "kPa"
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0162",
+      "name": "尾气氧含量",
+      "functionCode": 3,
+      "address": 162,
+      "plcAddress": 40163,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.01,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0163",
+      "name": "涡前温度",
+      "functionCode": 3,
+      "address": 163,
+      "plcAddress": 40164,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0164",
+      "name": "燃料阀位置",
+      "functionCode": 3,
+      "address": 164,
+      "plcAddress": 40165,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0165",
+      "name": "尿素温度",
+      "functionCode": 3,
+      "address": 165,
+      "plcAddress": 40166,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0166",
+      "name": "尿素温度2",
+      "functionCode": 3,
+      "address": 166,
+      "plcAddress": 40167,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0167",
+      "name": "尿素浓度",
+      "functionCode": 3,
+      "address": 167,
+      "plcAddress": 40168,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0168",
+      "name": "尿素消耗",
+      "functionCode": 3,
+      "address": 168,
+      "plcAddress": 40169,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "L/h",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0169",
+      "name": "燃气温度",
+      "functionCode": 3,
+      "address": 169,
+      "plcAddress": 40170,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0170",
+      "name": "SCR温度",
+      "functionCode": 3,
+      "address": 170,
+      "plcAddress": 40171,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0171",
+      "name": "节气门位置2",
+      "functionCode": 3,
+      "address": 171,
+      "plcAddress": 40172,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0172",
+      "name": "DPF烟尘量",
+      "functionCode": 3,
+      "address": 172,
+      "plcAddress": 40173,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0173",
+      "name": "DPF灰烬量",
+      "functionCode": 3,
+      "address": 173,
+      "plcAddress": 40174,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0174",
+      "name": "SCR出口温度",
+      "functionCode": 3,
+      "address": 174,
+      "plcAddress": 40175,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0175",
+      "name": "DPF积碳量指示",
+      "functionCode": 3,
+      "address": 175,
+      "plcAddress": 40176,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15,
+        21
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "enumProfiles": [
+        {
+          "ecuTypes": "all",
+          "ranges": [
+            {
+              "min": 0,
+              "max": 8,
+              "label": "无图标显示"
+            }
+          ]
+        },
+        {
+          "ecuTypes": [
+            62,
+            68
+          ],
+          "ranges": [
+            {
+              "min": 9,
+              "max": 10,
+              "label": "图标闪烁：需驻车再生"
+            },
+            {
+              "min": 11,
+              "max": 65535,
+              "label": "图标常亮：需服务站再生"
+            }
+          ]
+        },
+        {
+          "ecuTypes": "other",
+          "ranges": [
+            {
+              "min": 9,
+              "max": 10,
+              "label": "图标常亮"
+            },
+            {
+              "min": 11,
+              "max": 65535,
+              "label": "图标闪烁"
+            }
+          ]
+        }
+      ],
+      "verificationRequired": true,
+      "notes": "先剔除无效值再匹配范围；这是状态码，不能当作积碳百分比。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0176",
+      "name": "扭矩",
+      "functionCode": 3,
+      "address": 176,
+      "plcAddress": 40177,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0177",
+      "name": "DPF再生提醒",
+      "functionCode": 3,
+      "address": 177,
+      "plcAddress": 40178,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15,
+        19
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "enumProfiles": [
+        {
+          "ecuTypes": [
+            52
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标常亮",
+            "4": "图标闪烁"
+          }
+        },
+        {
+          "ecuTypes": [
+            59,
+            64,
+            70
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "4": "图标闪烁"
+          }
+        },
+        {
+          "ecuTypes": [
+            58,
+            61
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标慢闪烁",
+            "3": "图标快闪烁"
+          }
+        },
+        {
+          "ecuTypes": [
+            66
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标快闪烁",
+            "3": "图标更快闪烁（带底纹）"
+          }
+        },
+        {
+          "ecuTypes": [
+            65
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标慢闪烁",
+            "4": "图标快闪烁"
+          }
+        },
+        {
+          "ecuTypes": "other",
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标闪烁",
+            "4": "图标闪烁"
+          }
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0178",
+      "name": "DPF再生禁止",
+      "functionCode": 3,
+      "address": 178,
+      "plcAddress": 40179,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15,
+        20
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "valueMap": {
+        "0": "无图标显示",
+        "1": "图标常亮"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0179",
+      "name": "DPF再生状态",
+      "functionCode": 3,
+      "address": 179,
+      "plcAddress": 40180,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15,
+        20
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "enumProfiles": [
+        {
+          "ecuTypes": [
+            58,
+            61,
+            59,
+            64,
+            65,
+            66,
+            70
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮"
+          }
+        },
+        {
+          "ecuTypes": "other",
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标闪烁"
+          }
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0180",
+      "name": "DPF状态指示",
+      "functionCode": 3,
+      "address": 180,
+      "plcAddress": 40181,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15,
+        20
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "valueMap": {
+        "0": "无图标显示",
+        "1": "图标常亮",
+        "2": "图标慢闪烁",
+        "3": "图标快闪烁"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0181",
+      "name": "驾驶员报警",
+      "functionCode": 3,
+      "address": 181,
+      "plcAddress": 40182,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        15,
+        20
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "valueMap": {
+        "0": "无图标显示",
+        "1": "NCD报警（常亮）",
+        "2": "NCD即将限制（常亮）",
+        "3": "NCD初级限制（常亮）",
+        "4": "NCD严重限制（常亮）",
+        "5": "驾驶员报警（常亮）",
+        "6": "驾驶员报警（闪烁）",
+        "7": "存在报警，无图标显示"
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0182",
+      "name": "燃料阀位置2",
+      "functionCode": 3,
+      "address": 182,
+      "plcAddress": 40183,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "%",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0183",
+      "name": "曲轴箱压力",
+      "functionCode": 3,
+      "address": 183,
+      "plcAddress": 40184,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0184",
+      "name": "中冷器温度",
+      "functionCode": 3,
+      "address": 184,
+      "plcAddress": 40185,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1.0,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0185",
+      "name": "排气口温度1",
+      "functionCode": 3,
+      "address": 185,
+      "plcAddress": 40186,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0186",
+      "name": "排气口温度2",
+      "functionCode": 3,
+      "address": 186,
+      "plcAddress": 40187,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0187",
+      "name": "排气口温度3",
+      "functionCode": 3,
+      "address": 187,
+      "plcAddress": 40188,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0188",
+      "name": "排气口温度4",
+      "functionCode": 3,
+      "address": 188,
+      "plcAddress": 40189,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0189",
+      "name": "排气口温度5",
+      "functionCode": 3,
+      "address": 189,
+      "plcAddress": 40190,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0190",
+      "name": "排气口温度6",
+      "functionCode": 3,
+      "address": 190,
+      "plcAddress": 40191,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0191",
+      "name": "排气口温度7",
+      "functionCode": 3,
+      "address": 191,
+      "plcAddress": 40192,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0192",
+      "name": "排气口温度8",
+      "functionCode": 3,
+      "address": 192,
+      "plcAddress": 40193,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        15
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0193",
+      "name": "排气口温度9",
+      "functionCode": 3,
+      "address": 193,
+      "plcAddress": 40194,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0194",
+      "name": "排气口温度10",
+      "functionCode": 3,
+      "address": 194,
+      "plcAddress": 40195,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0195",
+      "name": "排气口温度11",
+      "functionCode": 3,
+      "address": 195,
+      "plcAddress": 40196,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0196",
+      "name": "排气口温度12",
+      "functionCode": 3,
+      "address": 196,
+      "plcAddress": 40197,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0197",
+      "name": "排气口温度13",
+      "functionCode": 3,
+      "address": 197,
+      "plcAddress": 40198,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0198",
+      "name": "排气口温度14",
+      "functionCode": 3,
+      "address": 198,
+      "plcAddress": 40199,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0199",
+      "name": "排气口温度15",
+      "functionCode": 3,
+      "address": 199,
+      "plcAddress": 40200,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0200",
+      "name": "排气口温度16",
+      "functionCode": 3,
+      "address": 200,
+      "plcAddress": 40201,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "°C",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0201",
+      "name": "燃气压力2",
+      "functionCode": 3,
+      "address": 201,
+      "plcAddress": 40202,
+      "access": "read",
+      "dataType": "int16",
+      "length": 1,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kPa",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0202",
+      "name": "SCR指示",
+      "functionCode": 3,
+      "address": 202,
+      "plcAddress": 40203,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        16,
+        21
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "enumProfiles": [
+        {
+          "ecuTypes": [
+            66
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "2": "图标常亮",
+            "3": "图标闪烁",
+            "4": "图标闪烁",
+            "5": "图标反显闪烁",
+            "6": "图标反显闪烁",
+            "7": "无图标显示"
+          }
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0203",
+      "name": "上位机版本高16位",
+      "functionCode": 3,
+      "address": 203,
+      "plcAddress": 40204,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "按4个字节显示版本；0601H/0407H -> 6.1.4.7。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0204",
+      "name": "上位机版本低16位",
+      "functionCode": 3,
+      "address": 204,
+      "plcAddress": 40205,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "rawOnly": true,
+      "notes": "按4个字节显示版本；0601H/0407H -> 6.1.4.7。"
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0206",
+      "name": "A相电流（32位，地址206）",
+      "functionCode": 3,
+      "address": 206,
+      "plcAddress": 40207,
+      "access": "read",
+      "dataType": "uint32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0208",
+      "name": "B相电流（32位，地址208）",
+      "functionCode": 3,
+      "address": 208,
+      "plcAddress": 40209,
+      "access": "read",
+      "dataType": "uint32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0210",
+      "name": "C相电流（32位，地址210）",
+      "functionCode": 3,
+      "address": 210,
+      "plcAddress": 40211,
+      "access": "read",
+      "dataType": "uint32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0212",
+      "name": "有功功率（32位，地址212）",
+      "functionCode": 3,
+      "address": 212,
+      "plcAddress": 40213,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kW",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0214",
+      "name": "无功功率（32位，地址214）",
+      "functionCode": 3,
+      "address": 214,
+      "plcAddress": 40215,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kvar",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0216",
+      "name": "视在功率（32位，地址216）",
+      "functionCode": 3,
+      "address": 216,
+      "plcAddress": 40217,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kVA",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0218",
+      "name": "空挡状态指示",
+      "functionCode": 3,
+      "address": 218,
+      "plcAddress": 40219,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        16,
+        21
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "enumProfiles": [
+        {
+          "ecuTypes": [
+            65
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮"
+          }
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_0219",
+      "name": "DEF液位低报警指示灯",
+      "functionCode": 3,
+      "address": 219,
+      "plcAddress": 40220,
+      "access": "read",
+      "dataType": "uint16",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        16,
+        21
+      ],
+      "enabledByDefault": false,
+      "category": "status",
+      "byteOrder": "AB",
+      "invalidValueRule": "raw32766",
+      "verificationRequired": true,
+      "enumProfiles": [
+        {
+          "ecuTypes": [
+            75
+          ],
+          "valueMap": {
+            "0": "无图标显示",
+            "1": "图标常亮",
+            "4": "图标闪烁"
+          }
+        }
+      ]
+    },
+    {
+      "pointCode": "hgm6110can_fc03_2500",
+      "name": "A相电流（32位，地址2500）",
+      "functionCode": 3,
+      "address": 2500,
+      "plcAddress": 42501,
+      "access": "read",
+      "dataType": "uint32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_2502",
+      "name": "B相电流（32位，地址2502）",
+      "functionCode": 3,
+      "address": 2502,
+      "plcAddress": 42503,
+      "access": "read",
+      "dataType": "uint32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_2504",
+      "name": "C相电流（32位，地址2504）",
+      "functionCode": 3,
+      "address": 2504,
+      "plcAddress": 42505,
+      "access": "read",
+      "dataType": "uint32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "A",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_2506",
+      "name": "有功功率（32位，地址2506）",
+      "functionCode": 3,
+      "address": 2506,
+      "plcAddress": 42507,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kW",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_2508",
+      "name": "无功功率（32位，地址2508）",
+      "functionCode": 3,
+      "address": 2508,
+      "plcAddress": 42509,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kvar",
+      "sourcePages": [
+        16
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc03_2510",
+      "name": "视在功率（32位，地址2510）",
+      "functionCode": 3,
+      "address": 2510,
+      "plcAddress": 42511,
+      "access": "read",
+      "dataType": "int32",
+      "length": 2,
+      "scale": 0.1,
+      "offset": 0,
+      "unit": "kVA",
+      "sourcePages": [
+        17
+      ],
+      "enabledByDefault": false,
+      "category": "telemetry",
+      "byteOrder": "ABCD",
+      "invalidValueRule": "raw32766",
+      "notes": "与16位/另一扩展区为同一物理量的不同寄存器表示，不重复累计；连续双字必须同帧读取。高字在前假设需现场核对。",
+      "verificationRequired": true
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0000",
+      "name": "遥控开机",
+      "functionCode": 5,
+      "address": 0,
+      "plcAddress": 1,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。"
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0001",
+      "name": "遥控停机",
+      "functionCode": 5,
+      "address": 1,
+      "plcAddress": 2,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。"
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0002",
+      "name": "遥控试机",
+      "functionCode": 5,
+      "address": 2,
+      "plcAddress": 3,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。"
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0003",
+      "name": "遥控自动",
+      "functionCode": 5,
+      "address": 3,
+      "plcAddress": 4,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。",
+      "feedbackReference": {
+        "functionCode": 1,
+        "address": 41,
+        "expectedValue": 1,
+        "sourcePage": 18
+      }
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0004",
+      "name": "遥控手动",
+      "functionCode": 5,
+      "address": 4,
+      "plcAddress": 5,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。"
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0005",
+      "name": "发电分闸",
+      "functionCode": 5,
+      "address": 5,
+      "plcAddress": 6,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。"
+    },
+    {
+      "pointCode": "hgm6110can_fc05_0006",
+      "name": "发电合闸",
+      "functionCode": 5,
+      "address": 6,
+      "plcAddress": 7,
+      "access": "write",
+      "dataType": "bit",
+      "length": 1,
+      "scale": 1,
+      "offset": 0,
+      "unit": "",
+      "sourcePages": [
+        18
+      ],
+      "enabledByDefault": false,
+      "category": "control",
+      "writeEnabled": false,
+      "verificationRequired": true,
+      "singleShot": true,
+      "automaticRetry": false,
+      "automaticReset": false,
+      "documentedWireValueHex": "FF00",
+      "conflictingTableValueHex": "00FF",
+      "notes": "HGM6110命令；表格00FFH与报文示例FF00冲突，须确认。只发送一次；不可自动补发或写0复位；FC01同地址不是该命令回读。"
+    }
+  ]
+}
