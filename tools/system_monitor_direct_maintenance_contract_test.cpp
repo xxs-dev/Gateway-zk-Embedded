@@ -81,13 +81,16 @@ void verifyFullTelemetryRequiresExistingStores() {
     const auto name = root.substr(root.find_last_of('/') + 1);
     const auto app = root + "/monitor.json";
     const auto device = root + "/device.cfg";
+    const auto identity = root + "/identity.json";
     const auto cleanup = [&] {
         ::shm_unlink(("/" + name).c_str());
         std::remove(app.c_str());
         std::remove(device.c_str());
+        std::remove(identity.c_str());
         ::rmdir(root.c_str());
     };
     try {
+        { std::ofstream f(identity); f << "{\"machineCode\":\"GW_TEST\"}"; }
         { std::ofstream f(device);
           f << "{\"machineCode\":\"GW_TEST\",\"protocol\":{\"type\":\"computed\"},"
                "\"memoryStore\":{\"sharedMemoryName\":\"" << name << "\"},"
@@ -95,7 +98,7 @@ void verifyFullTelemetryRequiresExistingStores() {
                "\"pointCode\":\"FULL_TEST\",\"enabled\":true,\"fullUpload\":true,"
                "\"read\":{\"enable\":true},\"write\":{\"enable\":false}}]}]}"; }
         { std::ofstream f(app);
-          f << "{\"identityConfigFile\":\"\",\"deviceConfigFiles\":[\"" << device << "\"],"
+          f << "{\"identityConfigFile\":\"" << identity << "\",\"deviceConfigFiles\":[\"" << device << "\"],"
                "\"mqttDriver\":{\"sharedMemoryName\":\"" << name << "\"}}"; }
         edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig config;
         config.appConfigFile = app;
