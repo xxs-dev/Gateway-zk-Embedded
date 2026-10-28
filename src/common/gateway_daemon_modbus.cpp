@@ -47,28 +47,29 @@ GatewayDaemon::GatewayDaemon(
         std::move(realtimeMeterLeaseFile)
     ) {
     if (config_.northboundServer.enabled) {
-        std::shared_ptr<ModbusNorthboundServer> server(
-            new ModbusNorthboundServer(config_, store_)
-        );
-        auxiliaryService_ = [this, server](bool start) {
+        // Northbound problems (config refusal, bind failure) are reported on the daemon status
+        // channel and never stop collection.
+        std::shared_ptr<ModbusNorthboundServer> server(new ModbusNorthboundServer(
+            config_,
+            store_,
+            [this](const std::string& event, const std::string& message) {
+                std::string escaped;
+                for (const auto ch : message) {
+                    if (ch == '"' || ch == '\\') {
+                        escaped.push_back('\\');
+                    }
+                    escaped.push_back(static_cast<unsigned char>(ch) < 0x20 ? ' ' : ch);
+                }
+                publishStatusEvent(
+                    event,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count(),
+                    std::string(R"("message":")") + escaped + "\"");
+            }
+        ));
+        auxiliaryService_ = [server](bool start) {
             if (start) {
                 server->start();
-                const auto refusal = server->startError();
-                if (!refusal.empty()) {
-                    // Surface the refusal on the daemon status channel, not only stderr.
-                    std::string escaped;
-                    for (const auto ch : refusal) {
-                        if (ch == '"' || ch == '\\') {
-                            escaped.push_back('\\');
-                        }
-                        escaped.push_back(ch);
-                    }
-                    publishStatusEvent(
-                        "northbound-refused",
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count(),
-                        std::string(R"("message":")") + escaped + "\"");
-                }
             } else {
                 server->stop();
             }

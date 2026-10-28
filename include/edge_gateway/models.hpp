@@ -120,7 +120,11 @@ struct ModbusNorthboundMappingConfig {
     std::string byteOrder = "AB";
     bool writeEnabled = false;
     int writeFunction = 6;
-    std::string stalePolicy = "exception";
+    // What a read returns for a value that is missing, bad quality, stale or not encodable in
+    // dataType: "sentinel" (default; the sentinel raw value, or the dataType's "not available"
+    // marker) or "hold" (the last valid value served since start, sentinel before that).
+    std::string onInvalid = "sentinel";
+    Optional<double> sentinel;
 };
 
 struct ValueNormalizeMapping {
@@ -682,6 +686,8 @@ struct NorthboundServerConfig {
     // Secure default: a wildcard bindHost (0.0.0.0 / :: / empty) without an
     // allowedClientCidrs list is refused unless this is explicitly true.
     bool allowUnrestrictedClients = false;
+    // A failed bind/listen is retried at this interval (and reported as northbound-bind-failed).
+    int bindRetryIntervalMs = 5000;
 };
 
 struct MemoryStoreStats {

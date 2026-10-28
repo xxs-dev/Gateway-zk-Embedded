@@ -330,7 +330,8 @@ void verifyNorthboundConfig() {
         "\"scale\":1,"
         "\"offset\":0,"
         "\"byteOrder\":\"ABCD\","
-        "\"stalePolicy\":\"zero\""
+        "\"onInvalid\":\"hold\","
+        "\"sentinel\":-1"
         "}"
         "}],"
         "\"meters\":[]"
@@ -346,7 +347,9 @@ void verifyNorthboundConfig() {
     require(config.points.front().northbound.enabled, "northbound mapping should parse");
     require(config.points.front().northbound.readFunction == 4, "northbound area should infer function 4");
     require(config.points.front().northbound.address == 300, "northbound address should parse");
-    require(config.points.front().northbound.stalePolicy == "zero", "northbound stale policy should parse");
+    require(config.points.front().northbound.onInvalid == "hold", "northbound onInvalid should parse");
+    require(config.points.front().northbound.sentinel && *config.points.front().northbound.sentinel == -1.0,
+            "northbound sentinel should parse");
 }
 
 void verifyDlt645WriteConfig() {

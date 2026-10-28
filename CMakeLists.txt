@@ -512,6 +512,18 @@ target_link_libraries(config_corpus_load_test PRIVATE edge_gateway)
 add_executable(collector_clock_and_expiry_test tools/collector_clock_and_expiry_test.cpp)
 target_link_libraries(collector_clock_and_expiry_test PRIVATE edge_gateway)
 
+# driver-review: nb-mqtt
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING
+   AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # ThreadSanitizer build of the northbound server alone (point store read stubbed in the test).
+    add_executable(modbus_northbound_tsan_test tools/modbus_northbound_tsan_test.cpp src/modbus_northbound_server.cpp)
+    target_include_directories(modbus_northbound_tsan_test PRIVATE include)
+    target_compile_options(modbus_northbound_tsan_test PRIVATE -fsanitize=thread -O1 -g)
+    target_link_options(modbus_northbound_tsan_test PRIVATE -fsanitize=thread)
+    target_link_libraries(modbus_northbound_tsan_test PRIVATE pthread)
+    add_test(NAME modbus_northbound_tsan COMMAND modbus_northbound_tsan_test)
+endif()
+
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
 target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
