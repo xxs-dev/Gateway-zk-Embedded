@@ -274,6 +274,21 @@ void verifyInterrogationScheduling() {
     require(station.countType(101) == 1, "counterInterrogationIntervalMs=0: CI only after connection");
 }
 
+// counterInterrogation=false: a substation that does not support C_CI_NA_1 is never sent one.
+void verifyCounterInterrogationCanBeDisabled() {
+    Station104 station;
+    station.onAsdu = answerInterrogations;
+    station.start();
+    auto config = baseConfig();
+    config.interrogationIntervalMs = 100;
+    config.counterInterrogation = false;
+    config.counterInterrogationIntervalMs = 100;
+    Iec104Client client(tcpFor(station), config);
+    (void)pollFor(client, 400);
+    require(station.countType(100) >= 2, "GI keeps running with counter interrogation disabled");
+    require(station.countType(101) == 0, "counterInterrogation=false: no counter interrogation is sent");
+}
+
 // Finding 4: a GI without ACT_TERM is not repeated, even when its period elapses.
 void verifyUnterminatedInterrogationBlocks() {
     Station104 station;
@@ -488,6 +503,7 @@ void verifyClockSync() {
 int main() {
     try {
         verifyInterrogationScheduling();
+        verifyCounterInterrogationCanBeDisabled();
         verifyUnterminatedInterrogationBlocks();
         verifySequenceSupervision(7, "N(S) gap");
         verifySequenceSupervision(0, "duplicate N(S)");

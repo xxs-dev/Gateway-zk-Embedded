@@ -105,6 +105,21 @@ void verifyIec101StartupAndInterrogation() {
     require(station->repeats == 0, "no repetitions without reply loss");
 }
 
+// counterInterrogation=false: an IEC 101 substation without C_CI_NA_1 support is never sent one.
+void verifyIec101CounterInterrogationDisabled() {
+    auto port = std::make_shared<SerialStation>();
+    auto* station = &port->station;
+    station->onUserData = answerIec101Interrogations;
+    auto config = iec101Config();
+    config.counterInterrogation = false;
+    IecFt12Client client("iec101", port, config);
+    const auto first = client.poll();
+    (void)client.poll();
+    (void)client.poll();
+    require(hasValue(first, 1001, 1.0), "GI data still collected");
+    require(station->countUserData(101) == 0, "counterInterrogation=false: no counter interrogation is sent");
+}
+
 // Finding 1: a station that only answers E5 is not an acquisition (old code: online, no data).
 void verifyE5OnlyIsNotSuccess() {
     auto port = std::make_shared<SerialStation>();
@@ -246,6 +261,7 @@ void verifyDataFlowControl() {
 int main() {
     try {
         verifyIec101StartupAndInterrogation();
+        verifyIec101CounterInterrogationDisabled();
         verifyE5OnlyIsNotSuccess();
         verifyRetransmissionAndRecovery();
         verifyIec103Session();

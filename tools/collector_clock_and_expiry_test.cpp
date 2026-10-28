@@ -61,6 +61,10 @@ edge_gateway::DeviceConfig deviceConfig(const std::string& storeName) {
     return config;
 }
 
+// Intervals count from read completion (nowMs + real time spent in the cycle). The tests step nowMs
+// by exactly one interval, so the in-cycle elapsed time is frozen to keep them deterministic.
+std::int64_t frozenMonotonicMs() { return 0; }
+
 void clockStepBackDoesNotFreezeCollection() {
     const auto storeName = "collector_clock_step_" + std::to_string(getpid());
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -68,7 +72,7 @@ void clockStepBackDoesNotFreezeCollection() {
         auto config = deviceConfig(storeName);
         edge_gateway::MemoryPointStore store(config.memoryStore);
         auto client = std::make_shared<CountingClient>();
-        edge_gateway::Collector collector(config, store, client, nullptr);
+        edge_gateway::Collector collector(config, store, client, nullptr, frozenMonotonicMs);
         // Values are timestamped with the real wall clock, so schedule around it too.
         std::int64_t now = wallNowMs();
         for (int i = 0; i < 3; ++i, now += 500) collector.collectOnce(now);
@@ -83,6 +87,28 @@ void clockStepBackDoesNotFreezeCollection() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+// Power-on with the clock behind, then NTP moves it forward one hour: collection keeps its cadence.
+void clockStepForwardKeepsCollecting() {
+    const auto storeName = "collector_clock_fwd_" + std::to_string(getpid());
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = deviceConfig(storeName);
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<CountingClient>();
+        edge_gateway::Collector collector(config, store, client, nullptr, frozenMonotonicMs);
+        std::int64_t now = wallNowMs() - 3600000;  // booted with the clock one hour behind
+        for (int i = 0; i < 3; ++i, now += 500) collector.collectOnce(now);
+        require(client->reads == 3, "baseline collection (clock behind)");
+        now += 3600000;  // NTP synchronises
+        const auto before = client->reads;
+        for (int i = 0; i < 4; ++i, now += 500) collector.collectOnce(now);
+        require(client->reads - before == 4, "one read per interval after the forward step, no stall and no burst");
+        const auto latest = store.getLatestByIndex(1, wallNowMs());
+        require(latest && latest->quality == 1 && !latest->stale, "value read after the forward step is current");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 void readValueExpiresAtStaleHorizon() {
     const auto storeName = "collector_expiry_" + std::to_string(getpid());
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -92,7 +118,7 @@ void readValueExpiresAtStaleHorizon() {
         config.collect.staleAfterMinMs = 30000;
         edge_gateway::MemoryPointStore store(config.memoryStore);
         auto client = std::make_shared<CountingClient>();
-        edge_gateway::Collector collector(config, store, client, nullptr);
+        edge_gateway::Collector collector(config, store, client, nullptr, frozenMonotonicMs);
         const std::int64_t now = wallNowMs();
         const auto result = collector.collectOnce(now);
         require(!result.values.empty(), "a value was read");
@@ -123,6 +149,7 @@ void configWithUtf8BomLoads() {
 int main() {
     try {
         clockStepBackDoesNotFreezeCollection();
+        clockStepForwardKeepsCollecting();
         readValueExpiresAtStaleHorizon();
         configWithUtf8BomLoads();
     } catch (const std::exception& ex) {
