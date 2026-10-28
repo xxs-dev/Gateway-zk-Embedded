@@ -78,9 +78,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"realtimeAdaptiveSplitLeafProbeBudget\":11,"
         "\"offlineProbeIntervalMs\":30000,"
         "\"backgroundTaskIntervalMs\":2500,"
-        "\"maxBackgroundTasksPerMeterPerCycle\":3,"
-        "\"failureBadQualityThreshold\":5,"
-        "\"realtimeMaxBackgroundTasksPerMeterPerCycle\":9"
+        "\"maxGapRegisters\":3,"
+        "\"failureBadQualityThreshold\":5"
         "},"
         "\"meters\":[]"
         "}"
@@ -92,14 +91,7 @@ void verifyDeviceCollectBackgroundTaskConfig() {
     require(config.collect.offlineProbeIntervalMs == 30000,
         "offline probe interval should parse");
     require(config.collect.backgroundTaskIntervalMs == 2500, "background task interval should parse");
-    require(
-        config.collect.maxBackgroundTasksPerMeterPerCycle == 3,
-        "background task budget should parse"
-    );
-    require(
-        config.collect.realtimeMaxBackgroundTasksPerMeterPerCycle == 9,
-        "realtime background task budget should parse"
-    );
+    require(config.collect.maxGapRegisters == 3, "maxGapRegisters should parse");
     require(config.collect.failureBadQualityThreshold == 5,
         "failure bad-quality threshold should parse");
     require(config.protocol.transport.frameIntervalMs == 500,
@@ -121,7 +113,7 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"pointCode\":\"P1\","
         "\"name\":\"Point 1\","
         "\"collectPriority\":2,"
-        "\"read\":{\"enable\":true}"
+        "\"read\":{\"enable\":true,\"dataType\":\"uint16\"}"
         "}],"
         "\"meters\":[]"
         "}"
@@ -147,7 +139,7 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"isStore\":true,"
         "\"persistOnChange\":true,"
         "\"persistIntervalSec\":60,"
-        "\"read\":{\"enable\":true}"
+        "\"read\":{\"enable\":true,\"dataType\":\"uint16\"}"
         "}],"
         "\"meters\":[]"
         "}"
@@ -177,9 +169,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         "\"realtimeAdaptiveSplitLeafProbeBudget\":1,"
         "\"offlineProbeIntervalMs\":-1,"
         "\"backgroundTaskIntervalMs\":-1,"
-        "\"maxBackgroundTasksPerMeterPerCycle\":2,"
-        "\"failureBadQualityThreshold\":0,"
-        "\"realtimeMaxBackgroundTasksPerMeterPerCycle\":-1"
+        "\"maxGapRegisters\":900,"
+        "\"failureBadQualityThreshold\":0"
         "},"
         "\"meters\":[]"
         "}"
@@ -192,14 +183,8 @@ void verifyDeviceCollectBackgroundTaskConfig() {
         normalized.collect.realtimeMaxTasksPerMeterPerCycle == 4,
         "small realtime task budget should normalize to the normal task budget"
     );
-    require(
-        normalized.collect.maxBackgroundTasksPerMeterPerCycle == 2,
-        "normal background task budget should remain configured"
-    );
-    require(
-        normalized.collect.realtimeMaxBackgroundTasksPerMeterPerCycle == 2,
-        "small realtime background budget should normalize to the normal background budget"
-    );
+    require(normalized.collect.maxGapRegisters == 124,
+        "maxGapRegisters should stay below the batch size");
     require(
         normalized.collect.realtimeAdaptiveSplitLeafProbeBudget == 5,
         "small realtime adaptive split budget should normalize to the normal split budget"
@@ -281,7 +266,7 @@ void verifyTimingPolicyConfig() {
         "},"
         "\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1},"
         "\"meters\":[{\"meterCode\":\"M1\",\"deviceName\":\"Meter 1\",\"onlineTimeoutMs\":7000,\"points\":["
-        "{\"index\":1,\"pointCode\":\"p1\",\"enabled\":true,\"read\":{\"enable\":true,\"intervalMs\":750,\"cachePolicy\":{\"ttlMs\":9000},\"can\":{\"receiveTimeoutMs\":8000}}}"
+        "{\"index\":1,\"pointCode\":\"p1\",\"enabled\":true,\"read\":{\"enable\":true,\"dataType\":\"uint16\",\"intervalMs\":750,\"cachePolicy\":{\"ttlMs\":9000},\"can\":{\"receiveTimeoutMs\":8000}}}"
         "]}]"
         "}"
     );

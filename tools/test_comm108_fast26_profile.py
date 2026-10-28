@@ -22,7 +22,7 @@ class Tests(unittest.TestCase):
         result = build_profile(original)
         self.assertEqual(original, saved)
         self.assertEqual(result['protocol']['transport']['frameIntervalMs'], 20)
-        self.assertEqual(result['collect']['maxBackgroundTasksPerMeterPerCycle'], 1)
+        self.assertNotIn('maxBackgroundTasksPerMeterPerCycle', result['collect'])
         for old, new in zip(original['meters'][0]['points'], result['meters'][0]['points']):
             if new['index'] in FAST:
                 self.assertEqual((new['collectPriority'], new['read']['intervalMs']), (0, 20))

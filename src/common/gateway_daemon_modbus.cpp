@@ -24,7 +24,8 @@ GatewayDaemon::GatewayDaemon(
 ) : GatewayDaemon(
         std::move(config),
         store,
-        [modbusClient, dlt645Client](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
+        [modbusClient, dlt645Client, lineSchedule = std::make_shared<ModbusLineSchedule>()](
+            const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
             if (runtimeConfig.protocol.type == "dlt645_2007") {
                 return std::unique_ptr<ICollector>(
                     new Dlt645Collector(runtimeConfig, runtimeStore, dlt645Client)
@@ -33,8 +34,9 @@ GatewayDaemon::GatewayDaemon(
             if (runtimeConfig.protocol.type == "local_dio") {
                 throw std::invalid_argument("local_dio requires DioDriver");
             }
+            // All meters of this daemon share one line.
             return std::unique_ptr<ICollector>(
-                new Collector(runtimeConfig, runtimeStore, modbusClient)
+                new Collector(runtimeConfig, runtimeStore, modbusClient, nullptr, {}, lineSchedule)
             );
         },
         [modbusClient, mqttPublisher, gpioPort](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {

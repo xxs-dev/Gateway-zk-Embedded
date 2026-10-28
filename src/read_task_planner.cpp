@@ -8,11 +8,11 @@ namespace edge_gateway {
 
 namespace {
 
-bool canMerge(const ReadTask& task, const PointDefinition& point, int maxBatchRegisters) {
+bool canMerge(const ReadTask& task, const PointDefinition& point, int maxBatchRegisters, int maxGapRegisters) {
     if (task.function != point.read.function) {
         return false;
     }
-    if (point.address > task.start + task.count) {
+    if (point.address > task.start + task.count + std::max(0, maxGapRegisters)) {
         return false;
     }
 
@@ -25,7 +25,8 @@ bool canMerge(const ReadTask& task, const PointDefinition& point, int maxBatchRe
 std::vector<ReadTask> ReadTaskPlanner::build(
     const std::vector<PointDefinition>& points,
     int maxBatchRegisters,
-    bool batchOptimize
+    bool batchOptimize,
+    int maxGapRegisters
 ) {
     if (maxBatchRegisters <= 0) {
         throw std::invalid_argument("maxBatchRegisters must be positive");
@@ -45,11 +46,12 @@ std::vector<ReadTask> ReadTaskPlanner::build(
         }
         return lhs->address < rhs->address;
     });
-    return buildSorted(readable, maxBatchRegisters, batchOptimize);
+    return buildSorted(readable, maxBatchRegisters, batchOptimize, maxGapRegisters);
 }
 
 std::vector<ReadTask> ReadTaskPlanner::buildSorted(
-    const std::vector<const PointDefinition*>& points, int maxBatchRegisters, bool batchOptimize
+    const std::vector<const PointDefinition*>& points, int maxBatchRegisters, bool batchOptimize,
+    int maxGapRegisters
 ) {
     if (maxBatchRegisters <= 0) {
         throw std::invalid_argument("maxBatchRegisters must be positive");
@@ -57,7 +59,7 @@ std::vector<ReadTask> ReadTaskPlanner::buildSorted(
     std::vector<ReadTask> tasks;
     for (const auto* definition : points) {
         const auto& point = *definition;
-        if (!batchOptimize || tasks.empty() || !canMerge(tasks.back(), point, maxBatchRegisters)) {
+        if (!batchOptimize || tasks.empty() || !canMerge(tasks.back(), point, maxBatchRegisters, maxGapRegisters)) {
             ReadTask task;
             task.function = point.read.function;
             task.start = point.address;

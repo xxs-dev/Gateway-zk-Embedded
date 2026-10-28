@@ -42,6 +42,10 @@ constexpr int kMaxReadRegisters = 125;
 constexpr int kMaxWriteRegisters = 123;
 constexpr int kMaxReadBits = 2000;
 constexpr std::uint16_t kMaxMbapLength = 254;
+// Clean response timeouts in a row (no reply to any unit) before the connection is rebuilt. A single
+// silent unit behind a serial gateway must not reset the link the other units share.
+constexpr int kMaxConsecutiveTimeouts = 3;
+constexpr std::size_t kMaxAbandonedTransactions = 16;
 
 int lastSocketError() {
 #ifdef _WIN32
@@ -172,13 +176,13 @@ std::vector<std::uint16_t> decodeRegistersFromReadResponse(
     int expectedCount
 ) {
     if (pdu.size() < 2) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp pdu too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp pdu too short", true);
     }
     if (pdu[0] != function) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp function mismatch", true);
     }
     if (pdu.size() != static_cast<std::size_t>(2 + expectedCount * 2)) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp unexpected byte count");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp unexpected byte count", true);
     }
 
     std::vector<std::uint16_t> registers;
@@ -197,18 +201,18 @@ std::vector<std::uint16_t> decodeBitsFromReadResponse(
     int expectedCount
 ) {
     if (pdu.size() < 2) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit pdu too short");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit pdu too short", true);
     }
     if (pdu[0] != function) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit function mismatch", true);
     }
     const auto byteCount = static_cast<std::size_t>(pdu[1]);
     const auto expectedByteCount = static_cast<std::size_t>((expectedCount + 7) / 8);
     if (byteCount != expectedByteCount) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit unexpected byte count");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit unexpected byte count", true);
     }
     if (pdu.size() != 2 + byteCount) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit unexpected pdu size");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp bit unexpected pdu size", true);
     }
 
     std::vector<std::uint16_t> bits;
@@ -227,10 +231,10 @@ void validateWriteEcho(
     int countOrValue
 ) {
     if (pdu.size() != 5) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write echo size mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write echo size mismatch", true);
     }
     if (pdu[0] != function) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write function mismatch", true);
     }
     const auto echoedAddress = static_cast<int>(
         static_cast<std::uint16_t>(pdu[1] << 8) | pdu[2]
@@ -239,7 +243,7 @@ void validateWriteEcho(
         static_cast<std::uint16_t>(pdu[3] << 8) | pdu[4]
     );
     if (echoedAddress != address || echoedValue != countOrValue) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write echo mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp write echo mismatch", true);
     }
 }
 
@@ -472,52 +476,74 @@ std::vector<std::uint8_t> ModbusTcpClient::transact(
 
     sendAll(frame, deadline, beforeWrite);
 
-    const auto header = readExact(7, deadline);
-    const auto responseTransactionId = static_cast<std::uint16_t>(
-        static_cast<std::uint16_t>(header[0] << 8) | header[1]
-    );
-    const auto protocolId = static_cast<std::uint16_t>(
-        static_cast<std::uint16_t>(header[2] << 8) | header[3]
-    );
-    const auto lengthField = static_cast<std::uint16_t>(
-        static_cast<std::uint16_t>(header[4] << 8) | header[5]
-    );
-    const auto unitId = header[6];
-
-    if (responseTransactionId != transactionId_) {
-        disconnect();
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp transaction id mismatch");
-    }
-    if (protocolId != 0) {
-        disconnect();
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp protocol id mismatch");
-    }
-    if (unitId != static_cast<std::uint8_t>(slave & 0xFF)) {
-        disconnect();
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp unit id mismatch");
-    }
-    if (lengthField < 2 || lengthField > kMaxMbapLength) {
-        disconnect();
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp invalid length");
-    }
-
-    const auto body = readExact(static_cast<std::size_t>(lengthField - 1), deadline);
-    if (body.empty()) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp empty pdu");
-    }
-    if (body[0] == static_cast<std::uint8_t>(function | 0x80U)) {
-        if (body.size() < 2) {
-            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp exception without code");
+    while (true) {
+        if (!waitForResponseStart(deadline)) {
+            abandonedTransactionIds_.push_back(transactionId_);
+            if (abandonedTransactionIds_.size() > kMaxAbandonedTransactions) {
+                abandonedTransactionIds_.erase(abandonedTransactionIds_.begin());
+            }
+            if (++consecutiveTimeouts_ >= kMaxConsecutiveTimeouts) {
+                disconnect();
+            }
+            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp recv timeout", true);
         }
-        throw ModbusError(
-            ModbusFailureKind::ProtocolException,
-            "modbus tcp exception code " + std::to_string(body[1])
+        const auto header = readExact(7, deadline);
+        const auto responseTransactionId = static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(header[0] << 8) | header[1]
         );
+        const auto protocolId = static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(header[2] << 8) | header[3]
+        );
+        const auto lengthField = static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(header[4] << 8) | header[5]
+        );
+        const auto unitId = header[6];
+
+        if (protocolId != 0) {
+            disconnect();
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp protocol id mismatch", true);
+        }
+        if (lengthField < 2 || lengthField > kMaxMbapLength) {
+            disconnect();
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp invalid length", true);
+        }
+        if (responseTransactionId != transactionId_) {
+            const auto stale = std::find(abandonedTransactionIds_.begin(), abandonedTransactionIds_.end(),
+                                         responseTransactionId);
+            if (stale == abandonedTransactionIds_.end()) {
+                disconnect();
+                throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp transaction id mismatch", true);
+            }
+            // Late reply to an earlier, timed-out request: drop it and keep waiting for ours.
+            abandonedTransactionIds_.erase(stale);
+            (void)readExact(static_cast<std::size_t>(lengthField - 1), deadline);
+            continue;
+        }
+        if (unitId != static_cast<std::uint8_t>(slave & 0xFF)) {
+            disconnect();
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp unit id mismatch", true);
+        }
+
+        const auto body = readExact(static_cast<std::size_t>(lengthField - 1), deadline);
+        consecutiveTimeouts_ = 0;
+        if (body.empty()) {
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp empty pdu", true);
+        }
+        if (body[0] == static_cast<std::uint8_t>(function | 0x80U)) {
+            if (body.size() < 2) {
+                throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp exception without code", true);
+            }
+            throw ModbusError(
+                ModbusFailureKind::ProtocolException,
+                "modbus tcp exception code " + std::to_string(body[1]),
+                true
+            );
+        }
+        if (body[0] != function) {
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp function mismatch", true);
+        }
+        return body;
     }
-    if (body[0] != function) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus tcp function mismatch");
-    }
-    return body;
 }
 
 std::vector<std::uint16_t> ModbusTcpClient::executeRegisterRead(
@@ -664,6 +690,8 @@ void ModbusTcpClient::ensureConnected() {
 }
 
 void ModbusTcpClient::disconnect() {
+    abandonedTransactionIds_.clear();
+    consecutiveTimeouts_ = 0;
     if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
         return;
     }
@@ -697,8 +725,9 @@ std::vector<std::uint8_t> ModbusTcpClient::readExact(
     std::size_t received = 0;
     while (received < size) {
         if (!waitForSocket(static_cast<SocketHandle>(socket_), false, deadline)) {
+            // Part of a frame is missing: the stream can no longer be aligned.
             disconnect();
-            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp recv timeout");
+            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp recv timeout", true);
         }
 #ifdef _WIN32
         const auto rc = recv(static_cast<SocketHandle>(socket_), reinterpret_cast<char*>(bytes.data() + received), static_cast<int>(size - received), 0);
@@ -710,12 +739,16 @@ std::vector<std::uint8_t> ModbusTcpClient::readExact(
         }
         if (rc <= 0) {
             disconnect();
-            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp recv failed");
+            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp recv failed", true);
         }
         traceBytes(false, bytes.data() + received, static_cast<std::size_t>(rc));
         received += static_cast<std::size_t>(rc);
     }
     return bytes;
+}
+
+bool ModbusTcpClient::waitForResponseStart(std::chrono::steady_clock::time_point deadline) {
+    return waitForSocket(static_cast<SocketHandle>(socket_), false, deadline);
 }
 
 void ModbusTcpClient::sendAll(
@@ -727,7 +760,7 @@ void ModbusTcpClient::sendAll(
     while (sent < bytes.size()) {
         if (!waitForSocket(static_cast<SocketHandle>(socket_), true, deadline)) {
             disconnect();
-            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp send timeout");
+            throw ModbusError(ModbusFailureKind::Timeout, "modbus tcp send timeout", sent > 0);
         }
         try {
             if (beforeWrite) beforeWrite();
@@ -746,7 +779,7 @@ void ModbusTcpClient::sendAll(
         }
         if (rc <= 0) {
             disconnect();
-            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp send failed");
+            throw ModbusError(ModbusFailureKind::Transport, "modbus tcp send failed", sent > 0);
         }
         traceBytes(true, bytes.data() + sent, static_cast<std::size_t>(rc));
         sent += static_cast<std::size_t>(rc);

@@ -620,11 +620,17 @@ struct CollectConfig {
     // the legacy cycle-only behavior.
     int offlineProbeIntervalMs = 0;
     int runtimeMeterBatchSize = 16;
+    // Modbus: requests one meter may issue per turn before the next meter on the bus is served (a
+    // fairness quantum, not a rate limit: due work left over continues on the next turn at once).
     int maxTasksPerMeterPerCycle = 2;
     int realtimeMaxTasksPerMeterPerCycle = 6;
+    // Modbus: points with collectPriority > 0 run whenever no realtime (priority 0) read of the meter
+    // is due; while realtime reads keep the meter busy they still get one request per this interval
+    // (0: one per turn), so they are never starved.
     int backgroundTaskIntervalMs = 5000;
-    int maxBackgroundTasksPerMeterPerCycle = 1;
-    int realtimeMaxBackgroundTasksPerMeterPerCycle = 4;
+    // Modbus: one request may span up to this many unconfigured registers between two points.
+    // 0 (default) reads only adjacent or overlapping points together.
+    int maxGapRegisters = 0;
     int realtimeAdaptiveSplitLeafProbeBudget = 12;
     int writebackIntervalMs = 50;
     int interfaceCheckIntervalMs = 1000;

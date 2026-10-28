@@ -512,6 +512,14 @@ target_link_libraries(config_corpus_load_test PRIVATE edge_gateway)
 add_executable(collector_clock_and_expiry_test tools/collector_clock_and_expiry_test.cpp)
 target_link_libraries(collector_clock_and_expiry_test PRIVATE edge_gateway)
 
+# driver-review: modbus
+foreach(driver_review_modbus_test
+        modbus_command_write_test modbus_rtu_link_test modbus_tcp_link_test
+        modbus_config_validation_test gateway_daemon_modbus_test)
+    add_executable(${driver_review_modbus_test} tools/${driver_review_modbus_test}.cpp)
+    target_link_libraries(${driver_review_modbus_test} PRIVATE edge_gateway)
+    target_compile_options(${driver_review_modbus_test} PRIVATE -fdiagnostics-color=never)
+endforeach()
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
 target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
@@ -873,6 +881,12 @@ if(BUILD_TESTING)
     add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
     add_test(NAME config_corpus_load COMMAND config_corpus_load_test ${CMAKE_SOURCE_DIR})
     add_test(NAME collector_clock_and_expiry COMMAND collector_clock_and_expiry_test)
+    # driver-review: modbus
+    add_test(NAME modbus_command_write COMMAND modbus_command_write_test)
+    add_test(NAME modbus_rtu_link COMMAND modbus_rtu_link_test)
+    add_test(NAME modbus_tcp_link COMMAND modbus_tcp_link_test)
+    add_test(NAME modbus_config_validation COMMAND modbus_config_validation_test)
+    add_test(NAME gateway_daemon_modbus COMMAND gateway_daemon_modbus_test)
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
     add_test(NAME config_loader COMMAND config_loader_test)

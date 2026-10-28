@@ -27,6 +27,9 @@ public:
 
     virtual CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) = 0;
     virtual void publishDeviceOnlineStatus(bool online, std::int64_t nowMs) const = 0;
+    // The collector's own online verdict (failure thresholds applied), published when collectOnce()
+    // throws. Collectors without thresholds report offline on any failed cycle.
+    virtual bool deviceOnline() const { return false; }
 };
 
 class CollectorBase : public ICollector {

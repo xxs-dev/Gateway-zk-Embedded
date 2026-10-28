@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <algorithm>
+#include <system_error>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -279,23 +280,44 @@ void ModbusRtuClient::leaveTransaction() {
     transactionCv_.notify_all();
 }
 
-void ModbusRtuClient::waitForFrameInterval(int slave) {
+std::chrono::steady_clock::time_point ModbusRtuClient::nextRequestAllowedAt(int slave, bool includeBusSilence) const {
+    std::lock_guard<std::mutex> lock(timingMutex_);
+    auto nextWriteAt = std::chrono::steady_clock::time_point{};
     const auto intervalMs = std::max(0, options_.frameIntervalMs);
     const auto lastWriteIt = lastRequestWriteAtBySlave_.find(slave);
-    auto nextWriteAt = std::chrono::steady_clock::time_point{};
     if (intervalMs > 0 && lastWriteIt != lastRequestWriteAtBySlave_.end()) {
-        nextWriteAt = lastWriteIt->second + std::chrono::milliseconds(intervalMs);
+        nextWriteAt = std::max(nextWriteAt, lastWriteIt->second + std::chrono::milliseconds(intervalMs));
     }
-    if (lastBusActivityAt_.time_since_epoch().count() > 0) {
+    if (includeBusSilence && lastBusActivityAt_.time_since_epoch().count() > 0) {
         nextWriteAt = std::max(nextWriteAt, lastBusActivityAt_ + minimumBusSilentInterval());
     }
+    return nextWriteAt;
+}
+
+int ModbusRtuClient::requestReadyInMs(int slave) const {
+    // Only the slave's own frame interval: the 3.5-character bus silence applies to every slave alike
+    // and is simply slept by the next request.
+    const auto readyAt = nextRequestAllowedAt(slave, false);
     const auto now = std::chrono::steady_clock::now();
-    if (now < nextWriteAt) {
+    if (readyAt <= now) {
+        return 0;
+    }
+    const auto waitUs = std::chrono::duration_cast<std::chrono::microseconds>(readyAt - now).count();
+    return static_cast<int>((waitUs + 999) / 1000);
+}
+
+void ModbusRtuClient::waitForFrameInterval(int slave) {
+    const auto nextWriteAt = nextRequestAllowedAt(slave, true);
+    if (std::chrono::steady_clock::now() < nextWriteAt) {
         std::this_thread::sleep_until(nextWriteAt);
     }
 }
 
 std::chrono::microseconds ModbusRtuClient::minimumBusSilentInterval() const {
+    // Modbus over serial line V1.02 2.5.1.1: above 19200 bit/s the inter-frame delay is fixed at 1.75 ms.
+    if (options_.baudRate > 19200) {
+        return std::chrono::microseconds(1750);
+    }
     const auto parityBits = options_.parity == "N" ? 0 : 1;
     const auto bitsPerCharacter = 1 + std::max(5, options_.dataBits) + parityBits +
         std::max(1, options_.stopBits);
@@ -305,6 +327,13 @@ std::chrono::microseconds ModbusRtuClient::minimumBusSilentInterval() const {
 }
 
 void ModbusRtuClient::noteBusActivity() {
+    std::lock_guard<std::mutex> lock(timingMutex_);
+    lastBusActivityAt_ = std::chrono::steady_clock::now();
+}
+
+void ModbusRtuClient::noteRequestWritten(int slave, std::chrono::steady_clock::time_point writeStartedAt) {
+    std::lock_guard<std::mutex> lock(timingMutex_);
+    lastRequestWriteAtBySlave_[slave] = writeStartedAt;
     lastBusActivityAt_ = std::chrono::steady_clock::now();
 }
 
@@ -422,124 +451,155 @@ std::vector<std::uint8_t> ModbusRtuClient::transact(
 
     std::vector<std::uint8_t> response;
     std::vector<std::uint8_t> lastRawReceived;
-    std::size_t lastCleanupRxBytes = 0;
     int attemptsMade = 0;
     bool sawResponseBytes = false;
+    bool requestSent = false;
     const auto maxAttempts = isReadFunction(function)
         ? std::max(1, options_.readRetryCount + 1)
         : 1;
-    for (int attempts = 1; attempts <= maxAttempts; ++attempts) {
-        attemptsMade = attempts;
-        if (drainSerialInput(*serialPort_) > 0) {
-            noteBusActivity();
-        }
-        waitForFrameInterval(slave);
-        if (drainSerialInput(*serialPort_) > 0) {
-            noteBusActivity();
+    try {
+        for (int attempts = 1; attempts <= maxAttempts; ++attempts) {
+            attemptsMade = attempts;
+            if (drainSerialInput(*serialPort_) > 0) {
+                noteBusActivity();
+            }
             waitForFrameInterval(slave);
+            if (drainSerialInput(*serialPort_) > 0) {
+                noteBusActivity();
+                waitForFrameInterval(slave);
+            }
+            const auto writeStartedAt = std::chrono::steady_clock::now();
+            try {
+                serialPort_->write(frame, beforeWrite);
+            } catch (const std::system_error& ex) {
+                // Some bytes may already be on the wire.
+                throw ModbusError(ModbusFailureKind::Transport, ex.what(), true);
+            }
+            requestSent = true;
+            noteRequestWritten(slave, writeStartedAt);
+            std::vector<std::uint8_t> buffer;
+            std::vector<std::uint8_t> rawReceived;
+            // Bytes of our own request still expected back from an echoing
+            // transceiver (transport.localEcho).
+            std::size_t echoRemaining = options_.localEcho ? frame.size() : 0U;
+            const auto timeout = std::chrono::milliseconds(options_.timeoutMs);
+            const auto deadline = std::chrono::steady_clock::now() + timeout;
+            // RTU has no transaction id: a reply that arrives after the deadline would pass every
+            // check of the next request with the same slave, function and size. Keep listening for one
+            // more timeout before the bus is used again; a complete reply that lands there is still the
+            // reply to this request (the only one outstanding) and is accepted, anything else is dropped.
+            const auto lateDeadline = deadline + timeout;
+            auto lastByteAt = std::chrono::steady_clock::time_point{};
+            while (true) {
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= lateDeadline) {
+                    break;
+                }
+                if (now >= deadline && !rawReceived.empty() &&
+                    now - lastByteAt >= minimumBusSilentInterval() + std::chrono::milliseconds(5)) {
+                    // Late bytes were absorbed and the line is quiet again.
+                    break;
+                }
+                auto waitUntil = lateDeadline;
+                if (now >= deadline && !rawReceived.empty()) {
+                    waitUntil = std::min(waitUntil, lastByteAt + minimumBusSilentInterval() + std::chrono::milliseconds(5));
+                }
+                const auto remainingMs = std::max<long long>(1,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(waitUntil - now).count());
+
+                std::vector<std::uint8_t> chunk;
+                try {
+                    chunk = serialPort_->read(256, static_cast<int>(remainingMs));
+                } catch (const std::system_error& ex) {
+                    throw ModbusError(ModbusFailureKind::Transport, ex.what(), true);
+                }
+                if (chunk.empty()) {
+                    continue;
+                }
+
+                noteBusActivity();
+                lastByteAt = std::chrono::steady_clock::now();
+                std::size_t skip = 0;
+                while (echoRemaining > 0 && skip < chunk.size() &&
+                       chunk[skip] == frame[frame.size() - echoRemaining]) {
+                    ++skip;
+                    --echoRemaining;
+                }
+                if (skip < chunk.size()) {
+                    // Anything that does not continue the echo is the reply.
+                    echoRemaining = 0;
+                }
+                rawReceived.insert(rawReceived.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip), chunk.end());
+                buffer.insert(buffer.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip), chunk.end());
+                if (buffer.empty()) {
+                    continue;
+                }
+                if (tryExtractResponseFrame(
+                        buffer,
+                        static_cast<std::uint8_t>(slave),
+                        function,
+                        response,
+                        minResponseSize
+                    )) {
+                    break;
+                }
+            }
+
+            if (isCompleteResponse(response, function, minResponseSize)) {
+                break;
+            }
+
+            if (!rawReceived.empty()) {
+                lastRawReceived = rawReceived;
+                sawResponseBytes = true;
+            }
+            if (tryDrainSerialInput(*serialPort_, 0) > 0) {
+                noteBusActivity();
+            }
+            if (attempts >= maxAttempts) {
+                break;
+            }
         }
-        const auto writeStartedAt = std::chrono::steady_clock::now();
-        serialPort_->write(frame, beforeWrite);
-        lastRequestWriteAtBySlave_[slave] = writeStartedAt;
-        noteBusActivity();
-        std::vector<std::uint8_t> buffer;
-        std::vector<std::uint8_t> rawReceived;
-        // Bytes of our own request still expected back from an echoing
-        // transceiver (transport.localEcho).
-        std::size_t echoRemaining = options_.localEcho ? frame.size() : 0U;
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
-        while (std::chrono::steady_clock::now() < deadline) {
-            const auto now = std::chrono::steady_clock::now();
-            const auto remainingMs = static_cast<int>(
-                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count()
+
+        if (!isCompleteResponse(response, function, minResponseSize)) {
+            if (traceFailuresEnabled()) {
+                std::cerr << "modbus trace failure"
+                          << " port=" << options_.device
+                          << " slave=" << slave
+                          << " function=" << static_cast<int>(function)
+                          << " start=" << wordAt(pdu, 0)
+                          << " count=" << wordAt(pdu, 2)
+                          << " expectedBytes=" << minResponseSize
+                          << " rxBytes=" << lastRawReceived.size()
+                          << " attempts=" << attemptsMade
+                          << " tx=" << hexBytes(frame)
+                          << " rx=" << hexBytes(lastRawReceived)
+                          << std::endl;
+            }
+            if (!sawResponseBytes) {
+                throw ModbusError(ModbusFailureKind::Timeout, "modbus response timeout", true);
+            }
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus response too short", true);
+        }
+
+        validateCrc(response);
+        if (response[0] != static_cast<std::uint8_t>(slave)) {
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus slave mismatch", true);
+        }
+        if (response[1] == static_cast<std::uint8_t>(function | 0x80)) {
+            throw ModbusError(
+                ModbusFailureKind::ProtocolException,
+                "modbus exception code " + std::to_string(response[2]),
+                true
             );
-            if (remainingMs <= 0) {
-                break;
-            }
-
-            auto chunk = serialPort_->read(256, remainingMs);
-            if (chunk.empty()) {
-                continue;
-            }
-
-            noteBusActivity();
-            std::size_t skip = 0;
-            while (echoRemaining > 0 && skip < chunk.size() &&
-                   chunk[skip] == frame[frame.size() - echoRemaining]) {
-                ++skip;
-                --echoRemaining;
-            }
-            if (skip < chunk.size()) {
-                // Anything that does not continue the echo is the reply.
-                echoRemaining = 0;
-            }
-            rawReceived.insert(rawReceived.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip), chunk.end());
-            buffer.insert(buffer.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip), chunk.end());
-            if (buffer.empty()) {
-                continue;
-            }
-            if (tryExtractResponseFrame(
-                    buffer,
-                    static_cast<std::uint8_t>(slave),
-                    function,
-                    response,
-                    minResponseSize
-                )) {
-                break;
-            }
         }
-
-        if (isCompleteResponse(response, function, minResponseSize)) {
-            break;
+        if (response[1] != function) {
+            throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus function mismatch", true);
         }
-
-        if (!rawReceived.empty()) {
-            lastRawReceived = rawReceived;
-            sawResponseBytes = true;
-        }
-        lastCleanupRxBytes = tryDrainSerialInput(*serialPort_, 10);
-        if (lastCleanupRxBytes > 0) {
-            noteBusActivity();
-        }
-        if (attempts >= maxAttempts) {
-            break;
-        }
-    }
-
-    if (!isCompleteResponse(response, function, minResponseSize)) {
-        if (traceFailuresEnabled()) {
-            std::cerr << "modbus trace failure"
-                      << " port=" << options_.device
-                      << " slave=" << slave
-                      << " function=" << static_cast<int>(function)
-                      << " start=" << wordAt(pdu, 0)
-                      << " count=" << wordAt(pdu, 2)
-                      << " expectedBytes=" << minResponseSize
-                      << " rxBytes=" << lastRawReceived.size()
-                      << " cleanupRxBytes=" << lastCleanupRxBytes
-                      << " attempts=" << attemptsMade
-                      << " tx=" << hexBytes(frame)
-                      << " rx=" << hexBytes(lastRawReceived)
-                      << std::endl;
-        }
-        if (!sawResponseBytes) {
-            throw ModbusError(ModbusFailureKind::Timeout, "modbus response timeout");
-        }
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus response too short");
-    }
-
-    validateCrc(response);
-    if (response[0] != static_cast<std::uint8_t>(slave)) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus slave mismatch");
-    }
-    if (response[1] == static_cast<std::uint8_t>(function | 0x80)) {
-        throw ModbusError(
-            ModbusFailureKind::ProtocolException,
-            "modbus exception code " + std::to_string(response[2])
-        );
-    }
-    if (response[1] != function) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus function mismatch");
+    } catch (const ModbusError&) {
+        throw;
+    } catch (const std::system_error& ex) {
+        throw ModbusError(ModbusFailureKind::Transport, ex.what(), requestSent);
     }
     return response;
 }
@@ -634,7 +694,7 @@ void ModbusRtuClient::appendCrc(std::vector<std::uint8_t>& frame) {
 
 void ModbusRtuClient::validateCrc(const std::vector<std::uint8_t>& frame) {
     if (frame.size() < 4) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "frame too short for crc");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "frame too short for crc", true);
     }
 
     std::vector<std::uint8_t> payload(frame.begin(), frame.end() - 2);
@@ -644,7 +704,7 @@ void ModbusRtuClient::validateCrc(const std::vector<std::uint8_t>& frame) {
         frame[frame.size() - 2]
     );
     if (expected != actual) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus crc mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "modbus crc mismatch", true);
     }
 }
 
@@ -715,10 +775,10 @@ void ModbusRtuClient::validateWriteEcho(
     int countOrValue
 ) {
     if (response.size() != 8) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "write response must be 8 bytes");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "write response must be 8 bytes", true);
     }
     if (response[1] != function) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "write function mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "write function mismatch", true);
     }
 
     const auto echoedAddress = static_cast<int>(
@@ -729,7 +789,7 @@ void ModbusRtuClient::validateWriteEcho(
     );
 
     if (echoedAddress != address || echoedValue != countOrValue) {
-        throw ModbusError(ModbusFailureKind::MalformedFrame, "write echo mismatch");
+        throw ModbusError(ModbusFailureKind::MalformedFrame, "write echo mismatch", true);
     }
 }
 

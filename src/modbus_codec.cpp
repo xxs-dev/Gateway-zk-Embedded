@@ -109,6 +109,27 @@ float readBigEndian<float>(const std::vector<std::uint8_t>& bytes) {
     return value;
 }
 
+template <>
+std::uint64_t readBigEndian<std::uint64_t>(const std::vector<std::uint8_t>& bytes) {
+    return readUint64BigEndian(bytes);
+}
+
+template <>
+std::int64_t readBigEndian<std::int64_t>(const std::vector<std::uint8_t>& bytes) {
+    const auto raw = readUint64BigEndian(bytes);
+    std::int64_t value = 0;
+    std::memcpy(&value, &raw, sizeof(value));
+    return value;
+}
+
+template <>
+double readBigEndian<double>(const std::vector<std::uint8_t>& bytes) {
+    const auto raw = readUint64BigEndian(bytes);
+    double value = 0.0;
+    std::memcpy(&value, &raw, sizeof(value));
+    return value;
+}
+
 template <typename T>
 std::vector<std::uint8_t> writeBigEndian(T value);
 
@@ -143,6 +164,29 @@ std::vector<std::uint8_t> writeBigEndian<float>(float value) {
     return writeUint32BigEndian(raw);
 }
 
+template <>
+std::vector<std::uint8_t> writeBigEndian<std::uint64_t>(std::uint64_t value) {
+    return writeUint64BigEndian(value);
+}
+
+template <>
+std::vector<std::uint8_t> writeBigEndian<std::int64_t>(std::int64_t value) {
+    std::uint64_t raw = 0;
+    std::memcpy(&raw, &value, sizeof(raw));
+    return writeUint64BigEndian(raw);
+}
+
+template <>
+std::vector<std::uint8_t> writeBigEndian<double>(double value) {
+    std::uint64_t raw = 0;
+    std::memcpy(&raw, &value, sizeof(raw));
+    return writeUint64BigEndian(raw);
+}
+
+// Largest integer magnitude a double holds exactly; 64-bit register values beyond it are rejected
+// for writes instead of being rounded silently.
+constexpr double kMaxExactDoubleInteger = 9007199254740992.0;
+
 double applyReadScale(double rawValue, const ReadSpec& spec) {
     return rawValue * spec.scale + spec.offset;
 }
@@ -162,19 +206,19 @@ std::string formatDouble(double value) {
 
 std::vector<std::uint8_t> applyByteOrderForEncode(
     const std::vector<std::uint8_t>& canonicalBytes,
-    const std::string& byteOrder
+    const std::string& byteOrder,
+    const std::string& dataType
 ) {
-    if (byteOrder.empty()) {
-        return canonicalBytes;
+    // Same contract as the read side: the order must name every byte of the type exactly once.
+    // A shorter order used to drop the low bytes of 32-bit values without any error.
+    if (byteOrder.size() != canonicalBytes.size() || !ModbusCodec::isByteOrderPermutation(byteOrder)) {
+        throw std::invalid_argument(
+            "write.byteOrder \"" + byteOrder + "\" does not match write.dataType " + dataType + " (" +
+            std::to_string(canonicalBytes.size()) + " bytes)");
     }
-
     std::vector<std::uint8_t> reordered(byteOrder.size());
     for (std::size_t i = 0; i < byteOrder.size(); ++i) {
-        const auto token = byteOrder[i];
-        if (token < 'A' || static_cast<std::size_t>(token - 'A') >= canonicalBytes.size()) {
-            throw std::invalid_argument("invalid byteOrder token");
-        }
-        reordered[static_cast<std::size_t>(token - 'A')] = canonicalBytes[i];
+        reordered[static_cast<std::size_t>(byteOrder[i] - 'A')] = canonicalBytes[i];
     }
     return reordered;
 }
@@ -228,6 +272,12 @@ DecodedValue ModbusCodec::decodeReadValue(
             rawValue = static_cast<double>(readBigEndian<std::int32_t>(orderedBytes));
         } else if (point.read.dataType == "float32") {
             rawValue = static_cast<double>(readBigEndian<float>(orderedBytes));
+        } else if (point.read.dataType == "uint64") {
+            rawValue = static_cast<double>(readBigEndian<std::uint64_t>(orderedBytes));
+        } else if (point.read.dataType == "int64") {
+            rawValue = static_cast<double>(readBigEndian<std::int64_t>(orderedBytes));
+        } else if (point.read.dataType == "float64") {
+            rawValue = readBigEndian<double>(orderedBytes);
         } else {
             throw std::invalid_argument("unsupported read.dataType: " + point.read.dataType);
         }
@@ -283,11 +333,17 @@ std::vector<std::uint16_t> ModbusCodec::encodeWriteValue(
         canonicalBytes = writeBigEndian(static_cast<std::int32_t>(std::llround(rawValue)));
     } else if (point.write.dataType == "float32") {
         canonicalBytes = writeBigEndian(static_cast<float>(rawValue));
+    } else if (point.write.dataType == "uint64") {
+        canonicalBytes = writeBigEndian(static_cast<std::uint64_t>(std::llround(rawValue)));
+    } else if (point.write.dataType == "int64") {
+        canonicalBytes = writeBigEndian(static_cast<std::int64_t>(std::llround(rawValue)));
+    } else if (point.write.dataType == "float64") {
+        canonicalBytes = writeBigEndian(rawValue);
     } else {
         throw std::invalid_argument("unsupported write.dataType: " + point.write.dataType);
     }
 
-    const auto deviceBytes = applyByteOrderForEncode(canonicalBytes, point.write.byteOrder);
+    const auto deviceBytes = applyByteOrderForEncode(canonicalBytes, point.write.byteOrder, point.write.dataType);
     std::vector<std::uint16_t> registers;
     registers.reserve(deviceBytes.size() / 2);
     for (std::size_t i = 0; i < deviceBytes.size(); i += 2) {
@@ -349,6 +405,9 @@ WriteValidationResult ModbusCodec::validateWriteValue(
             (type == "int16" && outside(-32768.0, 32767.0)) ||
             (type == "uint32" && outside(0.0, 4294967295.0)) ||
             (type == "int32" && outside(-2147483648.0, 2147483647.0)) ||
+            (type == "uint64" && outside(0.0, kMaxExactDoubleInteger)) ||
+            (type == "int64" && outside(-kMaxExactDoubleInteger, kMaxExactDoubleInteger)) ||
+            (type == "float64" && !std::isfinite(raw)) ||
             (type == "float32" && (!std::isfinite(raw) ||
                 std::abs(raw) > static_cast<double>(std::numeric_limits<float>::max())))) {
             return {false, "value out of range for write.dataType " + type};
@@ -372,11 +431,12 @@ std::vector<std::uint8_t> ModbusCodec::reorderBytes(
     const std::vector<std::uint8_t>& bytes,
     const std::string& byteOrder
 ) {
-    if (byteOrder.empty()) {
-        return bytes;
-    }
     if (byteOrder.size() != bytes.size()) {
-        throw std::invalid_argument("byteOrder size does not match byte length");
+        throw std::invalid_argument("byteOrder \"" + byteOrder + "\" does not match " +
+            std::to_string(bytes.size()) + " register bytes");
+    }
+    if (!isByteOrderPermutation(byteOrder)) {
+        throw std::invalid_argument("byteOrder \"" + byteOrder + "\" must use each byte letter exactly once");
     }
 
     std::vector<std::uint8_t> ordered;
@@ -388,6 +448,59 @@ std::vector<std::uint8_t> ModbusCodec::reorderBytes(
         ordered.push_back(bytes[static_cast<std::size_t>(token - 'A')]);
     }
     return ordered;
+}
+
+std::uint16_t ModbusCodec::setRegisterBit(std::uint16_t deviceRegister, int bit, bool value,
+                                          const std::string& byteOrder) {
+    if (bit < 0 || bit > 15) {
+        throw std::invalid_argument("register bit write requires read.bit between 0 and 15");
+    }
+    const auto ordered = reorderBytes(flattenRegisters({deviceRegister}), byteOrder);
+    auto word = static_cast<std::uint16_t>((static_cast<std::uint16_t>(ordered[0]) << 8) | ordered[1]);
+    const auto mask = static_cast<std::uint16_t>(1U << bit);
+    word = value ? static_cast<std::uint16_t>(word | mask) : static_cast<std::uint16_t>(word & ~mask);
+    const auto device = applyByteOrderForEncode(writeUint16BigEndian(word), byteOrder, "uint16");
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(device[0]) << 8) | device[1]);
+}
+
+int ModbusCodec::registerTypeByteWidth(const std::string& dataType) {
+    if (dataType == "bit" || dataType == "bool" || dataType == "uint16" || dataType == "int16") {
+        return 2;
+    }
+    if (dataType == "uint32" || dataType == "int32" || dataType == "float32") {
+        return 4;
+    }
+    if (dataType == "uint64" || dataType == "int64" || dataType == "float64") {
+        return 8;
+    }
+    return 0;
+}
+
+std::string ModbusCodec::canonicalByteOrder(const std::string& dataType) {
+    const auto width = registerTypeByteWidth(dataType);
+    std::string order;
+    for (int i = 0; i < width; ++i) {
+        order.push_back(static_cast<char>('A' + i));
+    }
+    return order;
+}
+
+bool ModbusCodec::isByteOrderPermutation(const std::string& byteOrder) {
+    if (byteOrder.empty() || byteOrder.size() > 8) {
+        return false;
+    }
+    unsigned seen = 0;
+    for (const char token : byteOrder) {
+        if (token < 'A' || static_cast<std::size_t>(token - 'A') >= byteOrder.size()) {
+            return false;
+        }
+        const unsigned bit = 1U << static_cast<unsigned>(token - 'A');
+        if ((seen & bit) != 0U) {
+            return false;
+        }
+        seen |= bit;
+    }
+    return true;
 }
 
 std::string ModbusCodec::bytesToHex(const std::vector<std::uint8_t>& bytes) {
