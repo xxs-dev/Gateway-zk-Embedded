@@ -37,6 +37,40 @@ void expectRejected(const std::string& point, const std::string& fragment, const
     require(false, "config should be rejected: " + point + " baud " + baud);
 }
 
+std::string withTransport(const std::string& transport) {
+    return std::string("{\"protocol\":{\"type\":\"modbus_rtu\",\"slave\":1,\"transport\":") + transport +
+        "},\"points\":[],\"meters\":[]}";
+}
+
+void expectTransportRejected(const std::string& transport, const std::string& fragment) {
+    try {
+        (void)load(withTransport(transport));
+    } catch (const std::invalid_argument& error) {
+        const std::string message = error.what();
+        require(message.find(fragment) != std::string::npos,
+                "transport rejection should mention '" + fragment + "', got: " + message);
+        return;
+    }
+    require(false, "transport should be rejected: " + transport);
+}
+
+// transport.rs485: off by default; ranges and the RTS level pair are checked at load.
+void rs485Config() {
+    const auto defaults = load(withTransport("{\"serialPort\":\"/dev/ttyX\"}"));
+    require(!defaults.protocol.transport.rs485.enabled, "rs485 must be disabled by default");
+    const auto configured = load(withTransport(
+        "{\"serialPort\":\"/dev/ttyX\",\"rs485\":{\"enabled\":true,\"rtsOnSend\":false,\"rtsAfterSend\":true,"
+        "\"delayRtsBeforeSendMs\":1,\"delayRtsAfterSendMs\":100}}"));
+    const auto& rs485 = configured.protocol.transport.rs485;
+    require(rs485.enabled && !rs485.rtsOnSend && rs485.rtsAfterSend && rs485.delayRtsBeforeSendMs == 1 &&
+                rs485.delayRtsAfterSendMs == 100,
+            "rs485 fields must be loaded as configured");
+    expectTransportRejected("{\"rs485\":{\"enabled\":true,\"delayRtsAfterSendMs\":101}}", "0 and 100");
+    expectTransportRejected("{\"rs485\":{\"delayRtsBeforeSendMs\":-1}}", "0 and 100");
+    expectTransportRejected("{\"rs485\":{\"enabled\":true,\"rtsAfterSend\":true}}", "must differ");
+    expectTransportRejected("{\"rs485\":{\"enable\":true}}", "transport.rs485.enable is not a known field");
+}
+
 }  // namespace
 
 int main() {
@@ -72,6 +106,7 @@ int main() {
         // Same register read and written with the same scale is fine.
         (void)load(device("\"read\":{\"enable\":true,\"function\":3,\"length\":1,\"dataType\":\"uint16\",\"scale\":0.1},"
                           "\"write\":{\"enable\":true,\"function\":6,\"dataType\":\"uint16\",\"scale\":0.1}"));
+        rs485Config();
     } catch (const std::exception& ex) {
         std::cerr << "modbus_config_validation_test failed: " << ex.what() << std::endl;
         return 1;

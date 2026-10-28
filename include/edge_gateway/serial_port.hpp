@@ -5,6 +5,7 @@
 #include <vector>
 #include <stdexcept>
 #include "edge_gateway/cluster_write_authorization.hpp"
+#include "edge_gateway/models.hpp"
 
 namespace edge_gateway {
 
@@ -35,6 +36,7 @@ struct SerialPortOptions {
     int readRetryCount = 1;
     int wakeupBytes = 0;
     bool localEcho = false;
+    SerialRs485Config rs485;
 };
 
 }  // namespace edge_gateway

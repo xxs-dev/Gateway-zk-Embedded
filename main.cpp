@@ -119,6 +119,7 @@ int main(int argc, char* argv[]) {
         serialOptions.frameIntervalMs = frameIntervalMs;
         serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
         serialOptions.localEcho = config.protocol.transport.localEcho;
+        serialOptions.rs485 = config.protocol.transport.rs485;
 
         std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32
@@ -146,6 +147,7 @@ int main(int argc, char* argv[]) {
         serialOptions.frameIntervalMs = frameIntervalMs;
         serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
         serialOptions.localEcho = config.protocol.transport.localEcho;
+        serialOptions.rs485 = config.protocol.transport.rs485;
 
         std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32

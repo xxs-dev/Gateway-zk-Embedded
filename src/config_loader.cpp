@@ -964,6 +964,36 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     return device;
 }
 
+SerialRs485Config parseRs485(const JsonValue* value) {
+    SerialRs485Config rs485;
+    if (value == nullptr || value->isNull()) {
+        return rs485;
+    }
+    const auto& object = value->asObject();
+    for (const auto& member : object.values) {
+        if (member.key != "enabled" && member.key != "rtsOnSend" && member.key != "rtsAfterSend" &&
+            member.key != "delayRtsBeforeSendMs" && member.key != "delayRtsAfterSendMs") {
+            throw std::invalid_argument("transport.rs485." + member.key + " is not a known field");
+        }
+    }
+    rs485.enabled = requireBool(object, "enabled", rs485.enabled);
+    rs485.rtsOnSend = requireBool(object, "rtsOnSend", rs485.rtsOnSend);
+    rs485.rtsAfterSend = requireBool(object, "rtsAfterSend", rs485.rtsAfterSend);
+    rs485.delayRtsBeforeSendMs = requireInt(object, "delayRtsBeforeSendMs", rs485.delayRtsBeforeSendMs);
+    rs485.delayRtsAfterSendMs = requireInt(object, "delayRtsAfterSendMs", rs485.delayRtsAfterSendMs);
+    // The kernel rewrites equal RTS levels and clamps delays above 100 ms; reject both here so the
+    // read-back check at open never has to explain a silent kernel correction.
+    if (rs485.rtsOnSend == rs485.rtsAfterSend) {
+        throw std::invalid_argument("transport.rs485.rtsOnSend and rtsAfterSend must differ");
+    }
+    for (const auto delay : {rs485.delayRtsBeforeSendMs, rs485.delayRtsAfterSendMs}) {
+        if (delay < 0 || delay > 100) {
+            throw std::invalid_argument("transport.rs485 RTS delays must be between 0 and 100 ms");
+        }
+    }
+    return rs485;
+}
+
 SerialTransportConfig parseTransport(const JsonValue* value) {
     SerialTransportConfig transport;
     if (value == nullptr || value->isNull()) {
@@ -985,6 +1015,7 @@ SerialTransportConfig parseTransport(const JsonValue* value) {
     transport.readRetryCount = requireInt(object, "readRetryCount", transport.readRetryCount);
     transport.wakeupBytes = requireInt(object, "wakeupBytes", transport.wakeupBytes);
     transport.localEcho = requireBool(object, "localEcho", transport.localEcho);
+    transport.rs485 = parseRs485(value->find("rs485"));
     if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
         throw std::invalid_argument("transport.wakeupBytes must be between 0 and 16");
     }
