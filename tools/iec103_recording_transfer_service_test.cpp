@@ -345,6 +345,35 @@ int main() {
         require(!std::ifstream((root + "/FAN00015.DAT").c_str()).good(), "early ACK removes DAT after verification");
     }
 
+    {
+        // Finding 8: the field-verified active TCP mode must be found as well.
+        const auto activeConfigPath = root + "/device_am5se_f.json";
+        writeFile(activeConfigPath,
+            std::string("{\"schemaVersion\":\"1.0.0\",\"meterCode\":\"AM5SE_F_01\",") +
+            "\"protocol\":{\"type\":\"iec103\",\"tcp\":{\"host\":\"127.0.0.1\",\"port\":7710}," +
+            "\"iec\":{\"transportMode\":\"am5se_active_tcp\"," +
+            "\"recordingCommandSocket\":\"" + socketPath + "\"}},\"meters\":[]}");
+        Iec103RecordingTransferService service(
+            transferConfig, mqtt, publisher, "COMM202600102", {configPath, activeConfigPath}, http);
+        const auto before = publisher->payloads.size();
+        service.handleRequest(
+            "{\"requestId\":\"REC_LIST_ACTIVE\",\"action\":\"list\",\"machineCode\":\"COMM202600102\","
+            "\"deviceCode\":\"AM5SE_F_01\"}",
+            now);
+        for (int i = 0; i < 100 && service.pendingTaskCount() > 0; ++i) {
+            service.runPendingOnce(now + i * 300);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        require(service.pendingTaskCount() == 0, "active-mode list task must complete");
+        bool listed = false;
+        for (std::size_t i = before; i < publisher->payloads.size(); ++i) {
+            listed = listed || (publisher->payloads[i].find("REC_LIST_ACTIVE") != std::string::npos &&
+                publisher->payloads[i].find("\"fan\":15") != std::string::npos);
+        }
+        require(listed, "active-mode device recording directory must be returned");
+        std::remove(activeConfigPath.c_str());
+    }
+
     require(std::find(publisher->topics.begin(), publisher->topics.end(), "recording/reply") != publisher->topics.end(),
         "recording acceptance reply must be published");
     require(std::find(publisher->topics.begin(), publisher->topics.end(), "recording/status") != publisher->topics.end(),
