@@ -39,6 +39,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/ota_service.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/mqtt_driver_service.hpp"
 #include "edge_gateway/scada_control_lease.hpp"
 #include "edge_gateway/scada_upper_computer_safety.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
@@ -674,7 +675,10 @@ void appendControlTimingJson(
     std::ostringstream& out,
     const edge_gateway::WritebackResultRecord& result
 ) {
+    // outcome: succeeded / failed (definite) / unknown (the write may have reached the device:
+    // read back before deciding, never resend under a new cmdId).
     out << ",\"stage\":\"" << jsonEscape(result.stage) << "\""
+        << ",\"outcome\":\"" << (result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed")) << "\""
         << ",\"requestedAt\":" << result.requestedAt
         << ",\"acceptedAt\":" << result.acceptedAt
         << ",\"writeStartedAt\":" << result.startedAt
@@ -2626,6 +2630,9 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
         auto route = context->router.routeByIndex(item.index);
         edge_gateway::Optional<edge_gateway::WritebackResultRecord> writeback = edge_gateway::NullOpt;
         std::string stage = "rejected";
+        // succeeded / failed (definite: rejected, refused or failed by the device) / unknown (the
+        // write may have reached the device; read back before deciding, never resend under a new cmdId).
+        std::string outcome = "failed";
         std::int64_t itemTs = nowMs();
         std::int64_t requestedAt = item.ts > 0 ? item.ts : itemTs;
         std::int64_t acceptedAt = 0;
@@ -2672,6 +2679,7 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
                 }
                 route = submitResult.route;
                 success = true;
+                outcome = "succeeded";
                 message = submitResult.message;
                 stage = "mailbox-committed";
                 itemTs = nowMs();
@@ -2703,7 +2711,7 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
                     *route,
                     item.cmdId,
                     acceptedAt,
-                    context->appConfig.mqttDriver.controlResultWaitTimeoutMs
+                    edge_gateway::effectiveControlResultWaitMs(context->appConfig.mqttDriver, context->deviceConfigs)
                 );
                 if (submitResult.writeback && item.highPriority) priorityLease.release(item.cmdId);
                 if (writeback) {
@@ -2715,8 +2723,9 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
                 } else {
                     itemTs = nowMs();
                     success = false;
-                    message = "writeback result timeout";
+                    message = "writeback result timeout; the queued write may still have run, read back before resending";
                     stage = "writeback-timeout";
+                    outcome = "unknown";
                 }
             }
             if (success) {
@@ -2742,6 +2751,7 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
             appendControlTimingJson(results, *writeback);
         } else {
             results << ",\"stage\":\"" << jsonEscape(stage) << "\""
+                    << ",\"outcome\":\"" << outcome << "\""
                     << ",\"requestedAt\":" << requestedAt
                     << ",\"acceptedAt\":" << acceptedAt
                     << ",\"writeStartedAt\":0"

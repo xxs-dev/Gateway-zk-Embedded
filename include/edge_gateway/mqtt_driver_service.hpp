@@ -25,6 +25,11 @@
 
 namespace edge_gateway {
 
+// How long a control request waits for its writeback result before reporting "outcome unknown":
+// controlResultWaitTimeoutMs, but never shorter than the time a queued write can still start
+// (memoryStore.pendingWriteMaxAgeMs + settle time). Shared by MQTT and direct maintenance.
+int effectiveControlResultWaitMs(const MqttDriverConfig& driverConfig, const std::vector<DeviceConfig>& deviceConfigs);
+
 class ProcessFileLock;
 
 class MqttDriverService {

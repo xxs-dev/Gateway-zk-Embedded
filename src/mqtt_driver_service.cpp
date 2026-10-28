@@ -125,23 +125,6 @@ void applyWritebackResultToReply(
     reply.ts = result.completedAt > 0 ? result.completedAt : reply.ts;
 }
 
-// A queued write may still start until memoryStore.pendingWriteMaxAgeMs; the device daemon records
-// the expiry on its next writeback cycle.
-constexpr std::int64_t kPendingWriteExpirySettleMs = 2000;
-
-// How long a command waits for its result before the "unknown" (non-final) reply: never shorter
-// than the time a queued write can still start, so a timeout reply normally means "outcome unknown"
-// and not "will run later".
-int effectiveResultWaitMs(const MqttDriverConfig& driverConfig, const std::vector<DeviceConfig>& deviceConfigs) {
-    std::int64_t waitMs = std::max(0, driverConfig.controlResultWaitTimeoutMs);
-    for (const auto& config : deviceConfigs) {
-        if (config.memoryStore.pendingWriteMaxAgeMs > 0) {
-            waitMs = std::max(waitMs, config.memoryStore.pendingWriteMaxAgeMs + kPendingWriteExpirySettleMs);
-        }
-    }
-    return static_cast<int>(std::min<std::int64_t>(waitMs, std::numeric_limits<int>::max() / 2));
-}
-
 // Event ownership consumes a complete object, including the optional versioned
 // lease. Do not let malformed new fields fall back to the legacy Full lease.
 class EventHealthReader {
@@ -878,6 +861,23 @@ std::int64_t currentMonotonicTimeMs() {
     ).count();
 }
 
+// A queued write may still start until memoryStore.pendingWriteMaxAgeMs; the device daemon records
+// the expiry on its next writeback cycle.
+constexpr std::int64_t kPendingWriteExpirySettleMs = 2000;
+
+// How long a command waits for its result before the "unknown" (non-final) reply: never shorter
+// than the time a queued write can still start, so a timeout reply normally means "outcome unknown"
+// and not "will run later".
+int effectiveControlResultWaitMs(const MqttDriverConfig& driverConfig, const std::vector<DeviceConfig>& deviceConfigs) {
+    std::int64_t waitMs = std::max(0, driverConfig.controlResultWaitTimeoutMs);
+    for (const auto& config : deviceConfigs) {
+        if (config.memoryStore.pendingWriteMaxAgeMs > 0) {
+            waitMs = std::max(waitMs, config.memoryStore.pendingWriteMaxAgeMs + kPendingWriteExpirySettleMs);
+        }
+    }
+    return static_cast<int>(std::min<std::int64_t>(waitMs, std::numeric_limits<int>::max() / 2));
+}
+
 MqttDriverService::MqttDriverService(
     MqttConfig mqttConfig,
     MqttDriverConfig driverConfig,
@@ -906,7 +906,7 @@ MqttDriverService::MqttDriverService(
     scadaSafetyConfig_(std::move(scadaSafetyConfig)) {
     router_.addStore(driverConfig_.sharedMemoryName, store);
     router_.addRoutesFromDeviceConfigs(deviceConfigs, driverConfig_.sharedMemoryName);
-    resultWaitMs_ = effectiveResultWaitMs(driverConfig_, deviceConfigs);
+    resultWaitMs_ = effectiveControlResultWaitMs(driverConfig_, deviceConfigs);
 
     if (static_cast<bool>(businessReplayFactory_) != static_cast<bool>(managementReplayFactory_) ||
         (eventOutbox_ && businessReplayFactory_) ||
@@ -972,7 +972,7 @@ MqttDriverService::MqttDriverService(
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
     }
-    resultWaitMs_ = effectiveResultWaitMs(driverConfig_, deviceConfigs);
+    resultWaitMs_ = effectiveControlResultWaitMs(driverConfig_, deviceConfigs);
     for (const auto& config : deviceConfigs) {
         machineCodes_.insert(config.machineCode);
     }
