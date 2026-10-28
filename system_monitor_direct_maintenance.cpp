@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/system_monitor_runtime_discovery.hpp"
 #include "edge_gateway/diagnostic_process.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/control_dedup_store.hpp"

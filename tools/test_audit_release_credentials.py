@@ -112,7 +112,10 @@ class ReleaseCredentialAuditTest(unittest.TestCase):
 
     def test_repository_release_inputs_are_clean(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        inputs = [os.path.join(root, "config")]
+        # Site runtime configuration is not a generic release input. Packaging
+        # stages factory/examples/templates and separately strips injected secrets.
+        inputs = [os.path.join(root, "config", name)
+                  for name in ("factory", "examples", "templates")]
         archive = os.path.join(root, "gateway-factory-defaults.tar.gz")
         # Release binaries are generated artifacts, no longer checked into the source tree.
         if os.path.isfile(archive):
