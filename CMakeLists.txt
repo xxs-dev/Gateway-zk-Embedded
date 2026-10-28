@@ -507,6 +507,12 @@ add_executable(memory_point_store_lifecycle_test tools/memory_point_store_lifecy
 target_link_libraries(memory_point_store_lifecycle_test PRIVATE edge_gateway)
 target_compile_options(memory_point_store_lifecycle_test PRIVATE -fdiagnostics-color=never)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(posix_robust_mutex_probe tools/posix_robust_mutex_probe.cpp)
+    target_link_libraries(posix_robust_mutex_probe PRIVATE pthread)
+    target_compile_options(posix_robust_mutex_probe PRIVATE -fdiagnostics-color=never)
+endif()
+
 if(UNIX)
     add_executable(filesystem_compat_test tools/filesystem_compat_test.cpp)
     target_include_directories(filesystem_compat_test PRIVATE include)
@@ -808,6 +814,18 @@ if(BUILD_TESTING)
     add_test(NAME iec_codec COMMAND iec_codec_test)
     add_test(NAME memory_point_store_lifecycle COMMAND memory_point_store_lifecycle_test)
     set_tests_properties(memory_point_store_lifecycle PROPERTIES TIMEOUT 15)
+    if(TARGET posix_robust_mutex_probe)
+        add_test(NAME posix_robust_mutex_probe COMMAND posix_robust_mutex_probe)
+        add_test(
+            NAME memory_point_store_robust_owner_death
+            COMMAND memory_point_store_lifecycle_test --robust-owner-death-only
+        )
+        set_tests_properties(
+            posix_robust_mutex_probe
+            memory_point_store_robust_owner_death
+            PROPERTIES TIMEOUT 5 LABELS "native-runtime-gate"
+        )
+    endif()
     if(UNIX)
         add_executable(memory_point_store_multiwriter_test
             tools/memory_point_store_multiwriter_test.cpp src/memory_point_store.cpp)

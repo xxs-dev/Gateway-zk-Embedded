@@ -16,4 +16,4 @@ mount -t tmpfs tmpfs /dev/shm
 mount -t tmpfs tmpfs /tmp
 ip link set lo up
 cd "$build"
-ctest --output-on-failure -R "${1:-^(control_dedup_.*|gateway_daemon_realtime_priority|can_signal_codec|persistent_flush_pressure_.*|point_history_background_.*|sqlite_writer_failure|sqlite_sample_writer_retention|memory_point_store_reader_cache|memory_point_store_lifecycle|mqtt_driver_service|priority_control_lease|system_monitor_direct_maintenance_contract)$}"
+ctest --output-on-failure -R "${1:-^(control_dedup_.*|gateway_daemon_realtime_priority|can_signal_codec|persistent_flush_pressure_.*|point_history_background_.*|sqlite_writer_failure|sqlite_sample_writer_retention|memory_point_store_reader_cache|memory_point_store_lifecycle|memory_point_store_robust_owner_death|posix_robust_mutex_probe|mqtt_driver_service|priority_control_lease|system_monitor_direct_maintenance_contract)$}"
