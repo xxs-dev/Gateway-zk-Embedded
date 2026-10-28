@@ -204,6 +204,12 @@ void validation() {
                        "used by another meter"), "duplicate meter address must fail");
     require(throwsWith([&] { load(R"({"protocol":{"type":"dlt645_2007","transport":{"wakeupBytes":40}},"meters":[]})"); },
                        "wakeupBytes"), "wakeupBytes bounded");
+    // DL/T 645 shares the serial transport, including the opt-in kernel RS-485 direction control.
+    require(ConfigLoader::loadFromText(R"({"protocol":{"type":"dlt645_2007","transport":{"rs485":{"enabled":true,"delayRtsAfterSendMs":2}}},"meters":[]})")
+                .protocol.transport.rs485.delayRtsAfterSendMs == 2,
+            "DL/T 645 transport.rs485 must load");
+    require(throwsWith([&] { load(R"({"protocol":{"type":"dlt645_2007","transport":{"rs485":{"enabled":true,"delayRtsBeforeSendMs":500}}},"meters":[]})"); },
+                       "0 and 100"), "DL/T 645 rs485 delays bounded");
 
     // Writes: 8-hex-digit password/operator code (the vendor's level-0 code 00000000 is valid),
     // switching commands need a read-back.

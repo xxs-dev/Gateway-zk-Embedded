@@ -83,7 +83,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
         staged.hasPoint = pointIt != indexToRuntimePoint_.end();
         staged.pointIndex = staged.hasPoint ? pointIt->second : 0;
 
-        if (isPendingWriteExpired(command, staged.commandNowMs, maxAgeMs)) {
+        if (isPendingWriteExpired(command, pendingWriteMonotonicNowMs(), maxAgeMs)) {
             const auto expire = [&] {
                 auto receipt = beginWritebackResult(command, staged.startedAt);
                 completeWritebackResult(receipt, false, "pending write expired before execution", "expired", nowMs());
@@ -173,7 +173,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             if (command.platformControl) {
                 staged.modePermit = EmsControlMode(config_.memoryStore.emsControlModeFile).dispatchPermit(command);
             }
-            if (isPendingWriteExpired(command, currentTime(), maxAgeMs)) {
+            if (isPendingWriteExpired(command, pendingWriteMonotonicNowMs(), maxAgeMs)) {
                 expiredBeforeSend = true;
                 throw std::runtime_error("pending write expired before physical send");
             }

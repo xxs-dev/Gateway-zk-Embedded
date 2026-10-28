@@ -74,6 +74,10 @@ public:
     bool isRunning() const;
 
     void runScanOnce(std::int64_t nowMs);
+    // Called by the scan loop with the wall and monotonic clocks read together. A wall-clock step
+    // (their difference changing by >= 1 s) moves the command-reply deadlines with it, so the reply
+    // timing follows elapsed time like the monotonic pending-write expiry in the device daemons.
+    void observeWallClock(std::int64_t wallMs, std::int64_t monotonicMs);
     void runEventReplayOnce(std::int64_t nowMs);
     void publishFullSnapshotNow(std::int64_t nowMs);
     void publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs);
@@ -222,6 +226,8 @@ private:
     int isolatedFallbackRetryDelayMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::deque<PendingCommandReply> pendingCommandReplies_;
+    std::int64_t lastObservedWallMs_ = 0;
+    std::int64_t lastObservedMonotonicMs_ = 0;
     int resultWaitMs_ = 0;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;

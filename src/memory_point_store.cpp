@@ -35,6 +35,14 @@
 
 namespace edge_gateway {
 
+std::uint32_t pendingWriteMonotonicNowMs() {
+    // steady_clock is CLOCK_MONOTONIC: one clock for every process on this boot, never stepped.
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const auto stamp = static_cast<std::uint32_t>(ms);
+    return stamp == 0 ? 1u : stamp;
+}
+
 namespace {
 
 using namespace memory_layout;
@@ -480,6 +488,8 @@ void pushPendingWrite(
     slot.value = command.value;
     slot.ts = command.ts;
     slot.acceptedAt = command.acceptedAt;
+    slot.acceptedMonotonicMs =
+        command.acceptedMonotonicMs != 0 ? command.acceptedMonotonicMs : pendingWriteMonotonicNowMs();
     copyString(slot.cmdId, kCmdIdSize, command.cmdId);
     copyString(slot.source, kSourceSize, command.source);
     slot.occupied = 1;
@@ -537,7 +547,8 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     slot.controlGeneration,
                     layout->header.version >= 10 && slot.reserved[0] == 1,
                     authorization,
-                    slot.reserved[1] != 0
+                    slot.reserved[1] != 0,
+                    slot.acceptedMonotonicMs
                 });
             } else {
                 retained.push_back(slot);
@@ -604,7 +615,8 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 slot.controlGeneration,
                 layout->header.version >= 10 && slot.reserved[0] == 1,
                 authorization,
-                slot.reserved[1] != 0
+                slot.reserved[1] != 0,
+                slot.acceptedMonotonicMs
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;

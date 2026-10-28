@@ -321,6 +321,9 @@ struct PendingWriteCommand {
     bool durableControl = false; // Set by trusted external ingress, never parsed from user JSON.
     Optional<ClusterWriteAuthorization> clusterAuthorization;
     bool platformControl = false; // Trusted ingress flag; persisted in the v11 reserved byte.
+    // Producer's CLOCK_MONOTONIC stamp (low 32 bits, ms) set when the command is queued; the age
+    // check uses it so a wall-clock step cannot expire or revive a queued command. 0 = unstamped.
+    std::uint32_t acceptedMonotonicMs = 0;
 };
 
 struct WritebackResultRecord {
@@ -457,6 +460,17 @@ struct PointBinding {
     std::string pointCode;
 };
 
+// Kernel RS-485 direction control (TIOCSRS485). Only for adapters whose transceiver direction is
+// driven by the UART's RTS line; auto-direction transceivers need none of this. Default off: the
+// port is then opened without any RS-485 ioctl.
+struct SerialRs485Config {
+    bool enabled = false;
+    bool rtsOnSend = true;       // RTS level while sending (true = high)
+    bool rtsAfterSend = false;   // RTS level after sending; must differ from rtsOnSend
+    int delayRtsBeforeSendMs = 0;  // 0..100, the kernel's limit
+    int delayRtsAfterSendMs = 0;   // 0..100
+};
+
 struct SerialTransportConfig {
     std::string serialPort;
     int baudRate = 9600;
@@ -471,6 +485,7 @@ struct SerialTransportConfig {
     // Modbus RTU client discards the echo of its own request, so an FC05/FC06
     // echo can never be mistaken for the slave's reply. Default false.
     bool localEcho = false;
+    SerialRs485Config rs485;
 };
 
 struct TcpTransportConfig {

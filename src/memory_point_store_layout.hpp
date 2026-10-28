@@ -82,6 +82,9 @@ static_assert(sizeof(SharedClusterAuthoritySnapshot) == 1240, "cluster snapshot 
 struct SharedPendingWriteSlot {
     std::uint64_t sequence = 0;
     std::uint32_t index = 0;
+    // Low 32 bits of CLOCK_MONOTONIC in ms when the producer queued the command (0 = unstamped).
+    // Occupies what was alignment padding, so the v11 layout and every other offset are unchanged.
+    std::uint32_t acceptedMonotonicMs = 0;
     double value = 0.0;
     std::int64_t ts = 0;
     std::int64_t acceptedAt = 0;
@@ -95,6 +98,9 @@ struct SharedPendingWriteSlot {
 };
 
 static_assert(sizeof(SharedPendingWriteSlot) == 264, "pending write ABI changed unexpectedly");
+static_assert(offsetof(SharedPendingWriteSlot, acceptedMonotonicMs) == 12 &&
+                  offsetof(SharedPendingWriteSlot, value) == 16,
+              "the monotonic stamp must stay in the former padding before value");
 static_assert(
     offsetof(SharedPendingWriteSlot, controlGeneration) == 140,
     "control generation must occupy the previous reserved bytes"

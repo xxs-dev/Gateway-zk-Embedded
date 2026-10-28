@@ -275,8 +275,36 @@ void duplicateAndRateLimitAreDistinct() {
 
 }  // namespace
 
+// Wall-clock steps (NTP, manual set) move the reply deadlines with them: a forward jump must not fire
+// the "unknown" reply early (the queued write may still start: its expiry is monotonic), and a
+// backward step must not delay it by the size of the step.
+void wallClockStepsKeepReplyDeadlines() {
+    {
+        Fixture f(5000);
+        f.service->observeWallClock(Fixture::t0, 1000);
+        f.send("CMD_JUMP", 7, Fixture::t0);
+        f.service->observeWallClock(Fixture::t0 + 3600000 + 100, 1100);
+        f.service->runScanOnce(Fixture::t0 + 3600000 + 100);
+        require(f.publisher->replies.empty(), "a forward wall jump must not time the command out early");
+        f.service->observeWallClock(Fixture::t0 + 3600000 + 12000, 13000);
+        f.service->runScanOnce(Fixture::t0 + 3600000 + 12000);
+        require(f.publisher->replies.size() == 1 && !f.last().isFinal && f.last().outcome == "unknown",
+                "the reply deadline follows elapsed time after a forward jump");
+    }
+    {
+        Fixture f(5000);
+        f.service->observeWallClock(Fixture::t0, 1000);
+        f.send("CMD_BACK", 7, Fixture::t0);
+        f.service->observeWallClock(Fixture::t0 - 3600000 + 12000, 13000);
+        f.service->runScanOnce(Fixture::t0 - 3600000 + 12000);
+        require(f.publisher->replies.size() == 1 && !f.last().isFinal && f.last().outcome == "unknown",
+                "a backward wall step must not delay the reply by the step");
+    }
+}
+
 int main() {
     try {
+        wallClockStepsKeepReplyDeadlines();
         timeoutIsUnknownAndLateResultIsReported();
         noResultEndsWithFinalUnknown();
         executorOutcomeReachesReply();

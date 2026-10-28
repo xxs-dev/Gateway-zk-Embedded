@@ -62,18 +62,19 @@ bool rangeCovers(int outerStart, int outerCount, int innerStart, int innerCount)
 
 }  // namespace
 
-void ModbusLineSchedule::update(const void* collector, int slave, std::int64_t realtimeDueMs) {
+void ModbusLineSchedule::update(const void* collector, int slave, std::int64_t dueMs, std::int64_t urgencyMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto& entry = entries_[collector];
     entry.slave = slave;
-    entry.realtimeDueMs = realtimeDueMs;
+    entry.dueMs = dueMs;
+    entry.urgencyMs = urgencyMs;
 }
 
 bool ModbusLineSchedule::realtimeWaitingElsewhere(
     const void* collector, std::int64_t nowMs, const IModbusClient& client) const {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& entry : entries_) {
-        if (entry.first != collector && entry.second.realtimeDueMs <= nowMs &&
+        if (entry.first != collector && entry.second.dueMs <= nowMs &&
             client.requestReadyInMs(entry.second.slave) == 0) {
             return true;
         }
@@ -81,11 +82,11 @@ bool ModbusLineSchedule::realtimeWaitingElsewhere(
     return false;
 }
 
-bool ModbusLineSchedule::earlierRealtimeElsewhere(
-    const void* collector, std::int64_t dueMs, std::int64_t nowMs, const IModbusClient& client) const {
+bool ModbusLineSchedule::moreUrgentRealtimeElsewhere(
+    const void* collector, std::int64_t urgencyMs, std::int64_t nowMs, const IModbusClient& client) const {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& entry : entries_) {
-        if (entry.first != collector && entry.second.realtimeDueMs < dueMs && entry.second.realtimeDueMs <= nowMs &&
+        if (entry.first != collector && entry.second.urgencyMs < urgencyMs && entry.second.urgencyMs <= nowMs &&
             client.requestReadyInMs(entry.second.slave) == 0) {
             return true;
         }
@@ -132,6 +133,9 @@ void Collector::onSchedulingClockStepped(std::int64_t deltaMs) {
     shift(offlineProbeNextAttemptMs_);
     shift(backoffUntilMs_);
     shift(lastBackgroundRequestMs_);
+    for (auto& entry : lastCompletedMs_) {
+        entry.second += deltaMs;
+    }
     for (auto& entry : taskFailureStates_) {
         shift(entry.second.backoffUntilMs);
         shift(entry.second.offlineProbeUntilMs);
@@ -169,10 +173,13 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
     };
     ++collectCycle_;
     if (shouldSkipForBackoff(nowMs)) {
-        if (lineSchedule_) lineSchedule_->update(this, slave, std::numeric_limits<std::int64_t>::max());
+        if (lineSchedule_) {
+            lineSchedule_->update(this, slave, std::numeric_limits<std::int64_t>::max(),
+                                  std::numeric_limits<std::int64_t>::max());
+        }
         return result;
     }
-    // Every point is due on its own intervalMs, counted from the completion of its last read.
+    // Every point is due on its own intervalMs, one interval after the slot its last read served.
     // Realtime (collectPriority 0) and background points are planned into separate requests: on a
     // busy line, background registers must not widen every realtime read.
     std::vector<const PointDefinition*> realtimePoints;
@@ -204,13 +211,28 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
 
     bool hasSuccessfulRead = false;
     std::string firstFailureMessage;
+    // Reads are scheduled on fixed slots: the next one is due one interval after the slot this read
+    // served (not after it completed, which would stretch every period by the read time). A read
+    // that finished a whole interval or more past its next slot skips the missed slots and aligns to
+    // the next future one instead of catching up in a burst.
+    const auto anchorNextRead = [&](const PointDefinition& point, std::int64_t completedMs) {
+        const auto interval = static_cast<std::int64_t>(std::max(1, effectiveIntervalMs(point)));
+        const auto last = lastReadMs_.find(point.index);
+        const auto slot = last == lastReadMs_.end() ? nowMs : std::min(nowMs, last->second + interval);
+        auto nextDue = slot + interval;
+        if (completedMs - nextDue >= interval) {
+            nextDue = slot + ((completedMs - slot) / interval + 1) * interval;
+        }
+        lastReadMs_[point.index] = nextDue - interval;
+        lastCompletedMs_[point.index] = completedMs;
+    };
     const auto recordFailure = [&](const PointDefinition& point, const std::string& message) {
         const auto completedMs = schedulingNowMs();
         if (firstFailureMessage.empty()) {
             firstFailureMessage = message;
         }
         auto value = buildFailedPointValue(point, message, completedMs);
-        lastReadMs_[point.index] = completedMs;
+        anchorNextRead(point, completedMs);
         const auto failureCount = ++pointFailureCounts_[point.index];
         bool valueUpdated = !point.read.cachePolicy.storeLatest;
         if (point.read.cachePolicy.storeLatest) {
@@ -308,7 +330,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
             try {
                 const auto decoded = ModbusCodec::decodeReadValue(slice, point);
                 auto value = buildPointValue(point, decoded, taskNowMs);
-                lastReadMs_[point.index] = completedMs;
+                anchorNextRead(point, completedMs);
                 lastValueUpdateMs_[point.index] = completedMs;
                 if (point.read.cachePolicy.storeLatest) {
                     store_.putLatest(value);
@@ -470,7 +492,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         // overdue (a meter watched through the realtime lease keeps its turn).
         if (lineSchedule_ && !realtimeFocused && taskPriority(task) == 0 &&
             !shouldSkipTaskForBackoff(task, nowMs, realtimeFocused) &&
-            lineSchedule_->earlierRealtimeElsewhere(this, taskDueMs(task), schedulingNowMs(), *modbusClient_)) {
+            lineSchedule_->moreUrgentRealtimeElsewhere(this, taskUrgencyMs(task), schedulingNowMs(), *modbusClient_)) {
             result.workDeferred = true;
             turnInterrupted = true;
             break;
@@ -483,7 +505,7 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
         if (result.workDeferred || slaveBusy) break;
     }
 
-    // A completion-based interval can fall between the daemon's fixed ticks.
+    // The next due slot can fall between the daemon's fixed ticks.
     const auto completedMs = schedulingNowMs();
     for (const auto& point : config_.points) {
         if (!point.enabled || !point.read.enable || point.read.dataType == "device_online") continue;
@@ -498,8 +520,12 @@ CollectCycleResult Collector::collectOnce(std::int64_t nowMs, bool realtimeFocus
 
     if (lineSchedule_) {
         // A meter that is not online is only probed; it must not hold back the line's background reads.
-        lineSchedule_->update(this, slave,
-            online_ ? earliestRealtimeDueMs(heldPoints) : std::numeric_limits<std::int64_t>::max());
+        auto dueMs = std::numeric_limits<std::int64_t>::max();
+        auto urgencyMs = std::numeric_limits<std::int64_t>::max();
+        if (online_) {
+            realtimeDueAndUrgency(heldPoints, dueMs, urgencyMs);
+        }
+        lineSchedule_->update(this, slave, dueMs, urgencyMs);
     }
 
     if (result.executedTasks.empty() && skippedTasks > 0) {
@@ -872,18 +898,20 @@ std::vector<ReadTask> Collector::orderTasksByDeadline(
     bool realtimeFocused
 ) const {
     // Backed-off tasks last (they are skipped or split), then collect priority, then earliest due.
-    using Rank = std::tuple<bool, int, std::int64_t, std::size_t>;
+    // Due times sit on fixed slots and often tie: the task whose values are oldest goes first, so
+    // ties rotate instead of always favouring the lowest address.
+    using Rank = std::tuple<bool, int, std::int64_t, std::int64_t, std::size_t>;
     std::vector<Rank> order;
     order.reserve(tasks.size());
     for (std::size_t i = 0; i < tasks.size(); ++i) {
         order.emplace_back(shouldSkipTaskForBackoff(tasks[i], nowMs, realtimeFocused),
-                           taskPriority(tasks[i]), taskDueMs(tasks[i]), i);
+                           taskPriority(tasks[i]), taskUrgencyMs(tasks[i]), taskOldestValueUpdateMs(tasks[i]), i);
     }
     std::sort(order.begin(), order.end());
     std::vector<ReadTask> ordered;
     ordered.reserve(tasks.size());
     for (const auto& rank : order) {
-        ordered.push_back(std::move(tasks[std::get<3>(rank)]));
+        ordered.push_back(std::move(tasks[std::get<4>(rank)]));
     }
     return ordered;
 }
@@ -929,28 +957,35 @@ void Collector::coalesceTurnTasks(
     }
 }
 
-std::int64_t Collector::earliestRealtimeDueMs(const std::unordered_set<std::uint32_t>& heldPoints) const {
-    std::int64_t due = std::numeric_limits<std::int64_t>::max();
+void Collector::realtimeDueAndUrgency(const std::unordered_set<std::uint32_t>& heldPoints,
+                                      std::int64_t& dueMs, std::int64_t& urgencyMs) const {
+    dueMs = std::numeric_limits<std::int64_t>::max();
+    urgencyMs = std::numeric_limits<std::int64_t>::max();
     for (const auto index : readablePointOrder_) {
         const auto& point = config_.points[index];
         if (pointPriority(point) != 0 || heldPoints.count(point.index) != 0) continue;
-        const auto last = lastReadMs_.find(point.index);
-        if (last == lastReadMs_.end()) return std::numeric_limits<std::int64_t>::min();
-        due = std::min(due, last->second + effectiveIntervalMs(point));
+        const auto interval = effectiveIntervalMs(point);
+        const auto slot = lastReadMs_.find(point.index);
+        const auto completed = lastCompletedMs_.find(point.index);
+        if (slot == lastReadMs_.end() || completed == lastCompletedMs_.end()) {
+            dueMs = urgencyMs = std::numeric_limits<std::int64_t>::min();
+            return;
+        }
+        dueMs = std::min(dueMs, slot->second + interval);
+        urgencyMs = std::min(urgencyMs, completed->second + interval);
     }
-    return due;
 }
 
-std::int64_t Collector::taskDueMs(const ReadTask& task) const {
-    std::int64_t due = std::numeric_limits<std::int64_t>::max();
+std::int64_t Collector::taskUrgencyMs(const ReadTask& task) const {
+    std::int64_t urgency = std::numeric_limits<std::int64_t>::max();
     for (const auto& taskPoint : task.points) {
-        const auto it = lastReadMs_.find(taskPoint.definition.index);
-        if (it == lastReadMs_.end()) {
+        const auto it = lastCompletedMs_.find(taskPoint.definition.index);
+        if (it == lastCompletedMs_.end()) {
             return std::numeric_limits<std::int64_t>::min();
         }
-        due = std::min(due, it->second + effectiveIntervalMs(taskPoint.definition));
+        urgency = std::min(urgency, it->second + effectiveIntervalMs(taskPoint.definition));
     }
-    return due;
+    return urgency;
 }
 
 std::int64_t Collector::taskOldestValueUpdateMs(const ReadTask& task) const {

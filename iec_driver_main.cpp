@@ -160,6 +160,7 @@ int main(int argc, char* argv[]) {
         serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
         serialOptions.frameIntervalMs = std::max(0, config.protocol.transport.frameIntervalMs);
         serialOptions.readRetryCount = std::max(0, config.protocol.transport.readRetryCount);
+        serialOptions.rs485 = config.protocol.transport.rs485;
 
         std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32

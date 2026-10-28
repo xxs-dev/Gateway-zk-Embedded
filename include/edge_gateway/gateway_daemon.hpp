@@ -81,7 +81,9 @@ private:
     // Meters visited since the last full round (only when runtimeMeterBatchSize < meter count).
     std::size_t roundVisited_ = 0;
     bool collectionWorkDeferred_ = false;
-    int collectionNextDelayMs_ = 0;
+    // Earliest steady time a collector asked to be run again (0 = none). Absolute, because each
+    // collector reports its delay when its own turn ends, not when the whole round ends.
+    std::int64_t collectionWakeAtMs_ = 0;
     std::string realtimeMeterLeaseFile_;
     PriorityControlLease priorityControlLease_;
     PowerControlOwnership powerControlOwnership_;
