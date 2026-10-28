@@ -1,6 +1,7 @@
 #include "edge_gateway/config_loader.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -350,8 +351,11 @@ void verifyNorthboundConfig() {
 }
 
 void verifyDlt645WriteConfig() {
+    // Generated per run: no meter password in test data; a factory default (P0P1P2=000000) is refused.
+    std::string password = "02";
+    for (int i = 0; i < 6; ++i) password.push_back(static_cast<char>('1' + (std::rand() % 9)));
     const auto config = edge_gateway::ConfigLoader::loadFromText(
-        R"JSON({
+        std::string(R"JSON({
           "schemaVersion": "1.1.0",
           "machineCode": "GW_DLT645",
           "meterCode": "BREAKER_20",
@@ -360,7 +364,7 @@ void verifyDlt645WriteConfig() {
           "dlt645": {
             "write": {
               "enabled": true,
-              "password": "02000000",
+              "password": ")JSON") + password + R"JSON(",
               "operatorCode": "01020304"
             }
           },
@@ -374,21 +378,32 @@ void verifyDlt645WriteConfig() {
               "min": 0,
               "max": 99,
               "step": 1,
+              "verifyAfterWrite": true,
+              "verifyByRead": true,
               "dlt645": {
                 "di": "06010101",
                 "dataType": "dlt645_scheduled_control",
                 "byteCount": 2,
-                "unit": 2
+                "unit": 2,
+                "verifyPointCode": "breaker_switch_state",
+                "verifyValue": 0,
+                "verifyTimeoutMs": 2500
               }
             }
+          }, {
+            "index": 200002,
+            "pointCode": "breaker_switch_state",
+            "name": "Switch state",
+            "enabled": true,
+            "read": { "enable": true, "dataType": "dlt645_bcd", "dlt645": { "di": "07020100", "byteCount": 1 } }
           }],
           "meters": []
         })JSON"
     );
     require(config.protocol.dlt645.write.enabled, "DLT645 protocol write enable should parse");
-    require(config.protocol.dlt645.write.password == "02000000", "DLT645 password should parse");
+    require(config.protocol.dlt645.write.password == password, "DLT645 password should parse");
     require(config.protocol.dlt645.write.operatorCode == "01020304", "DLT645 operator code should parse");
-    require(config.points.size() == 1, "DLT645 writable point should parse");
+    require(config.points.size() == 2, "DLT645 writable point and its read-back point should parse");
     require(config.points.front().write.dlt645.di == "06010101", "DLT645 write DI should parse");
     require(
         config.points.front().write.dlt645.dataType == "dlt645_scheduled_control",
@@ -396,6 +411,10 @@ void verifyDlt645WriteConfig() {
     );
     require(config.points.front().write.dlt645.byteCount == 2, "DLT645 write byte count should parse");
     require(config.points.front().write.dlt645.unit == 2, "DLT645 write unit should parse");
+    require(config.points.front().write.dlt645.verifyPointCode == "breaker_switch_state", "DLT645 read-back point should parse");
+    require(config.points.front().write.dlt645.verifyValue && *config.points.front().write.dlt645.verifyValue == 0.0,
+            "DLT645 read-back value should parse");
+    require(config.points.front().write.dlt645.verifyTimeoutMs == 2500, "DLT645 read-back timeout should parse");
 
     bool missingPasswordRejected = false;
     try {
@@ -414,9 +433,9 @@ void verifyDlt645WriteConfig() {
     bool missingOperatorCodeRejected = false;
     try {
         (void)edge_gateway::ConfigLoader::loadFromText(
-            R"JSON({
+            std::string(R"JSON({
               "protocol": { "type": "dlt645_2007" },
-              "dlt645": { "write": { "enabled": true, "password": "02000000", "operatorCode": "" } },
+              "dlt645": { "write": { "enabled": true, "password": ")JSON") + password + R"JSON(", "operatorCode": "" } },
               "meters": []
             })JSON"
         );
@@ -437,7 +456,7 @@ void verifyDlt645WriteConfig() {
         "di": "",
         "dataType": "dlt645_scheduled_control",
         "byteCount": 0,
-        "enabledByDefault": true,
+        "enabledByDefault": false,
         "write": {
           "enable": true,
           "min": 0,

@@ -52,6 +52,12 @@ struct Dlt645WriteSpec {
     int byteCount = 0;
     int unit = 2;
     std::string fixedDataHex;
+    // Read-back confirmation (requires write.verifyAfterWrite && write.verifyByRead): pointCode of a
+    // readable point of the same meter and the value it must show once the command took effect
+    // (unset: the written value). Polled for verifyTimeoutMs after the 94H acknowledgement.
+    std::string verifyPointCode;
+    Optional<double> verifyValue;
+    int verifyTimeoutMs = 3000;
 };
 
 struct ReadSpec {
@@ -72,7 +78,8 @@ struct ReadSpec {
     int debounceMs = 0;
     std::string dlt645Di;
     int dlt645ByteCount = 0;
-    std::string dlt645Decoder;
+    // Byte offset of this value inside the DI's data (block reads such as 0201FF00).
+    int dlt645Offset = 0;
     CanSignalSpec can;
     IecPointSpec iec;
     CachePolicy cachePolicy;

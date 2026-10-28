@@ -15,6 +15,7 @@
 #include "edge_gateway/dlt645_collector.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/serial_port.hpp"
+#include "dlt645_test_support.hpp"
 
 namespace {
 
@@ -107,7 +108,8 @@ public:
             const auto address = foreignResponseAddress_.empty()
                 ? requestAddress(frameStart)
                 : foreignResponseAddress_;
-            chunks_.push_back(readResponse(address, readDataId_, readPayload_));
+            chunks_.push_back(readResponse(address, readDataId_.empty() ? requestDataId(frameStart) : readDataId_,
+                                           readPayload_));
         }
     }
 
@@ -159,6 +161,17 @@ public:
         foreignResponseAddress_ = address;
     }
 
+    static std::string requestDataId(std::vector<std::uint8_t>::const_iterator frameStart) {
+        static constexpr char kHex[] = "0123456789ABCDEF";
+        std::string dataId;
+        for (int i = 13; i >= 10; --i) {
+            const auto byte = static_cast<std::uint8_t>(*(frameStart + i) - 0x33U);
+            dataId.push_back(kHex[(byte >> 4) & 0x0F]);
+            dataId.push_back(kHex[byte & 0x0F]);
+        }
+        return dataId;
+    }
+
     static std::string requestAddress(std::vector<std::uint8_t>::const_iterator frameStart) {
         static constexpr char kHex[] = "0123456789ABCDEF";
         std::string address;
@@ -177,7 +190,7 @@ private:
     std::vector<std::chrono::steady_clock::time_point> writeTimes_;
     bool rejectWrites_ = false;
     bool respondToReads_ = true;
-    std::string readDataId_ = "00010000";
+    std::string readDataId_;
     std::vector<std::uint8_t> readPayload_ = {0x00, 0x00};
     std::string foreignResponseAddress_;
 };
@@ -259,7 +272,10 @@ void verifyCollectorCachesFailedReadPerDataId() {
         auto serial = std::make_shared<ImmediateDlt645SerialPort>();
         serial->respondToReads(false);
         auto client = std::make_shared<edge_gateway::Dlt645Client>(serial, options);
-        edge_gateway::Dlt645Collector collector(dlt645CollectorConfig(storeName), store, client);
+        auto config = dlt645CollectorConfig(storeName);
+        config.collect.offlineFailureThreshold = 1;
+        config.collect.failureBadQualityThreshold = 1;
+        edge_gateway::Dlt645Collector collector(config, store, client);
 
         bool failed = false;
         try {
@@ -298,6 +314,7 @@ void verifyCollectorSpreadsRetriesAcrossCyclesAndStopsAfterTimeout() {
         config.protocol.transport.readRetryCount = 1;
         config.collect.maxTasksPerMeterPerCycle = 3;
         config.collect.slaveFailureBackoffThreshold = 100;
+        config.collect.offlineFailureThreshold = 1;
         edge_gateway::Dlt645Collector collector(config, store, client);
 
         for (const auto nowMs : {1000LL, 1100LL, 1200LL}) {
@@ -326,7 +343,8 @@ void verifyCollectorSpreadsRetriesAcrossCyclesAndStopsAfterTimeout() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
-void verifyFrameIntervalIsScopedToMeterAddress() {
+// frameIntervalMs is bus silence after the previous reply, whichever meter is addressed next.
+void verifyFrameIntervalIsBusWide() {
     edge_gateway::SerialPortOptions options;
     options.device = "test";
     options.timeoutMs = 50;
@@ -340,14 +358,12 @@ void verifyFrameIntervalIsScopedToMeterAddress() {
     (void)client.readData("000000000001", "00010000");
 
     require(serial->writes().size() == 3, "expected one write per DLT645 read");
-    const auto firstToSecondMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        serial->writeTimes()[1] - serial->writeTimes()[0]
-    ).count();
-    const auto firstToThirdMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        serial->writeTimes()[2] - serial->writeTimes()[0]
-    ).count();
-    require(firstToSecondMs < 140, "different DLT645 meter addresses should not be delayed by frameIntervalMs");
-    require(firstToThirdMs >= 180, "same DLT645 meter address should honor frameIntervalMs");
+    for (std::size_t i = 1; i < 3; ++i) {
+        const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            serial->writeTimes()[i] - serial->writeTimes()[i - 1]
+        ).count();
+        require(gapMs >= 195, "every request on the bus must wait frameIntervalMs after the previous reply");
+    }
 }
 
 void verifyConfiguredWakeupPreambleIsSent() {
@@ -454,20 +470,23 @@ void verifyWriteFrameAndPayloadEncoding() {
         "DLT645 BCD write payload mismatch"
     );
 
+    const auto password = dlt645_test::fixturePassword();
     const auto frame = edge_gateway::Dlt645Codec::buildWriteFrame(
         "20",
         "06010101",
-        "02000000",
+        password,
         "01020304",
         immediate
     );
+    // DI0..DI3, PA P0 P1 P2 (in configured order), C0..C3, data; every data byte +33H.
     std::vector<std::uint8_t> expected = {
         0x68, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68, 0x14, 0x0E,
-        0x34, 0x34, 0x34, 0x39,
-        0x35, 0x33, 0x33, 0x33,
-        0x34, 0x35, 0x36, 0x37,
-        0x33, 0x35
+        0x34, 0x34, 0x34, 0x39
     };
+    for (std::size_t i = 0; i < 8; i += 2) {
+        expected.push_back(static_cast<std::uint8_t>(std::stoi(password.substr(i, 2), nullptr, 16) + 0x33));
+    }
+    expected.insert(expected.end(), {0x34, 0x35, 0x36, 0x37, 0x33, 0x35});
     expected.push_back(checksum(expected));
     expected.push_back(0x16);
     require(frame == expected, "DLT645 C=14H write frame mismatch");
@@ -486,9 +505,17 @@ void verifyWriteResponseAndPasswordRedaction() {
 #else
     setenv("GATEWAY_DLT645_DEBUG", "1", 1);
 #endif
+    const auto password = dlt645_test::fixturePassword();
+    std::string encodedPassword;
+    for (std::size_t i = 0; i < 8; i += 2) {
+        static constexpr char kHex[] = "0123456789ABCDEF";
+        const auto byte = static_cast<std::uint8_t>(std::stoi(password.substr(i, 2), nullptr, 16) + 0x33);
+        encodedPassword.push_back(kHex[byte >> 4]);
+        encodedPassword.push_back(kHex[byte & 0x0F]);
+    }
     std::ostringstream debug;
     auto* previous = std::cerr.rdbuf(debug.rdbuf());
-    client.writeData("20", "06010101", "02000000", "01020304", {0x00, 0x02});
+    client.writeData("20", "06010101", password, "01020304", {0x00, 0x02});
     std::cerr.rdbuf(previous);
 #ifdef _WIN32
     _putenv_s("GATEWAY_DLT645_DEBUG", "0");
@@ -496,13 +523,13 @@ void verifyWriteResponseAndPasswordRedaction() {
     setenv("GATEWAY_DLT645_DEBUG", "0", 1);
 #endif
     require(debug.str().find("hex=<redacted>") != std::string::npos, "DLT645 write debug frame must be redacted");
-    require(debug.str().find("02000000") == std::string::npos, "DLT645 password must not appear in debug output");
-    require(debug.str().find("35333333") == std::string::npos, "encoded DLT645 password must not appear in debug output");
+    require(debug.str().find(password) == std::string::npos, "DLT645 password must not appear in debug output");
+    require(debug.str().find(encodedPassword) == std::string::npos, "encoded DLT645 password must not appear in debug output");
 
     serial->rejectWrites(true);
     bool rejected = false;
     try {
-        client.writeData("20", "06010101", "02000000", "01020304", {0x00, 0x02});
+        client.writeData("20", "06010101", password, "01020304", {0x00, 0x02});
     } catch (const std::runtime_error& ex) {
         rejected = std::string(ex.what()).find("ERR=0x04") != std::string::npos;
     }
@@ -513,7 +540,7 @@ void verifyWriteResponseAndPasswordRedaction() {
 
 int main() {
     try {
-        verifyFrameIntervalIsScopedToMeterAddress();
+        verifyFrameIntervalIsBusWide();
         verifyConfiguredWakeupPreambleIsSent();
         verifyBinaryAndBitfieldDecoding();
         verifySignedBcdDecoding();

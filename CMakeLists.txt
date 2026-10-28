@@ -62,6 +62,7 @@ add_library(edge_gateway
     src/dlt645_command_executor.cpp
     src/dlt645_collector.cpp
     src/dlt645_codec.cpp
+    src/dlt645_mock_serial_port.cpp
     src/dlt645_standard_points_loader.cpp
     src/event_engine_service.cpp
     src/event_commit_status.cpp
@@ -512,6 +513,13 @@ target_link_libraries(config_corpus_load_test PRIVATE edge_gateway)
 add_executable(collector_clock_and_expiry_test tools/collector_clock_and_expiry_test.cpp)
 target_link_libraries(collector_clock_and_expiry_test PRIVATE edge_gateway)
 
+# driver-review: dlt645
+foreach(dlt645_review_test dlt645_codec_test dlt645_link_test dlt645_collector_schedule_test dlt645_config_test)
+    add_executable(${dlt645_review_test} tools/${dlt645_review_test}.cpp)
+    target_link_libraries(${dlt645_review_test} PRIVATE edge_gateway)
+    target_compile_options(${dlt645_review_test} PRIVATE -fdiagnostics-color=never)
+endforeach()
+
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
 target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
@@ -873,6 +881,11 @@ if(BUILD_TESTING)
     add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
     add_test(NAME config_corpus_load COMMAND config_corpus_load_test ${CMAKE_SOURCE_DIR})
     add_test(NAME collector_clock_and_expiry COMMAND collector_clock_and_expiry_test)
+    # driver-review: dlt645
+    add_test(NAME dlt645_codec COMMAND dlt645_codec_test)
+    add_test(NAME dlt645_link COMMAND dlt645_link_test)
+    add_test(NAME dlt645_collector_schedule COMMAND dlt645_collector_schedule_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME dlt645_config COMMAND dlt645_config_test ${CMAKE_SOURCE_DIR})
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
     add_test(NAME config_loader COMMAND config_loader_test)
