@@ -315,7 +315,7 @@ def main():
     lines = ["# HGM6110CAN Modbus RTU 点表", "", summary, "", "## 使用边界", ""]
     lines += [f"- {note}" for note in NOTES]
     lines += ["", f"来源：{source['fileName']}，{source['revision']}（{source['revisionDate']}）。", f"SHA256：`{source['sha256']}`", "", "## 派生量（未绑定运行时）", ""]
-    lines += [f"- {d['name']}：`{d['expression']}` {d.get('unit', '')}" for d in DERIVED]
+    lines += [f"- {d['name']}：`{d['expression']}` {d.get('unit', '')}".rstrip() for d in DERIVED]
     lines += ["", "所有派生量要求同一完整采集帧且源值有效；DM1/DM2的SPN、OC、FMI规则见各点说明。", ""]
     rows_html = []
     for fc, title in [(1, "状态与报警"), (3, "数值与故障码"), (5, "遥控命令（全部禁用）")]:
