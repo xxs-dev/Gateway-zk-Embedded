@@ -960,7 +960,16 @@ if(BUILD_TESTING)
         add_test(NAME posix_serial_rs485 COMMAND posix_serial_rs485_test)
         set_tests_properties(posix_serial_rs485 PROPERTIES TIMEOUT 5)
     endif()
-    # driver-review: shm-upgrade (registered only when old-release tools are given)
+    # driver-review: shm-upgrade
+    if(UNIX)
+        add_test(NAME gateway_services_queue
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_queue_test.sh")
+        set_tests_properties(gateway_services_queue PROPERTIES TIMEOUT 30)
+        add_test(NAME pointctl_queue_view
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/pointctl_queue_view_test.sh" $<TARGET_FILE:pointctl>)
+        set_tests_properties(pointctl_queue_view PROPERTIES TIMEOUT 30)
+    endif()
+    # Registered only when old-release tools are given.
     if(TARGET shm_pending_write_mix AND EDGE_SHM_MIX_OLD_TOOLS)
         add_test(NAME shm_pending_write_mix_check
             COMMAND sh ${CMAKE_SOURCE_DIR}/tools/shm_pending_write_mix_check.sh
