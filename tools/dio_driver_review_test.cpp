@@ -313,6 +313,164 @@ void loadTimeValidation() {
                            R"({"enable":true,"dataType":"digital_output","startupValue":2})")),
                    "startupValue", "startupValue outside 0/1");
     expectRejected(dioJson(jsonPoint(2, "do_1", "digital_output", -1, doWrite)), "gpio", "DO without gpio");
+    // Feedback DI (round 2): must be a DI of this config when it is in this config, never the DO itself.
+    const auto withFeedback = [](const std::string& extra) {
+        return R"({"enable":true,"dataType":"digital_output","allowedValues":[0,1],"verifyIndex":1)" + extra + "}";
+    };
+    const auto di = [](int debounce) {
+        return R"({"index":1,"pointCode":"di_1","enabled":true,"read":{"enable":true,"dataType":"digital_input","gpio":134,"debounceMs":)" +
+            std::to_string(debounce) + R"(},"write":{"enable":false}})";
+    };
+    (void)ConfigLoader::loadFromText(dioJson(di(20) + "," + jsonPoint(2, "do_1", "digital_output", 231, withFeedback(""))));
+    (void)ConfigLoader::loadFromText(dioJson(jsonPoint(2, "do_1", "digital_output", 231,
+        R"({"enable":true,"dataType":"digital_output","verifyIndex":5000,"verifyValue":1})")));
+    expectRejected(dioJson(jsonPoint(1, "do_1", "digital_output", 231, withFeedback(""))),
+                   "not the DO itself", "feedback is the DO itself");
+    expectRejected(dioJson(jsonPoint(1, "do_0", "digital_output", 230, doWrite) + "," +
+                           jsonPoint(2, "do_1", "digital_output", 231, withFeedback(""))),
+                   "not an enabled digital_input", "feedback is another DO");
+    expectRejected(dioJson(di(20) + "," + jsonPoint(2, "do_1", "digital_output", 231, withFeedback(R"(,"verifyValue":2)"))),
+                   "verifyValue", "feedback value outside 0/1");
+    expectRejected(dioJson(di(20) + "," + jsonPoint(2, "do_1", "digital_output", 231, withFeedback(R"(,"verifyTimeoutMs":0)"))),
+                   "verifyTimeoutMs", "feedback without timeout");
+    expectRejected(dioJson(di(500) + "," + jsonPoint(2, "do_1", "digital_output", 231, withFeedback(R"(,"verifyTimeoutMs":500)"))),
+                   "debounceMs", "feedback timeout not longer than the DI debounce");
+}
+
+// Round 2, item 4: results call the read-back what it is, the output state.
+void outputStateWording(const std::string& base) {
+    FakeSysfs sysfs(base + "/wording");
+    sysfs.addGpio(240, "out\n", "1\n");
+    const auto storeName = "dio_review_wording_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = dioConfig(storeName, sysfs.root);
+        auto plain = doPoint(1240, 240, false);
+        config.points.push_back(plain);
+        MemoryPointStore store(config.memoryStore);
+        auto port = std::make_shared<SysfsGpioPort>(sysfs.root);
+        {
+            DioCommandExecutor executor(config, store, port);
+            const auto result = executor.executeByIndex("W1", 1240, 1.0, wallNow());
+            check(result.success && !result.verifyAttempted &&
+                  result.message.find("输出状态已置为 1") != std::string::npos &&
+                  result.message.find("未确认继电器触点") != std::string::npos, "unverified write: " + result.message);
+        }
+        config.points[0].write.verifyAfterWrite = true;
+        config.points[0].write.verifyByRead = true;
+        config.points[0].write.verifyDelayMs = 0;
+        {
+            DioCommandExecutor executor(config, store, port);
+            const auto result = executor.executeByIndex("W2", 1240, 0.0, wallNow());
+            check(result.success && result.verifyPassed &&
+                  result.message.find("输出状态回读=0") != std::string::npos &&
+                  result.message.find("输出锁存") != std::string::npos, "latch read-back: " + result.message);
+        }
+    }
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+// Round 2, item 5: action confirmation by a feedback DI (auxiliary contact).
+void feedbackConfirmation(const std::string& base) {
+    FakeSysfs sysfs(base + "/feedback");
+    sysfs.addGpio(300, "out\n", "1\n");  // DO, active low, off
+    sysfs.addGpio(301, "in\n", "1\n");   // auxiliary contact, active low, open
+    sysfs.addGpio(302, "out\n", "1\n");  // DO confirmed by another device's DI (point store)
+    sysfs.addGpio(303, "out\n", "1\n");  // DO whose auxiliary contact cannot be read
+    sysfs.addGpio(304, "in\n", "1\n");
+    // A directory in place of the value file: every read fails (EISDIR).
+    ::unlink(sysfs.file(304, "value").c_str());
+    ::mkdir(sysfs.file(304, "value").c_str(), 0755);
+    const auto storeName = "dio_review_feedback_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = dioConfig(storeName, sysfs.root);
+        auto relay = doPoint(1300, 300, false);
+        relay.write.verifyIndex = 1301;
+        relay.write.verifyTimeoutMs = 300;
+        config.points.push_back(relay);
+        config.points.push_back(diPoint(1301, 301, 20));
+        auto remote = doPoint(1302, 302, false);
+        remote.write.verifyIndex = 5000;
+        remote.write.verifyValue = 1.0;
+        remote.write.verifyTimeoutMs = 300;
+        config.points.push_back(remote);
+        auto blind = doPoint(1303, 303, false);
+        blind.write.verifyIndex = 1304;
+        blind.write.verifyTimeoutMs = 200;
+        config.points.push_back(blind);
+        config.points.push_back(diPoint(1304, 304, 0));
+        MemoryPointStore store(config.memoryStore);
+        PointDefinition breaker;
+        breaker.index = 5000;
+        breaker.pointCode = "breaker_closed";
+        breaker.enabled = true;
+        breaker.read.enable = true;
+        breaker.read.cachePolicy.ttlMs = 600000;
+        store.registerPoints("GW", "OTHER_DEVICE", {breaker});
+        const auto putBreaker = [&](double value, std::int64_t ts) {
+            PointValue sample;
+            sample.index = 5000;
+            sample.machineCode = "GW";
+            sample.meterCode = "OTHER_DEVICE";
+            sample.pointCode = "breaker_closed";
+            sample.value = value;
+            sample.quality = 1;
+            sample.ts = ts;
+            sample.expireAt = ts + 600000;
+            store.putLatest(sample);
+        };
+        auto port = std::make_shared<SysfsGpioPort>(sysfs.root);
+        DioCommandExecutor executor(config, store, port);
+
+        // The contact follows the relay 50 ms after the output is set.
+        std::thread contact([&] {
+            for (int i = 0; i < 100; ++i) {
+                if (slurp(sysfs.file(300, "value"))[0] == '0') {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    spit(sysfs.file(301, "value"), "0\n");
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        });
+        auto result = executor.executeByIndex("F1", 1300, 1.0, wallNow());
+        contact.join();
+        check(result.success && result.verifyPassed && result.message.find("动作已由反馈 DI(index 1301)=1 确认") != std::string::npos,
+              "contact confirms the action: " + result.message);
+
+        // Off command, but the contact stays closed: a definite failure.
+        result = executor.executeByIndex("F2", 1300, 0.0, wallNow());
+        check(!result.success && !result.outcomeUnknown && result.message.find("反馈不一致") != std::string::npos,
+              "feedback mismatch: " + result.message);
+        check(slurp(sysfs.file(300, "value"))[0] == '1', "the output stays as commanded on a mismatch");
+
+        // The contact cannot be read: output set, action not confirmed, outcome unknown.
+        result = executor.executeByIndex("F3", 1303, 1.0, wallNow());
+        check(!result.success && result.outcomeUnknown && result.message.find("结果未知") != std::string::npos,
+              "unreadable feedback: " + result.message);
+
+        // Feedback from another device through the point store: only values stored after the command.
+        putBreaker(1.0, wallNow() - 1000);
+        result = executor.executeByIndex("F4", 1302, 1.0, wallNow());
+        check(!result.success && result.outcomeUnknown, "an old store value never confirms: " + result.message);
+        std::thread collector([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            putBreaker(1.0, wallNow());
+        });
+        result = executor.executeByIndex("F5", 1302, 1.0, wallNow());
+        collector.join();
+        check(result.success && result.verifyPassed, "a fresh store value confirms: " + result.message);
+        std::thread wrong([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            putBreaker(0.0, wallNow());
+        });
+        result = executor.executeByIndex("F6", 1302, 1.0, wallNow());
+        wrong.join();
+        check(!result.success && !result.outcomeUnknown && result.message.find("反馈不一致") != std::string::npos,
+              "a fresh wrong store value is a mismatch: " + result.message);
+    }
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
 }  // namespace
@@ -329,6 +487,8 @@ int main() {
         doStartupState(base);
         sysfsErrorsAndExportRetry(base);
         loadTimeValidation();
+        outputStateWording(base);
+        feedbackConfirmation(base);
     } catch (const std::exception& ex) {
         std::cerr << "dio_driver_review_test exception: " << ex.what() << std::endl;
         ++failures;

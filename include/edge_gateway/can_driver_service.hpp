@@ -70,13 +70,17 @@ private:
     };
 
     // One transmitted frame: its layout and the last payload sent (mirror), so writing one signal
-    // keeps the other signals of the frame. Starts from write.can.payloadTemplate (or zeros).
+    // keeps the other signals of the frame. Starts from the persisted state (frameStateFile) when it
+    // matches the current definition, else from write.can.payloadTemplate (or zeros). Pulse signals
+    // are back at their idle value in the mirror right after every send.
     struct TxFrame {
         std::uint32_t frameId = 0;
         bool extended = false;
         bool fd = false;
         bool remoteRequest = false;
         std::vector<std::uint8_t> payload;
+        std::string layout;                    // definition fingerprint (can_frame_state::layoutHash)
+        std::vector<std::size_t> pulsePoints;  // runtimePoints_ indexes of pulse signals
     };
 
     struct StagedWrite;
@@ -100,6 +104,11 @@ private:
     void runStartupWrites();
     void sendSingleWrite(const RuntimePoint& runtimePoint, double value);
     void transmitLocked(const TxFrame& frame, const std::vector<std::uint8_t>& payload);
+    // After a successful send: the mirror becomes payload with every pulse signal back at idle.
+    void storeSentPayloadLocked(TxFrame& frame, const std::vector<std::uint8_t>& payload);
+    void loadFrameStates();
+    void persistFrameStates();
+    void requireInterfaceUsable() const;
     std::size_t flushStagedWrites(std::vector<StagedWrite>& group);
     void finishWrite(StagedWrite& staged, std::size_t& processed);
     void receiveLoop();
@@ -131,13 +140,18 @@ private:
     std::mutex persistentFlushMutex_;
     mutable std::mutex socketMutex_;
     std::unordered_map<std::uint64_t, TxFrame> txFrames_;  // guarded by socketMutex_
+    std::string frameStatePath_;
+    std::mutex frameStateMutex_;
+    std::int64_t lastFrameStateErrorMono_ = 0;  // guarded by frameStateMutex_
+    // Set while the interface is known down / bus-off: writes are refused instead of being queued
+    // in the kernel and sent whenever the bus recovers.
+    std::atomic<bool> interfaceFault_{false};
     int socketFd_ = -1;
     // Receive-thread state (also updated by tests calling the public methods from one thread).
     bool interfaceOnline_ = false;
     bool busOff_ = false;
     bool errorPassive_ = false;
     bool linkDownSeen_ = false;
-    std::int64_t carrierLostMono_ = 0;
     std::int64_t lastBusActivityMono_ = 0;  // last data frame or controller restart
     std::int64_t lastInterfaceCheckMono_ = 0;
     std::int64_t lastInterfacePublishedMono_ = 0;

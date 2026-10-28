@@ -314,6 +314,18 @@ void loadTimeValidation() {
     expectRejected(canConfig("", "", writePoint(11, "sig", "uint8", R"("frameId":"0x321","payloadTemplate":"00")")),
                    "payloadTemplate", "short payloadTemplate");
     expectRejected(canConfig("", "", writePoint(11, "sig", "", R"("frameId":"0x321")")), "write.dataType", "write without dataType");
+    // Pulse signals (round 2): integer/bool only, idle value encodable, never active in the template.
+    (void)edge_gateway::ConfigLoader::loadFromText(canConfig("", "",
+        writePoint(10, "reset", "bool", R"("frameId":"0x321","bitLength":1,"pulse":true)") + "," +
+        writePoint(11, "sig", "uint8", R"("frameId":"0x321","byteOffset":1,"payloadTemplate":"0000000000000000")")));
+    expectRejected(canConfig("", "", writePoint(11, "sig", "float32", R"("frameId":"0x321","pulse":true)")),
+                   "write.can.pulse", "float pulse");
+    expectRejected(canConfig("", "", writePoint(11, "sig", "uint8", R"("frameId":"0x321","pulse":true,"pulseIdleValue":300)")),
+                   "pulseIdleValue", "pulse idle value out of range");
+    expectRejected(canConfig("", "",
+        writePoint(11, "sig", "bool", R"("frameId":"0x321","bitLength":1,"pulse":true)") + "," +
+        writePoint(12, "other", "uint8", R"("frameId":"0x321","byteOffset":1,"payloadTemplate":"0100000000000000")")),
+                   "pulse", "template holding the pulse active");
     expectRejected(canConfig("", "", R"({"index":1,"pointCode":"sig","enabled":true,"read":{"enable":true,"dataType":"interface_online"},"write":{"enable":true,"dataType":"bool","can":{"frameId":"0x1"}}})"),
                    "read-only", "writable online point");
 }

@@ -10,10 +10,12 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "edge_gateway/can_driver_service.hpp"
@@ -182,6 +184,7 @@ DeviceConfig makeConfig(const Bus& bus, const std::string& name, const std::stri
     config.memoryStore.writebackBatchSize = 32;
     config.mqttDriver.priorityControlLeaseFile = directory + "/priority.json";
     config.mqttDriver.powerControlOwnershipFile = directory + "/owner.json";
+    config.protocol.can.frameStateFile = directory + "/frame-state-" + name + ".json";
     LogicalDeviceConfig meter;
     meter.meterCode = "DEV1";
     meter.deviceName = "dev";
@@ -209,6 +212,11 @@ DeviceConfig makeConfig(const Bus& bus, const std::string& name, const std::stri
     fd.write.can.fd = true;
     fd.write.can.dlc = 12;
     meter.points.push_back(fd);
+    // Frame 0x323: a one-shot reset bit next to a setpoint.
+    auto reset = writePoint(310204, "reset_cmd", "bool", "0x323", 0, 1);
+    reset.write.can.pulse = true;
+    meter.points.push_back(reset);
+    meter.points.push_back(writePoint(310205, "limit_sp", "uint8", "0x323", 1, 8));
     config.meters.push_back(meter);
     return config;
 }
@@ -312,6 +320,13 @@ void receivePathAndWrites(const std::string& directory) {
         pump(service, 1);
         check(!service.interfaceOnline() && latest(store, kInterfaceOnline)->value == 0.0, "bus-off: interface_online=0");
         check(latest(store, kDeviceOnline)->value == 0.0, "bus-off: device offline");
+        // A write during bus-off is refused, not queued to go out whenever the bus recovers.
+        submit(store, "W9", 310202, 77);
+        service.processWritebackOnce(wallNow());
+        const auto refused = store.getWritebackResult("W9");
+        check(refused && !refused->success && refused->stage == "writeback-failed" &&
+              refused->message.find("offline") != std::string::npos, "write during bus-off refused");
+        check(!bus.receive(sent), "nothing sent during bus-off");
         const auto stale = latest(store, kSpeed);
         check(stale && stale->quality == 0 && stale->value == 20000.0, "bus-off: speed bad quality, value kept");
         bus.error(0x004, 0x10);  // controller error-passive: reported, no state change while bus-off
@@ -382,6 +397,105 @@ void receptionIgnoresPriorityLease(const std::string& directory) {
     MemoryPointStore::cleanupOrphanedSegment(name);
 }
 
+VirtualCanFrame writeAndReceive(Bus& bus, MemoryPointStore& store, CanDriverService& service,
+                                const std::vector<std::pair<std::uint32_t, double>>& writes, const std::string& tag) {
+    int n = 0;
+    for (const auto& write : writes) {
+        submit(store, tag + std::to_string(n++), write.first, write.second);
+    }
+    service.processWritebackOnce(wallNow());
+    VirtualCanFrame frame;
+    if (!bus.receive(frame)) {
+        check(false, tag + ": no frame sent");
+    }
+    return frame;
+}
+
+// Round 2, item 1: a pulse bit goes out in one frame only.
+void pulseSignals(const std::string& directory) {
+    Bus bus;
+    const auto name = "can_runtime_pulse_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(name);
+    {
+        auto config = makeConfig(bus, name, directory);
+        MemoryPointStore store(config.memoryStore);
+        CanDriverService service(config, store);
+        auto frame = writeAndReceive(bus, store, service, {{310204, 1}}, "P1");
+        check(frame.frameId == 0x323 && frame.payload[0] == 1, "reset pulse sent");
+        frame = writeAndReceive(bus, store, service, {{310205, 55}}, "P2");
+        check(frame.payload[0] == 0 && frame.payload[1] == 55, "the next write of the frame does not repeat the pulse");
+        frame = writeAndReceive(bus, store, service, {{310204, 1}, {310205, 60}}, "P3");
+        check(frame.payload[0] == 1 && frame.payload[1] == 60, "pulse merged with a setpoint in one frame");
+        check(!bus.receive(frame), "merged batch is one frame");
+        frame = writeAndReceive(bus, store, service, {{310205, 61}}, "P4");
+        check(frame.payload[0] == 0 && frame.payload[1] == 61, "pulse back to idle after the merged frame");
+    }
+    MemoryPointStore::cleanupOrphanedSegment(name);
+}
+
+// Round 2, item 2: the frame mirrors survive a restart; a changed definition starts from the template.
+void frameStatePersistence(const std::string& directory) {
+    Bus bus;
+    const auto name = "can_runtime_state_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(name);
+    auto config = makeConfig(bus, name, directory);
+    const auto& stateFile = config.protocol.can.frameStateFile;
+    std::remove(stateFile.c_str());
+    {
+        MemoryPointStore store(config.memoryStore);
+        {
+            CanDriverService service(config, store);
+            writeAndReceive(bus, store, service, {{310201, 1}}, "S1");      // run_cmd = 1
+            writeAndReceive(bus, store, service, {{310204, 1}}, "S2");      // reset pulse
+        }
+        std::ifstream saved(stateFile.c_str());
+        check(saved.good(), "frame state written after a successful send");
+        {
+            CanDriverService restarted(config, store);
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 10}}, "S3");
+            check(frame.payload == Bytes({0x01, 10, 0, 0, 0, 0, 0, 0xAA}),
+                  "after a restart a setpoint write keeps run_cmd=1 (not the template's 0)");
+            frame = writeAndReceive(bus, store, restarted, {{310205, 5}}, "S4");
+            check(frame.payload[0] == 0 && frame.payload[1] == 5, "a pulse is never restored active");
+        }
+        // The layout of frame 0x321 changes (power_sp scale): its saved state no longer applies.
+        auto changed = config;
+        changed.meters[0].points[7].write.scale = 0.5;
+        {
+            CanDriverService restarted(changed, store);
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 10}}, "S5");
+            check(frame.payload == Bytes({0x00, 20, 0, 0, 0, 0, 0, 0xAA}),
+                  "a changed frame definition discards the saved state and starts from the template");
+        }
+        // Missing and corrupt files: start from the template, no failure.
+        std::remove(stateFile.c_str());
+        {
+            CanDriverService restarted(config, store);
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 11}}, "S6");
+            check(frame.payload == Bytes({0x00, 11, 0, 0, 0, 0, 0, 0xAA}), "no state file: template");
+        }
+        {
+            std::ofstream corrupt(stateFile.c_str(), std::ios::trunc);
+            corrupt << "{\"version\":1,\"interfaceName\":\"can0\",\"frames\":[{\"frameId\":";
+        }
+        {
+            CanDriverService restarted(config, store);
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 12}}, "S7");
+            check(frame.payload == Bytes({0x00, 12, 0, 0, 0, 0, 0, 0xAA}), "corrupt state file: template");
+        }
+        // A state that cannot be saved is removed, so a restart cannot apply an outdated one.
+        auto unsaved = config;
+        unsaved.protocol.can.frameStateFile = directory + "/missing-dir/state.json";
+        {
+            CanDriverService service(unsaved, store);
+            auto frame = writeAndReceive(bus, store, service, {{310201, 1}}, "S8");
+            check(frame.payload[0] == 1 && store.getWritebackResult("S80")->success,
+                  "a failed state save does not fail the write");
+        }
+    }
+    MemoryPointStore::cleanupOrphanedSegment(name);
+}
+
 }  // namespace
 
 int main() {
@@ -395,6 +509,8 @@ int main() {
         receivePathAndWrites(directory);
         typoFrameIdFailsAtStartup(directory);
         receptionIgnoresPriorityLease(directory);
+        pulseSignals(directory);
+        frameStatePersistence(directory);
     } catch (const std::exception& ex) {
         std::cerr << "can_driver_runtime_test exception: " << ex.what() << std::endl;
         ++failures;

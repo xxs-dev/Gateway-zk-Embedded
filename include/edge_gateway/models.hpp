@@ -38,6 +38,10 @@ struct CanSignalSpec {
     std::string payloadTemplate;
     // Write: send this frame as CAN FD (needs protocol.can.fdEnabled); default classic CAN.
     bool fd = false;
+    // Write: one-shot command bit (start/reset/clear fault). The commanded value goes out in one
+    // frame only; the frame mirror then holds pulseIdleValue, so later frames never repeat it.
+    bool pulse = false;
+    double pulseIdleValue = 0.0;
 };
 
 struct IecPointSpec {
@@ -117,6 +121,11 @@ struct WriteSpec {
     bool verifyAfterWrite = false;
     int verifyDelayMs = 200;
     bool verifyByRead = true;
+    // local_dio DO: action confirmed by a feedback DI (auxiliary contact) at gateway index
+    // verifyIndex, which must read verifyValue (unset: the written value) within verifyTimeoutMs.
+    std::uint32_t verifyIndex = 0;
+    Optional<double> verifyValue;
+    int verifyTimeoutMs = 3000;
     Dlt645WriteSpec dlt645;
     CanSignalSpec can;
     IecPointSpec iec;
@@ -513,6 +522,9 @@ struct CanProtocolConfig {
     int udpListenPort = 19011;
     std::string udpPeerAddress = "127.0.0.1";
     int udpPeerPort = 19012;
+    // Last sent payload of every transmit frame, kept across restarts. Empty: can-frame-state-
+    // <interfaceName>.json next to memoryStore.controlDedupPath (the driver data directory).
+    std::string frameStateFile;
 };
 
 struct IecProtocolConfig {

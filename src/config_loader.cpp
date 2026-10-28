@@ -454,6 +454,8 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     spec.remoteRequest = requireBool(object, "remoteRequest", spec.remoteRequest);
     spec.payloadTemplate = requireString(object, "payloadTemplate", spec.payloadTemplate);
     spec.fd = requireBool(object, "fd", spec.fd);
+    spec.pulse = requireBool(object, "pulse", spec.pulse);
+    spec.pulseIdleValue = requireDouble(object, "pulseIdleValue", spec.pulseIdleValue);
     if (const auto* invalid = value->find("invalidRawValues")) {
         if (!invalid->isNull()) {
             for (const auto& item : invalid->asArray().values) {
@@ -568,6 +570,19 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
+    {
+        const auto verifyIndex = requireInt(object, "verifyIndex", 0);
+        if (verifyIndex < 0) {
+            throw std::invalid_argument("write.verifyIndex must be a point index");
+        }
+        spec.verifyIndex = static_cast<std::uint32_t>(verifyIndex);
+    }
+    if (const auto* verifyValue = value->find("verifyValue")) {
+        if (!verifyValue->isNull()) {
+            spec.verifyValue = verifyValue->asNumber();
+        }
+    }
+    spec.verifyTimeoutMs = requireInt(object, "verifyTimeoutMs", spec.verifyTimeoutMs);
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
         spec.dlt645.di = requireString(dlt645Object, "di", spec.dlt645.di);
@@ -1079,6 +1094,7 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     can.udpListenPort = requireInt(object, "udpListenPort", can.udpListenPort);
     can.udpPeerAddress = requireString(object, "udpPeerAddress", can.udpPeerAddress);
     can.udpPeerPort = requireInt(object, "udpPeerPort", can.udpPeerPort);
+    can.frameStateFile = requireString(object, "frameStateFile", can.frameStateFile);
     return can;
 }
 

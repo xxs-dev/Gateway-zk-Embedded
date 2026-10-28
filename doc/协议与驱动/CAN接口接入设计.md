@@ -230,12 +230,13 @@ CAN 配置文件使用现有设备配置体系：
 | `interfaceCode` | 平台接口编码，建议 `CAN_1` 到 `CAN_4` |
 | `bitrate` | 仲裁段波特率，例如 `125000`、`250000`、`500000`、`1000000` |
 | `samplePoint` | 采样点，可选；不填时使用系统默认 |
-| `restartMs` | bus-off 后自动恢复时间，建议 `100` |
+| `restartMs` | bus-off 后由内核自动重启控制器的等待时间，建议 `100`；`0` 表示不自动恢复（bus-off 一直保持到人工重启），驱动不会代为恢复 |
 | `listenOnly` | 只监听不发送，联调抓包时可开启 |
 | `loopback` | 本机环回测试，生产默认 `false` |
 | `fdEnabled` | 接口启用 CAN FD：可接收 FD 帧，并允许 `write.can.fd=true` 的发送帧；默认 `false` |
 | `dataBitrate` | CAN-FD 数据段波特率，`fdEnabled=true` 时生效 |
-| `manageInterface` | 驱动启动时、以及接口 down 或 bus-off 超过 5 秒未自动恢复时，自动配置并拉起接口 |
+| `manageInterface` | 驱动启动时、以及发现接口不存在或被置为 down 时，配置并拉起接口；不处理 bus-off（bus-off 恢复只取决于 `restartMs` 或人工重启） |
+| `frameStateFile` | 发送帧镜像的保存文件，见“写入与帧镜像”；不填为 `memoryStore.controlDedupPath` 同目录下的 `can-frame-state-<interfaceName>.json`（默认 `/opt/modbus-gateway/data/`） |
 | `rxQueueSize` | 仅 `udp_test` 测试传输使用（UDP 接收缓冲）；SocketCAN 使用内核队列 |
 | `txQueueSize` | 仅 `udp_test` 测试传输使用（UDP 发送缓冲）；SocketCAN 使用内核队列 |
 
@@ -469,7 +470,7 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
 
 - 启动写入只用于上传周期、状态订阅、采集开关等不会触发现场动作的参数。
 - 消防阀门控制、复位、PCS 功率下发等真实动作点不得默认加入 `startupWrites`。
-- 启动写入同样经过发送帧镜像（见“写入与帧镜像”），不会清零同帧其他信号；但驱动刚启动时镜像来自 `payloadTemplate`，同帧其他信号此时取模板值。
+- 启动写入同样经过发送帧镜像（见“写入与帧镜像”），不会清零同帧其他信号；同帧其他信号取保存的镜像，没有可用的保存状态时取模板值。
 
 ### `read.can` 字段
 
@@ -517,18 +518,24 @@ COMM202600103 正华探测器的浓度点（`endian=big, bitOffset=0, bitLength=
 | `fd` | 该帧以 CAN FD 发送，需 `protocol.can.fdEnabled=true`；默认 `false`（经典帧） |
 | `remoteRequest` | 发送远程帧（仅经典帧） |
 | `payloadTemplate` | 发送帧初始内容，正好 `dlc` 字节的十六进制、不带分隔符，例如 `"0000000000000000"`；不填为全 0 |
+| `pulse` | 脉冲型命令信号（启动、复位、清故障）：写入值只随这一帧发出，发送后镜像里立即回到 `pulseIdleValue`，之后的帧不会再带出；只用于 `bool` / 整数信号 |
+| `pulseIdleValue` | 脉冲信号的空闲值（工程值，按本信号的倍率/偏移编码），默认 `0`；`payloadTemplate` 中该信号必须是空闲值 |
 | `byteOffset` / `bitOffset` / `bitLength` / `endian` | 信号位置，规则同 `read.can` |
 
 写入值按 `write.dataType` 编码：整数类型先 `round((value - offset) / scale)`，超出位宽（无符号负数、有符号越界）直接拒绝，不截断；`read.signed=true` 的 `uintN` 信号按补码写入；非有限值拒绝。
 
 ### 写入与帧镜像
 
-- 每个发送帧（`frameId` + `extended`）在驱动内维护一份“最后发送的载荷”镜像，初值为 `payloadTemplate`（不填为全 0）。写某个信号时只改它自己的位，再整帧发送，同帧其他信号保持最后一次下发的值。
+- 每个发送帧（`frameId` + `extended`）在驱动内维护一份“最后发送的载荷”镜像，初值取保存的状态文件（见下），没有可用的保存状态时为 `payloadTemplate`（不填为全 0）。写某个信号时只改它自己的位，再整帧发送，同帧其他信号保持最后一次下发的值。
 - 同一批待写命令中，连续写同一帧不同信号的命令合并成一帧发送；同一信号在一批里出现两次（例如脉冲 1→0）时按顺序分两帧发出，不会被合并吞掉。
 - 共用一个发送帧的所有写点必须一致：`dlc`、`fd`、`remoteRequest` 相同，非空的 `payloadTemplate` 相同，否则加载报错。写信号位重叠时加载给出警告。
-- 镜像不跨进程保存：驱动重启后回到 `payloadTemplate`。
-- 脉冲型命令位（启动、复位、清故障）在镜像里保持最后写入的值，之后写同帧其他信号时会随整帧再次发出；这类位写 `1` 后应再写 `0`，或单独占一帧。
+- 脉冲信号（`write.can.pulse=true`）只在写它的那一帧里带写入值；与同批其他信号合并时也只在这一帧带 `1`。发送后镜像立即回到 `pulseIdleValue`，之后写同帧其他信号不会重复触发启动/复位。
+- 镜像跨重启保存：每次发送成功后，把全部发送帧的镜像原子写入 `protocol.can.frameStateFile`（临时文件、`fsync`、`rename`）。脉冲信号在文件里总是空闲值。
+- 启动时加载该文件，逐帧核对：`frameId`/扩展帧、`dlc`、`fd`、`remoteRequest` 一致，且帧定义指纹一致（`payloadTemplate`、该帧所有写信号的位置、数据类型、倍率/偏移、符号、脉冲设置）才恢复；不一致的帧丢弃保存值并写日志，从 `payloadTemplate` 开始。加载时也强制把脉冲信号置回空闲值。
+- 文件不存在、读不出或格式无效时，所有发送帧从 `payloadTemplate` 开始（日志会写明）。这一刻的含义：驱动不知道总线上这些帧最后发出的内容，下一次写某个信号时，同帧其他信号按模板值发出——例如写功率设定值会把“运行”位按模板值（通常为 0）发出。因此模板必须是该设备的安全状态；首次投运、更换配置或删除状态文件后，应先把同帧各信号逐一按现场状态下发一遍。
+- 状态文件写入失败时，写命令本身仍按发送结果返回，驱动删除旧状态文件（避免下次重启套用过期内容）、写日志并发布状态事件 `frame-state-save-failed`；此时重启即回到模板值。
 - 写入成功只表示帧已进入内核发送队列（`write()` 成功），CAN 没有接收方确认；需要确认结果时应由设备的状态反馈点判断。CAN 写点不支持 `verifyAfterWrite`（配置了会给出警告并忽略）。
+- 接口离线（bus-off、链路 down）期间写命令直接失败（`writeback-failed`，消息 `CAN interface offline ... frame not sent`），不把帧排进内核队列——否则总线恢复时这些过期命令会被补发。
 - 原 `mode`、`mergePolicy`、`sendRepeat`、`sendIntervalMs`、`protocol.can.preserveFrameSignals` 均未实现/已删除，不要再配置。
 
 ## 数据类型
@@ -615,12 +622,25 @@ CAN 需要两类在线状态。
 
 - `canX` 已 up、有载波且未 bus-off，socket 正常：值为 `1`。
 - 接口 down、无载波、bus-off、socket 打开失败：值为 `0`。
-- bus-off 由 SocketCAN 错误帧（`CAN_RAW_ERR_FILTER` 订阅 `CAN_ERR_BUSOFF`、`CAN_ERR_CRTL`、`CAN_ERR_RESTARTED`）即时识别，另外每 `interfaceCheckIntervalMs` 检查接口标志 `IFF_UP` / `IFF_RUNNING`。控制器重启（`restartMs` 自动恢复或人工 `ip link set canX type can restart`）、链路重新 up 或重新收到数据帧后恢复为 `1`。
-- 无载波超过 5 秒（例如 `restartMs=0` 时的 bus-off）且 `manageInterface=true` 时，驱动重新配置并拉起接口。
+- bus-off 由 SocketCAN 错误帧（`CAN_RAW_ERR_FILTER` 订阅 `CAN_ERR_BUSOFF`、`CAN_ERR_CRTL`、`CAN_ERR_RESTARTED`）即时识别，另外每 `interfaceCheckIntervalMs` 检查接口标志 `IFF_UP` / `IFF_RUNNING`。控制器重启后（收到 `CAN_ERR_RESTARTED`、链路重新 up 或重新收到数据帧）恢复为 `1`。
+- bus-off 能否恢复取决于接口的 `restartMs`，不能默认会自动恢复：`restartMs>0` 时内核在该时间后自动重启控制器；`restartMs=0` 时一直保持 bus-off，直到人工执行 `ip link set canX type can restart`（或 down/up）。驱动不会主动重启 bus-off 的控制器，即使 `manageInterface=true`。
+- 接口离线期间写命令直接失败，不排队（见“写入与帧镜像”）。
 - 接口离线时：所有逻辑设备 `device_online=0`，所有信号点保留旧值、置坏质量（`qualityMsg` 为 `CAN interface offline: <原因>`），不写历史库；接口恢复后，设备要重新收到帧才回到在线。
 - 错误被动（error-passive）仍可收发，只发布状态事件 `bus-error-passive` / `bus-error-active`，不改变在线状态。
 - 状态事件：`interface-online`、`interface-offline`（带 `reason`）、`bus-off`、`bus-restarted`。
 - 在线、接收超时、接口检查都按单调时钟计时，系统时间回拨或前跳不会冻结或误判。
+
+### 现场验证项（真实 SocketCAN 接口）
+
+bus-off 时的发送返回、错误通知、数据质量和恢复行为只能在真实 CAN 接口和真实总线故障下验证；`vcan` 没有控制器和错误计数，无法产生 bus-off、错误被动或控制器重启，`udp_test` 传输只能注入错误帧做逻辑测试。投运前按 `restartMs=100` 和 `restartMs=0` 各验证一次：
+
+1. 制造 bus-off（例如在有通信时短接 CANH/CANL，或接入波特率不一致的节点并发送），用 `candump -e canX,0~0,#FFFFFFFF` 看错误帧，`ip -details -statistics link show canX` 看 `state BUS-OFF`、`bus-off` 计数和 `LOWER_UP` 标志是否随 bus-off 消失（`sunxican` 是否关闭载波）。
+2. 发送返回：bus-off 期间经平台或 `pointctl` 下发 CAN 写命令，确认回执为 `writeback-failed`、消息含 `CAN interface offline`，`candump` 在恢复后也看不到这条命令被补发；另确认 bus-off 发生前已进入内核队列的帧在恢复后是否被发出（记录 `sunxican` 的实际行为）。
+3. 错误通知：确认状态事件 `bus-off`、`interface-offline`（`reason`）、恢复后的 `bus-restarted`、`interface-online` 依次出现，驱动日志有对应记录；制造持续错误使计数升高时出现 `bus-error-passive`。
+4. 数据质量：bus-off 期间 `interface_online=0`、各设备 `device_online=0`，信号点保留最后值、`quality=0`，历史库没有新样本；恢复后设备重新收到帧才在线，信号恢复好质量。
+5. 恢复：`restartMs=100` 时约 100 ms 后自动恢复；`restartMs=0` 时保持离线，执行 `ip link set canX type can restart` 后恢复；两种情况下驱动都不自行 down/up 接口。
+6. 接口 down：`ip link set canX down`，`manageInterface=true` 时驱动在一个检查周期内重新拉起，`false` 时保持离线直到人工 up；期间写命令失败。
+7. 拔掉对端或终端电阻（只有本节点发送、无应答）：通常进入错误被动而不是 bus-off，确认此时在线状态与事件符合上述规则。
 
 ### 设备在线
 
