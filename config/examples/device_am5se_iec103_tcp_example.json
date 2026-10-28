@@ -25,7 +25,6 @@
       "cotSize": 1,
       "caSize": 1,
       "ioaSize": 2,
-      "interrogationCot": 9,
       "returnInformationIdentifier": 233,
       "deviceFunctionType": 4,
       "pollTimeoutMs": 1000,

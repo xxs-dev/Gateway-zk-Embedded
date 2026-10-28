@@ -24,7 +24,10 @@
       "interrogationQualifier": 20,
       "pollTimeoutMs": 1000,
       "maxPollFrames": 64,
-      "pollOnCollect": true
+      "pollOnCollect": true,
+      "interrogationIntervalMs": 900000,
+      "counterInterrogation": true,
+      "counterInterrogationIntervalMs": 900000
     }
   },
   "collect": {

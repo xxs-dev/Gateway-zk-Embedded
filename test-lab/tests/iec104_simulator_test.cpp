@@ -49,7 +49,7 @@ void runTest() {
     iec.wAck = 1;
 
     {
-        edge_gateway::IecTcpClient client("iec104", tcp, iec);
+        edge_gateway::Iec104Client client(tcp, iec);
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
         auto values = client.poll();
         if (values.size() < 2U) {

@@ -19,6 +19,10 @@ public:
     CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
 
 private:
+    // Device quality and time tag applied; a double point in DPI 0/3 mapped to a boolean
+    // point keeps the previously stored value with bad quality.
+    PointValue buildIecPointValue(const PointDefinition& point, const IecDataValue& dataValue, std::int64_t receivedMs) const;
+
     std::shared_ptr<IecClient> client_;
 };
 

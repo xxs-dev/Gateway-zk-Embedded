@@ -1,5 +1,6 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/iec_codec.hpp"
+#include "edge_gateway/iec_ft12_link.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -33,30 +34,33 @@ int main() {
     config.linkAddressSize = 1;
     config.commonAddress = 2;
     config.deviceFunctionType = 1;
-    config.interrogationCot = 9;
     config.returnInformationIdentifier = 0xE9;
 
+    // Frames verified against the AM5 field device (doc/协议与驱动/安科瑞AM5-IEC103主动TCP现场验证.md):
+    // the shared FT1.2 master must keep producing exactly these bytes.
     requireTrue(
-        IecCodec::buildIec103ResetCommunicationFrame(config) ==
+        buildFt12FixedFrame(0x40, config.linkAddress, config.linkAddressSize) ==
             std::vector<std::uint8_t>({0x10, 0x40, 0x02, 0x42, 0x16}),
         "AM5SE reset communication frame");
     requireTrue(
-        IecCodec::buildIec103ClassRequestFrame(config, 1, false) ==
+        buildFt12FixedFrame(0x5A, config.linkAddress, config.linkAddressSize) ==
             std::vector<std::uint8_t>({0x10, 0x5A, 0x02, 0x5C, 0x16}),
         "AM5SE class 1 request FCB=0");
     requireTrue(
-        IecCodec::buildIec103ClassRequestFrame(config, 2, true) ==
+        buildFt12FixedFrame(0x7B, config.linkAddress, config.linkAddressSize) ==
             std::vector<std::uint8_t>({0x10, 0x7B, 0x02, 0x7D, 0x16}),
         "AM5SE class 2 request FCB=1");
     requireTrue(
-        IecCodec::buildIec103GeneralInterrogationFrame(config) ==
+        buildFt12VariableFrame(0x73, config.linkAddress, config.linkAddressSize,
+            IecCodec::buildIec103GeneralInterrogationAsdu(config)) ==
             std::vector<std::uint8_t>({
                 0x68, 0x09, 0x09, 0x68, 0x73, 0x02, 0x07, 0x81,
                 0x09, 0x02, 0xFF, 0x00, 0xE9, 0xF0, 0x16
             }),
         "AM5SE general interrogation includes RII");
     requireTrue(
-        IecCodec::buildIec103RecordingDirectoryFrame(config, false) ==
+        buildFt12VariableFrame(0x53, config.linkAddress, config.linkAddressSize,
+            IecCodec::buildIec103RecordingDirectoryAsdu(config)) ==
             std::vector<std::uint8_t>({
                 0x68, 0x0D, 0x0D, 0x68, 0x53, 0x02, 0x18, 0x81,
                 0x1F, 0x02, 0xFF, 0x00, 0x18, 0x01, 0x00, 0x00,
@@ -64,28 +68,29 @@ int main() {
             }),
         "AM5SE ASDU24 directory request");
     requireTrue(
-        IecCodec::buildIec103ComtradeFileCallFrame(config, 15, 0x51, true) ==
+        buildFt12VariableFrame(0x73, config.linkAddress, config.linkAddressSize,
+            IecCodec::buildIec103ComtradeFileCallAsdu(config, 15, 0x51)) ==
             std::vector<std::uint8_t>({
                 0x68, 0x0A, 0x0A, 0x68, 0x73, 0x02, 0x44, 0x81,
                 0x00, 0x02, 0xFF, 0x51, 0x0F, 0x00, 0x9B, 0x16
             }),
         "AM5SE ASDU68 CFG request");
 
-    const std::vector<std::uint8_t> directoryUserData = {
-        0x08, 0x02, 0x17, 0x02, 0x1F, 0x02, 0xFF, 0x00,
+    const std::vector<std::uint8_t> directoryAsdu = {
+        0x17, 0x02, 0x1F, 0x02, 0xFF, 0x00,
         0x02, 0x00, 0x01, 0x1C, 0xD0, 0x0D, 0x0F, 0x12, 0x02, 0x14,
         0x03, 0x00, 0x01, 0xBE, 0x2C, 0x0E, 0x0F, 0x12, 0x02, 0x14
     };
-    const auto directory = IecCodec::decodeIec103RecordingDirectory(directoryUserData, config);
+    const auto directory = IecCodec::decodeIec103RecordingDirectory(directoryAsdu);
     requireTrue(directory.size() == 2, "AM5SE ASDU23 directory count");
     requireTrue(directory[0].fan == 2 && directory[1].fan == 3, "AM5SE ASDU23 FAN values");
     requireTrue(directory[0].timestampMs > 0, "AM5SE ASDU23 timestamp");
 
-    const std::vector<std::uint8_t> chunkUserData = {
-        0x08, 0x02, 0x50, 0x81, 0x14, 0x02, 0x01, 0x51,
+    const std::vector<std::uint8_t> chunkAsdu = {
+        0x50, 0x81, 0x14, 0x02, 0x01, 0x51,
         0x04, 0x80, 'C', 'F', 'G'
     };
-    const auto chunk = IecCodec::decodeIec103ComtradeChunk(chunkUserData, config);
+    const auto chunk = IecCodec::decodeIec103ComtradeChunk(chunkAsdu);
     requireTrue(chunk.fileType == 0x51, "AM5SE ASDU80 CFG type");
     requireTrue(chunk.packetNumber == 4, "AM5SE ASDU80 packet number");
     requireTrue(chunk.lastPacket, "AM5SE ASDU80 final marker");
@@ -106,24 +111,24 @@ int main() {
     }
     requireTrue(gapRejected, "COMTRADE assembler rejects packet gaps");
 
-    const std::vector<std::uint8_t> yxUserData = {
-        0x08, 0x02, 0x2C, 0x02, 0x09, 0x02, 0x01, 0x64,
+    const std::vector<std::uint8_t> yxAsdu = {
+        0x2C, 0x02, 0x09, 0x02, 0x01, 0x64,
         0x00, 0x00, 0x00, 0x00, 0x00,
         0x50, 0x00, 0x00, 0x00, 0x00,
         0xE9
     };
-    const auto yx = IecCodec::decodeIec103Data(yxUserData, config);
+    const auto yx = IecCodec::decodeIec103Data(yxAsdu, config);
     requireTrue(yx.size() == 32, "AM5SE ASDU44 expands two 16-bit blocks");
     requireNear(yx[20].value, 1.0, "AM5SE ASDU44 INF120 state");
     requireNear(yx[22].value, 1.0, "AM5SE ASDU44 INF122 state");
     requireTrue(yx[20].informationNumber == 120, "AM5SE ASDU44 INF mapping");
 
-    const std::vector<std::uint8_t> ycUserData = {
-        0x08, 0x02, 0x0A, 0x81, 0x02, 0x02, 0xFE, 0xF1, 0x00, 0x02,
+    const std::vector<std::uint8_t> ycAsdu = {
+        0x0A, 0x81, 0x02, 0x02, 0xFE, 0xF1, 0x00, 0x02,
         0x00, 0x00, 0x01, 0x03, 0x02, 0x01, 0x18, 0x00,
         0x00, 0x01, 0x01, 0x07, 0x04, 0x01, 0x0E, 0x60, 0x2A, 0x3A
     };
-    const auto yc = IecCodec::decodeIec103Data(ycUserData, config);
+    const auto yc = IecCodec::decodeIec103Data(ycAsdu, config);
     requireTrue(yc.size() == 1, "AM5SE ASDU10 skips group-size entry");
     requireTrue(yc.front().functionType == 1 && yc.front().informationNumber == 140,
         "AM5SE ASDU10 maps GIN 0/1 to FUN/INF 1/140");

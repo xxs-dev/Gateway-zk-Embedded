@@ -79,6 +79,9 @@ add_library(edge_gateway
     src/grid_friendly_dispatch.cpp
     src/iec_client.cpp
     src/iec_codec.cpp
+    src/iec103_codec.cpp
+    src/iec_ft12_link.cpp
+    src/iec_ft12_client.cpp
     src/iec103_recording_command.cpp
     src/iec103_recording_transfer_service.cpp
     src/iec_command_executor.cpp
@@ -512,6 +515,14 @@ target_link_libraries(config_corpus_load_test PRIVATE edge_gateway)
 add_executable(collector_clock_and_expiry_test tools/collector_clock_and_expiry_test.cpp)
 target_link_libraries(collector_clock_and_expiry_test PRIVATE edge_gateway)
 
+# driver-review: iec
+add_executable(iec_ft12_link_test tools/iec_ft12_link_test.cpp)
+target_link_libraries(iec_ft12_link_test PRIVATE edge_gateway)
+target_compile_options(iec_ft12_link_test PRIVATE -fdiagnostics-color=never)
+add_executable(iec104_semantics_test tools/iec104_semantics_test.cpp)
+target_link_libraries(iec104_semantics_test PRIVATE edge_gateway)
+target_compile_options(iec104_semantics_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
 target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
@@ -873,6 +884,10 @@ if(BUILD_TESTING)
     add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
     add_test(NAME config_corpus_load COMMAND config_corpus_load_test ${CMAKE_SOURCE_DIR})
     add_test(NAME collector_clock_and_expiry COMMAND collector_clock_and_expiry_test)
+    # driver-review: iec
+    add_test(NAME iec_ft12_link COMMAND iec_ft12_link_test)
+    add_test(NAME iec104_semantics COMMAND iec104_semantics_test)
+    set_tests_properties(iec_ft12_link iec104_semantics PROPERTIES TIMEOUT 60)
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
     add_test(NAME config_loader COMMAND config_loader_test)

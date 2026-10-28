@@ -2,83 +2,57 @@
 
 #include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cmath>
-#include <ctime>
-#include <cstring>
 #include <iomanip>
-#include <limits>
 #include <sstream>
 #include <stdexcept>
 
+#include "iec_codec_detail.hpp"
+
 namespace edge_gateway {
+
+using iec_detail::appendCp56Time2a;
+using iec_detail::appendLe;
+using iec_detail::applyQualityDescriptor;
+using iec_detail::decodeCp24Time2a;
+using iec_detail::decodeCp56Time2a;
+using iec_detail::markBad;
+using iec_detail::qualityFlagNames;
+using iec_detail::readFloatLe;
+using iec_detail::readInt16Le;
+using iec_detail::readInt32Le;
+using iec_detail::readLe;
+using iec_detail::readUnsignedLe;
 
 namespace {
 
-int readLe(const std::vector<std::uint8_t>& bytes, std::size_t offset, int width) {
-    if (width < 0 || width > 4 || offset + static_cast<std::size_t>(width) > bytes.size()) {
-        throw std::runtime_error("iec field out of range");
-    }
-    int value = 0;
-    for (int i = 0; i < width; ++i) {
-        value |= static_cast<int>(bytes[offset + static_cast<std::size_t>(i)]) << (8 * i);
-    }
-    return value;
-}
-
-void appendLe(std::vector<std::uint8_t>& bytes, int value, int width) {
-    for (int i = 0; i < width; ++i) {
-        bytes.push_back(static_cast<std::uint8_t>((value >> (8 * i)) & 0xFF));
-    }
-}
-
-std::int16_t readInt16Le(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
-    const auto raw = static_cast<std::uint16_t>(readLe(bytes, offset, 2));
-    std::int16_t value = 0;
-    std::memcpy(&value, &raw, sizeof(value));
-    return value;
-}
-
-std::int32_t readInt32Le(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
-    const auto raw = static_cast<std::uint32_t>(readLe(bytes, offset, 4));
-    std::int32_t value = 0;
-    std::memcpy(&value, &raw, sizeof(value));
-    return value;
-}
-
-float readFloatLe(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
-    const auto raw = static_cast<std::uint32_t>(readLe(bytes, offset, 4));
-    float value = 0.0F;
-    std::memcpy(&value, &raw, sizeof(value));
-    return value;
-}
-
+// Information element size (without IOA) of each supported ASDU type.
 std::size_t typePayloadSize(int typeId) {
     switch (typeId) {
-        case 1: return 1;   // M_SP_NA_1
-        case 2: return 4;   // M_SP_TA_1
-        case 3: return 1;   // M_DP_NA_1
+        case 1: return 1;   // M_SP_NA_1: SIQ
+        case 2: return 4;   // M_SP_TA_1: SIQ + CP24Time2a
+        case 3: return 1;   // M_DP_NA_1: DIQ
         case 4: return 4;   // M_DP_TA_1
         case 5: return 2;   // M_ST_NA_1: VTI + QDS
-        case 6: return 5;   // M_ST_TA_1: VTI + QDS + CP24Time2a
-        case 7: return 5;   // M_BO_NA_1
+        case 6: return 5;   // M_ST_TA_1
+        case 7: return 5;   // M_BO_NA_1: BSI + QDS
         case 8: return 8;   // M_BO_TA_1
-        case 9: return 3;   // M_ME_NA_1
+        case 9: return 3;   // M_ME_NA_1: NVA + QDS
         case 10: return 6;  // M_ME_TA_1
-        case 11: return 3;  // M_ME_NB_1
+        case 11: return 3;  // M_ME_NB_1: SVA + QDS
         case 12: return 6;  // M_ME_TB_1
-        case 13: return 5;  // M_ME_NC_1
+        case 13: return 5;  // M_ME_NC_1: IEEE STD 754 + QDS
         case 14: return 8;  // M_ME_TC_1
-        case 15: return 5;  // M_IT_NA_1
+        case 15: return 5;  // M_IT_NA_1: BCR
         case 16: return 8;  // M_IT_TA_1
-        case 17: return 6;  // M_EP_TA_1
-        case 18: return 7;  // M_EP_TB_1
-        case 19: return 7;  // M_EP_TC_1
-        case 20: return 1;  // M_PS_NA_1
-        case 21: return 2;  // M_ME_ND_1
+        case 17: return 6;  // M_EP_TA_1: SEP + CP16Time2a + CP24Time2a
+        case 18: return 7;  // M_EP_TB_1: SPE + QDP + CP16Time2a + CP24Time2a
+        case 19: return 7;  // M_EP_TC_1: OCI + QDP + CP16Time2a + CP24Time2a
+        case 20: return 5;  // M_PS_NA_1: SCD + QDS
+        case 21: return 2;  // M_ME_ND_1: NVA
         case 30: return 8;  // M_SP_TB_1
         case 31: return 8;  // M_DP_TB_1
-        case 32: return 9;  // M_ST_TB_1: VTI + QDS + CP56Time2a
+        case 32: return 9;  // M_ST_TB_1
         case 33: return 12; // M_BO_TB_1
         case 34: return 10; // M_ME_TD_1
         case 35: return 10; // M_ME_TE_1
@@ -87,37 +61,44 @@ std::size_t typePayloadSize(int typeId) {
         case 38: return 10; // M_EP_TD_1
         case 39: return 11; // M_EP_TE_1
         case 40: return 11; // M_EP_TF_1
-        case 45: return 1;  // C_SC_NA_1
-        case 46: return 1;  // C_DC_NA_1
-        case 48: return 3;  // C_SE_NA_1
-        case 49: return 3;  // C_SE_NB_1
-        case 50: return 5;  // C_SE_NC_1
-        case 110: return 0; // P_ME_NA_1
-        case 111: return 0; // P_ME_NB_1
-        case 112: return 0; // P_ME_NC_1
-        case 113: return 0; // P_AC_NA_1
-        case 120: return 0; // F_FR_NA_1
-        case 121: return 0; // F_SR_NA_1
-        case 122: return 0; // F_SC_NA_1
-        case 123: return 0; // F_LS_NA_1
-        case 124: return 0; // F_AF_NA_1
-        case 125: return 0; // F_SG_NA_1
-        case 126: return 0; // F_DR_TA_1
+        case 45: return 1;  // C_SC_NA_1: SCO
+        case 46: return 1;  // C_DC_NA_1: DCO
+        case 47: return 1;  // C_RC_NA_1: RCO
+        case 48: return 3;  // C_SE_NA_1: NVA + QOS
+        case 49: return 3;  // C_SE_NB_1: SVA + QOS
+        case 50: return 5;  // C_SE_NC_1: IEEE STD 754 + QOS
+        case 51: return 4;  // C_BO_NA_1: BSI
+        case 58: return 8;  // C_SC_TA_1
+        case 59: return 8;  // C_DC_TA_1
+        case 60: return 8;  // C_RC_TA_1
+        case 61: return 10; // C_SE_TA_1
+        case 62: return 10; // C_SE_TB_1
+        case 63: return 12; // C_SE_TC_1
+        case 64: return 11; // C_BO_TA_1
         default:
             return 0;
     }
 }
 
-void appendCot(std::vector<std::uint8_t>& bytes, int cause, const IecProtocolConfig& config) {
-    if (config.cotSize <= 1) {
-        appendLe(bytes, cause & 0x3F, 1);
-        return;
+int timeTagSize(int typeId) {
+    if ((typeId >= 30 && typeId <= 40) || (typeId >= 58 && typeId <= 64)) {
+        return 7;
     }
-    appendLe(bytes, (cause & 0x3F) | ((config.originatorAddress & 0xFF) << 8), config.cotSize);
+    if ((typeId >= 2 && typeId <= 16 && (typeId % 2) == 0) || (typeId >= 17 && typeId <= 19)) {
+        return 3;
+    }
+    return 0;
 }
 
-bool hasCp56Time(int typeId) {
-    return typeId >= 30 && typeId <= 40;
+// Command types with a CP56Time2a time tag map onto their untimed counterparts.
+int untimedCommandType(int typeId) {
+    if (typeId >= 58 && typeId <= 63) {
+        return typeId - 13;
+    }
+    if (typeId == 64) {
+        return 51;
+    }
+    return typeId;
 }
 
 bool isParameterType(int typeId) {
@@ -132,22 +113,25 @@ bool isProtectionType(int typeId) {
     return (typeId >= 17 && typeId <= 19) || (typeId >= 38 && typeId <= 40);
 }
 
-bool hasCp24Time(int typeId) {
-    return (typeId >= 2 && typeId <= 16 && (typeId % 2) == 0);
-}
-
-std::size_t valuePayloadSize(int typeId) {
-    auto size = typePayloadSize(typeId);
-    if (hasCp56Time(typeId)) {
-        size -= 7;
-    } else if (hasCp24Time(typeId)) {
-        size -= 3;
+void appendCot(std::vector<std::uint8_t>& bytes, int cause, const IecProtocolConfig& config) {
+    if (config.cotSize <= 1) {
+        appendLe(bytes, static_cast<std::uint32_t>(cause & 0x3F), 1);
+        return;
     }
-    return size;
+    appendLe(bytes, static_cast<std::uint32_t>((cause & 0x3F) | ((config.originatorAddress & 0xFF) << 8)), config.cotSize);
 }
 
-double normalizeValue(const PointDefinition& point, double raw) {
-    return raw * point.read.scale + point.read.offset;
+void appendAsduHeader(
+    std::vector<std::uint8_t>& asdu,
+    int typeId,
+    int cause,
+    int commonAddress,
+    const IecProtocolConfig& config
+) {
+    asdu.push_back(static_cast<std::uint8_t>(typeId));
+    asdu.push_back(1);
+    appendCot(asdu, cause, config);
+    appendLe(asdu, static_cast<std::uint32_t>(commonAddress), config.caSize);
 }
 
 std::string lowercase(std::string value) {
@@ -157,94 +141,12 @@ std::string lowercase(std::string value) {
     return value;
 }
 
-std::uint8_t ft12Checksum(const std::vector<std::uint8_t>& bytes, std::size_t begin, std::size_t end) {
-    std::uint32_t sum = 0;
-    for (auto i = begin; i < end && i < bytes.size(); ++i) {
-        sum += bytes[i];
-    }
-    return static_cast<std::uint8_t>(sum & 0xFF);
+std::string pointDataType(const PointDefinition& point) {
+    return lowercase(point.read.dataType.empty() ? point.read.iec.valueKind : point.read.dataType);
 }
 
-void appendFt12VariableFrame(std::vector<std::uint8_t>& frame, const std::vector<std::uint8_t>& userData) {
-    if (userData.size() > 255) {
-        throw std::invalid_argument("iec ft1.2 frame too large");
-    }
-    frame.push_back(0x68);
-    frame.push_back(static_cast<std::uint8_t>(userData.size()));
-    frame.push_back(static_cast<std::uint8_t>(userData.size()));
-    frame.push_back(0x68);
-    frame.insert(frame.end(), userData.begin(), userData.end());
-    frame.push_back(ft12Checksum(frame, 4, frame.size()));
-    frame.push_back(0x16);
-}
-
-void appendCp56Time2a(std::vector<std::uint8_t>& bytes, std::int64_t unixTimeMs) {
-    using namespace std::chrono;
-    const auto millis = milliseconds(unixTimeMs);
-    const auto secondsPoint = system_clock::time_point(millis);
-    const std::time_t seconds = system_clock::to_time_t(secondsPoint);
-#ifdef _WIN32
-    std::tm tmValue;
-    localtime_s(&tmValue, &seconds);
-    const std::tm* tm = &tmValue;
-#else
-    std::tm tmValue;
-    localtime_r(&seconds, &tmValue);
-    const std::tm* tm = &tmValue;
-#endif
-    const auto msOfMinute = static_cast<int>((unixTimeMs % 60000 + 60000) % 60000);
-    appendLe(bytes, msOfMinute, 2);
-    bytes.push_back(static_cast<std::uint8_t>(tm->tm_min & 0x3F));
-    bytes.push_back(static_cast<std::uint8_t>(tm->tm_hour & 0x1F));
-    bytes.push_back(static_cast<std::uint8_t>(((tm->tm_wday == 0 ? 7 : tm->tm_wday) << 5) | (tm->tm_mday & 0x1F)));
-    bytes.push_back(static_cast<std::uint8_t>((tm->tm_mon + 1) & 0x0F));
-    bytes.push_back(static_cast<std::uint8_t>((tm->tm_year % 100) & 0x7F));
-}
-
-std::int64_t decodeCp56Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
-    if (offset + 7 > bytes.size()) {
-        throw std::runtime_error("IEC103 CP56Time2a is truncated");
-    }
-    const int msOfMinute = readLe(bytes, offset, 2);
-    std::tm tmValue{};
-    tmValue.tm_sec = msOfMinute / 1000;
-    tmValue.tm_min = bytes[offset + 2] & 0x3F;
-    tmValue.tm_hour = bytes[offset + 3] & 0x1F;
-    tmValue.tm_mday = bytes[offset + 4] & 0x1F;
-    tmValue.tm_mon = (bytes[offset + 5] & 0x0F) - 1;
-    tmValue.tm_year = (bytes[offset + 6] & 0x7F) + 100;
-    tmValue.tm_isdst = -1;
-    const auto seconds = std::mktime(&tmValue);
-    if (seconds < 0) {
-        return 0;
-    }
-    return static_cast<std::int64_t>(seconds) * 1000 + (msOfMinute % 1000);
-}
-
-double decodeGenericValue(
-    const std::vector<std::uint8_t>& bytes,
-    std::size_t offset,
-    int dataType,
-    int dataSize
-) {
-    if (dataSize <= 0 || dataSize > 8 || offset + static_cast<std::size_t>(dataSize) > bytes.size()) {
-        throw std::runtime_error("IEC103 generic value is truncated");
-    }
-    if (dataType == 7 && dataSize == 4) {
-        return static_cast<double>(readFloatLe(bytes, offset));
-    }
-    if (dataType == 3) {
-        if (dataSize == 1) {
-            return static_cast<double>(static_cast<std::int8_t>(bytes[offset]));
-        }
-        if (dataSize == 2) {
-            return static_cast<double>(readInt16Le(bytes, offset));
-        }
-        if (dataSize == 4) {
-            return static_cast<double>(readInt32Le(bytes, offset));
-        }
-    }
-    return static_cast<double>(readLe(bytes, offset, std::min(dataSize, 4)));
+bool isBooleanDataType(const std::string& dataType) {
+    return dataType == "bit" || dataType == "bool" || dataType == "boolean" || dataType == "single_point";
 }
 
 int commandIoaOf(const PointDefinition& point) {
@@ -270,29 +172,11 @@ int commandCommonAddressOf(const IecProtocolConfig& config, const PointDefinitio
     return config.commonAddress;
 }
 
-int commandTypeOf(const PointDefinition& point) {
-    if (point.write.iec.typeId > 0) {
-        return point.write.iec.typeId;
-    }
-    const auto dataType = lowercase(point.write.dataType.empty() ? point.read.dataType : point.write.dataType);
-    if (dataType == "single_command" || dataType == "single_point" || dataType == "bool" || dataType == "bit") {
-        return 45;
-    }
-    if (dataType == "double_command" || dataType == "double_point") {
-        return 46;
-    }
-    if (dataType == "setpoint_normalized") {
-        return 48;
-    }
-    if (dataType == "setpoint_float" || dataType == "float" || dataType == "float32") {
-        return 50;
-    }
-    return 49;
-}
-
-std::uint8_t buildQualifier(const PointDefinition& point, bool select, std::uint8_t lowBits) {
-    std::uint8_t qualifier = static_cast<std::uint8_t>(point.write.iec.qualifier & 0x7CU);
-    qualifier = static_cast<std::uint8_t>(qualifier | lowBits);
+// SCO/DCO/RCO: QU in bits 2..6. QOS: QL in bits 0..6. Bit 7 is S/E in both.
+std::uint8_t commandQualifierByte(const PointDefinition& point, int untimedType, bool select, std::uint8_t lowBits) {
+    const bool setpoint = untimedType >= 48 && untimedType <= 50;
+    const auto mask = static_cast<std::uint8_t>(setpoint ? 0x7FU : 0x7CU);
+    auto qualifier = static_cast<std::uint8_t>((static_cast<unsigned>(point.write.iec.qualifier) & mask) | lowBits);
     if (select) {
         qualifier = static_cast<std::uint8_t>(qualifier | 0x80U);
     }
@@ -304,6 +188,7 @@ std::vector<std::uint8_t> buildIec104IFrame(
     std::uint16_t sendSequence,
     std::uint16_t receiveSequence
 ) {
+    // APDU length octet max 253 = 4 control octets + 249 ASDU octets.
     if (asdu.size() > 249) {
         throw std::invalid_argument("IEC104 ASDU too large");
     }
@@ -320,19 +205,25 @@ std::vector<std::uint8_t> buildIec104IFrame(
     return frame;
 }
 
-void applyQualityBits(IecDataValue& value, std::uint8_t descriptor, bool counterSequence) {
-    // SIQ/DIQ/QDS: IV=0x80, NT=0x40. Binary counter sequence byte: IV=0x80.
-    const bool invalid = (descriptor & 0x80U) != 0;
-    const bool notTopical = !counterSequence && (descriptor & 0x40U) != 0;
-    if (invalid || notTopical) {
-        value.quality = 0;
-        value.qualityMsg = invalid ? "IEC quality descriptor IV (invalid)" : "IEC quality descriptor NT (not topical)";
-    }
+int quantizeNormalized(double rawValue) {
+    int raw = static_cast<int>(std::round(rawValue * 32768.0));
+    return std::max(-32768, std::min(32767, raw));
 }
 
-IecDataValue decodeInformationObject(
+int quantizeScaled(double rawValue) {
+    int raw = static_cast<int>(std::round(rawValue));
+    return std::max(-32768, std::min(32767, raw));
+}
+
+std::uint32_t quantizeBitstring(double value) {
+    if (!(value >= 0.0) || value > 4294967295.0 || std::floor(value) != value) {
+        throw std::invalid_argument("IEC bitstring command value must be an integer 0..4294967295");
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
+IecDataValue baseValue(
     const std::vector<std::uint8_t>& bytes,
-    std::size_t payloadOffset,
     int typeId,
     int cause,
     int commonAddress,
@@ -344,181 +235,174 @@ IecDataValue decodeInformationObject(
     value.typeId = typeId;
     value.cause = cause;
     value.rawHex = IecCodec::toHex(bytes);
+    return value;
+}
+
+void decodeInformationObject(
+    std::vector<IecDataValue>& out,
+    const std::vector<std::uint8_t>& bytes,
+    std::size_t offset,
+    int typeId,
+    int cause,
+    int commonAddress,
+    int ioa,
+    std::int64_t nowMs
+) {
     const auto payloadSize = typePayloadSize(typeId);
-    if (payloadSize == 0 || payloadOffset + payloadSize > bytes.size()) {
+    if (payloadSize == 0 || offset + payloadSize > bytes.size()) {
         throw std::runtime_error("unsupported IEC ASDU typeId: " + std::to_string(typeId));
     }
+    auto value = baseValue(bytes, typeId, cause, commonAddress, ioa);
+    const int tagSize = timeTagSize(typeId);
+    if (tagSize == 7 && !(typeId >= 58 && typeId <= 64)) {
+        value.timestampMs = decodeCp56Time2a(bytes, offset + payloadSize - 7);
+    } else if (tagSize == 3) {
+        value.timestampMs = decodeCp24Time2a(bytes, offset + payloadSize - 3, nowMs);
+    }
 
-    switch (typeId) {
+    switch (untimedCommandType(typeId)) {
         case 1:
         case 2:
         case 30:
-            value.value = (bytes[payloadOffset] & 0x01U) != 0 ? 1.0 : 0.0;
+            value.value = (bytes[offset] & 0x01U) != 0 ? 1.0 : 0.0;
             value.text = value.value > 0.0 ? "on" : "off";
-            applyQualityBits(value, bytes[payloadOffset], false);
+            applyQualityDescriptor(value, bytes[offset], false);
             break;
         case 3:
         case 4:
-        case 31:
-            value.value = static_cast<double>(bytes[payloadOffset] & 0x03U);
-            value.text = std::to_string(static_cast<int>(value.value));
-            applyQualityBits(value, bytes[payloadOffset], false);
+        case 31: {
+            const int dpi = bytes[offset] & 0x03;
+            value.value = static_cast<double>(dpi);
+            value.text = std::to_string(dpi);
+            value.doublePoint = true;
+            applyQualityDescriptor(value, bytes[offset], false);
+            if (dpi == 0 || dpi == 3) {
+                markBad(value, std::string("double point ") + (dpi == 0 ? "intermediate" : "indeterminate") +
+                    " (DPI=" + std::to_string(dpi) + ")");
+            }
             break;
+        }
         case 5:
         case 6:
         case 32: {
-            const auto vti = bytes[payloadOffset];
+            const auto vti = bytes[offset];
             int step = vti & 0x7FU;
             if ((step & 0x40) != 0) step -= 0x80;
             value.value = static_cast<double>(step);
             value.text = std::to_string(value.value);
             value.transient = (vti & 0x80U) != 0;
-            applyQualityBits(value, bytes[payloadOffset + 1], false);
+            applyQualityDescriptor(value, bytes[offset + 1], true);
             break;
         }
         case 7:
         case 8:
         case 33:
-            value.value = static_cast<double>(readInt32Le(bytes, payloadOffset));
-            value.text = std::to_string(value.value);
-            applyQualityBits(value, bytes[payloadOffset + 4], false);
+            // BSI is a 32-bit string, never a signed number.
+            value.value = static_cast<double>(readUnsignedLe(bytes, offset, 4));
+            value.text = std::to_string(readUnsignedLe(bytes, offset, 4));
+            applyQualityDescriptor(value, bytes[offset + 4], true);
             break;
         case 9:
         case 10:
         case 34:
-            value.value = static_cast<double>(readInt16Le(bytes, payloadOffset)) / 32768.0;
+            value.value = static_cast<double>(readInt16Le(bytes, offset)) / 32768.0;
             value.text = std::to_string(value.value);
-            applyQualityBits(value, bytes[payloadOffset + 2], false);
+            applyQualityDescriptor(value, bytes[offset + 2], true);
             break;
         case 11:
         case 12:
         case 35:
-            value.value = static_cast<double>(readInt16Le(bytes, payloadOffset));
+            value.value = static_cast<double>(readInt16Le(bytes, offset));
             value.text = std::to_string(value.value);
-            applyQualityBits(value, bytes[payloadOffset + 2], false);
+            applyQualityDescriptor(value, bytes[offset + 2], true);
             break;
         case 13:
         case 14:
         case 36:
-            value.value = static_cast<double>(readFloatLe(bytes, payloadOffset));
+            value.value = static_cast<double>(readFloatLe(bytes, offset));
             value.text = std::to_string(value.value);
-            applyQualityBits(value, bytes[payloadOffset + 4], false);
+            applyQualityDescriptor(value, bytes[offset + 4], true);
             if (!std::isfinite(value.value)) {
-                value.quality = 0;
-                value.qualityMsg = "IEC short float is not finite";
+                markBad(value, "IEC short float is not finite");
             }
             break;
         case 15:
         case 16:
-        case 37:
-            value.value = static_cast<double>(readInt32Le(bytes, payloadOffset));
-            value.text = std::to_string(value.value);
-            applyQualityBits(value, bytes[payloadOffset + 4], true);
+        case 37: {
+            // BCR: counter reading + sequence octet (SQ 0..4, CY 0x20, CA 0x40, IV 0x80).
+            value.value = static_cast<double>(readInt32Le(bytes, offset));
+            value.text = std::to_string(readInt32Le(bytes, offset));
+            const auto sequence = bytes[offset + 4];
+            if ((sequence & 0x80U) != 0) {
+                markBad(value, "IEC counter IV (invalid)");
+            }
+            if ((sequence & 0x20U) != 0) {
+                markBad(value, "IEC counter CY (carry/overflow in period)");
+            }
             break;
-        case 20:
-            value.value = static_cast<double>(bytes[payloadOffset]);
-            value.text = std::to_string(static_cast<int>(value.value));
-            break;
+        }
+        case 20: {
+            // SCD: ST status bits 0..15, CD change-detection bits 16..31. One value per bit.
+            const auto scd = readUnsignedLe(bytes, offset, 4);
+            const auto qds = bytes[offset + 4];
+            for (int bit = 0; bit < 16; ++bit) {
+                auto element = value;
+                element.elementIndex = bit;
+                element.value = ((scd >> bit) & 0x01U) != 0 ? 1.0 : 0.0;
+                element.text = element.value > 0.0 ? "on" : "off";
+                applyQualityDescriptor(element, qds, true);
+                out.push_back(std::move(element));
+            }
+            return;
+        }
         case 21:
-            value.value = static_cast<double>(readInt16Le(bytes, payloadOffset)) / 32768.0;
+            value.value = static_cast<double>(readInt16Le(bytes, offset)) / 32768.0;
             value.text = std::to_string(value.value);
             break;
         case 45:
-            value.value = (bytes[payloadOffset] & 0x01U) != 0 ? 1.0 : 0.0;
+            value.value = (bytes[offset] & 0x01U) != 0 ? 1.0 : 0.0;
             value.text = value.value > 0.0 ? "on" : "off";
-            value.commandQualifier = bytes[payloadOffset];
+            value.commandQualifier = bytes[offset];
             break;
         case 46:
-            value.value = static_cast<double>(bytes[payloadOffset] & 0x03U);
+        case 47:
+            value.value = static_cast<double>(bytes[offset] & 0x03U);
             value.text = std::to_string(static_cast<int>(value.value));
-            value.commandQualifier = bytes[payloadOffset];
+            value.commandQualifier = bytes[offset];
             break;
         case 48:
-            value.value = static_cast<double>(readInt16Le(bytes, payloadOffset)) / 32768.0;
+            value.value = static_cast<double>(readInt16Le(bytes, offset)) / 32768.0;
             value.text = std::to_string(value.value);
-            value.commandQualifier = bytes[payloadOffset + 2];
+            value.commandQualifier = bytes[offset + 2];
             break;
         case 49:
-            value.value = static_cast<double>(readInt16Le(bytes, payloadOffset));
+            value.value = static_cast<double>(readInt16Le(bytes, offset));
             value.text = std::to_string(value.value);
-            value.commandQualifier = bytes[payloadOffset + 2];
+            value.commandQualifier = bytes[offset + 2];
             break;
         case 50:
-            value.value = static_cast<double>(readFloatLe(bytes, payloadOffset));
+            value.value = static_cast<double>(readFloatLe(bytes, offset));
             value.text = std::to_string(value.value);
-            value.commandQualifier = bytes[payloadOffset + 4];
+            value.commandQualifier = bytes[offset + 4];
+            break;
+        case 51:
+            value.value = static_cast<double>(readUnsignedLe(bytes, offset, 4));
+            value.text = std::to_string(readUnsignedLe(bytes, offset, 4));
             break;
         default:
             throw std::runtime_error("unsupported IEC ASDU typeId: " + std::to_string(typeId));
     }
-    return value;
-}
-
-}  // namespace
-
-Iec103ComtradeAssembler::Iec103ComtradeAssembler(std::size_t maxBytes)
-    : maxBytes_(std::max<std::size_t>(1U, maxBytes)) {
-}
-
-void Iec103ComtradeAssembler::add(const Iec103ComtradeChunk& chunk) {
-    if (chunk.fileType != 0x51 && chunk.fileType != 0x52) {
-        throw std::invalid_argument("IEC103 COMTRADE file type must be 0x51 or 0x52");
-    }
-    if (fileType_ == 0) {
-        fileType_ = chunk.fileType;
-    } else if (fileType_ != chunk.fileType) {
-        throw std::runtime_error("IEC103 COMTRADE file type changed during transfer");
-    }
-    if (chunk.packetNumber < 0) {
-        throw std::runtime_error("IEC103 COMTRADE packet number is negative");
-    }
-    if (chunk.packetNumber < nextPacketNumber_) {
-        const auto index = static_cast<std::size_t>(chunk.packetNumber);
-        if (index >= packets_.size() || packets_[index] != chunk.data) {
-            throw std::runtime_error("IEC103 COMTRADE conflicting duplicate packet");
-        }
-        return;
-    }
-    if (complete_) {
-        throw std::runtime_error("IEC103 COMTRADE packet received after final packet");
-    }
-    if (chunk.packetNumber != nextPacketNumber_) {
-        throw std::runtime_error(
-            "IEC103 COMTRADE packet gap: expected " + std::to_string(nextPacketNumber_) +
-            " but received " + std::to_string(chunk.packetNumber));
-    }
-    if (chunk.data.size() > maxBytes_ - std::min(maxBytes_, bytes_.size())) {
-        throw std::runtime_error("IEC103 COMTRADE file exceeds configured size limit");
-    }
-    packets_.push_back(chunk.data);
-    bytes_.insert(bytes_.end(), chunk.data.begin(), chunk.data.end());
-    ++nextPacketNumber_;
-    complete_ = chunk.lastPacket;
-}
-
-bool Iec103ComtradeAssembler::complete() const {
-    return complete_;
-}
-
-int Iec103ComtradeAssembler::fileType() const {
-    return fileType_;
-}
-
-const std::vector<std::uint8_t>& Iec103ComtradeAssembler::bytes() const {
-    return bytes_;
-}
-
-std::vector<std::uint8_t> IecCodec::buildIec104StartDtAct() {
-    return {0x68, 0x04, 0x07, 0x00, 0x00, 0x00};
+    out.push_back(std::move(value));
 }
 
 IecProtectionEvent decodeProtectionEvent(
     const std::vector<std::uint8_t>& bytes,
-    std::size_t payloadOffset,
+    std::size_t offset,
     int typeId,
     int cause,
     int commonAddress,
-    int ioa
+    int ioa,
+    std::int64_t nowMs
 ) {
     IecProtectionEvent event;
     event.commonAddress = commonAddress;
@@ -526,12 +410,36 @@ IecProtectionEvent decodeProtectionEvent(
     event.typeId = typeId;
     event.cause = cause;
     event.rawHex = IecCodec::toHex(bytes);
-    if (payloadOffset + typePayloadSize(typeId) > bytes.size()) {
+    const auto payloadSize = typePayloadSize(typeId);
+    if (offset + payloadSize > bytes.size()) {
         throw std::runtime_error("IEC protection ASDU too short");
     }
-    event.eventState = bytes[payloadOffset] & 0x03U;
-    event.elapsedTimeMs = readLe(bytes, payloadOffset + 1, 2);
-    event.relayDurationMs = readLe(bytes, payloadOffset + 3, 2);
+    std::uint8_t descriptor = 0;
+    if (typeId == 17 || typeId == 38) {
+        // SEP: ES bits 0..1, EI 0x08, BL, SB, NT, IV; CP16Time2a elapsed time.
+        descriptor = bytes[offset];
+        event.eventState = descriptor & 0x03U;
+        event.elapsedTimeMs = readLe(bytes, offset + 1, 2);
+        if (event.eventState == 0 || event.eventState == 3) {
+            event.quality = 0;
+            event.qualityMsg = "protection event state indeterminate (ES=" + std::to_string(event.eventState) + ")";
+        }
+    } else {
+        // SPE (18/39) or OCI (19/40), then QDP and CP16Time2a relay duration/operating time.
+        event.eventState = bytes[offset] & (typeId == 18 || typeId == 39 ? 0x3FU : 0x0FU);
+        descriptor = bytes[offset + 1];
+        event.relayDurationMs = readLe(bytes, offset + 2, 2);
+    }
+    const auto names = qualityFlagNames(descriptor, false);
+    if (!names.empty()) {
+        event.quality = 0;
+        event.qualityMsg += (event.qualityMsg.empty() ? "" : "; ") + std::string("IEC quality ") + names;
+    }
+    if (typeId >= 38) {
+        event.timestampMs = decodeCp56Time2a(bytes, offset + payloadSize - 7);
+    } else {
+        event.timestampMs = decodeCp24Time2a(bytes, offset + payloadSize - 3, nowMs);
+    }
     return event;
 }
 
@@ -658,6 +566,46 @@ IecFileSegment decodeFileObject(
     }
 }
 
+// Type families: the untimed type a point is configured with also matches the CP24/CP56
+// variants the station uses for spontaneous transmission (and 21 for normalized values).
+int iec104TypeFamily(int typeId) {
+    switch (typeId) {
+        case 1: case 2: case 30: return 1;
+        case 3: case 4: case 31: return 3;
+        case 5: case 6: case 32: return 5;
+        case 7: case 8: case 33: return 7;
+        case 9: case 10: case 21: case 34: return 9;
+        case 11: case 12: case 35: return 11;
+        case 13: case 14: case 36: return 13;
+        case 15: case 16: case 37: return 15;
+        case 17: case 38: return 17;
+        case 18: case 39: return 18;
+        case 19: case 40: return 19;
+        default: return typeId;
+    }
+}
+
+bool typeMatches(int configuredType, const IecDataValue& value) {
+    if (value.functionType >= 0) {
+        // IEC 103: ASDU 1 and 2 both carry the DPI of a FUN/INF; ASDU 44 points accept them too.
+        const bool valueIsMessage = value.typeId == 1 || value.typeId == 2;
+        if (configuredType == 44) {
+            return valueIsMessage || value.typeId == 44;
+        }
+        if (configuredType == 1 || configuredType == 2) {
+            return valueIsMessage;
+        }
+        return configuredType == value.typeId;
+    }
+    return iec104TypeFamily(configuredType) == iec104TypeFamily(value.typeId);
+}
+
+}  // namespace
+
+std::vector<std::uint8_t> IecCodec::buildIec104StartDtAct() {
+    return {0x68, 0x04, 0x07, 0x00, 0x00, 0x00};
+}
+
 std::vector<std::uint8_t> IecCodec::buildIec104StopDtAct() {
     return {0x68, 0x04, 0x13, 0x00, 0x00, 0x00};
 }
@@ -683,15 +631,31 @@ std::vector<std::uint8_t> IecCodec::buildIec104InterrogationCommand(
     std::uint16_t sendSequence,
     std::uint16_t receiveSequence
 ) {
+    return buildIec104IFrame(buildIec101InterrogationAsdu(config), sendSequence, receiveSequence);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec104CounterInterrogationCommand(
+    const IecProtocolConfig& config,
+    std::uint16_t sendSequence,
+    std::uint16_t receiveSequence
+) {
+    return buildIec104IFrame(buildIec101CounterInterrogationAsdu(config), sendSequence, receiveSequence);
+}
+
+std::vector<std::uint8_t> IecCodec::buildIec101InterrogationAsdu(const IecProtocolConfig& config) {
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(100);
-    asdu.push_back(1);
-    appendCot(asdu, config.interrogationCot, config);
-    appendLe(asdu, config.commonAddress, config.caSize);
+    appendAsduHeader(asdu, 100, kIecCauseActivation, config.commonAddress, config);
     appendLe(asdu, 0, config.ioaSize);
     asdu.push_back(static_cast<std::uint8_t>(config.interrogationQualifier));
+    return asdu;
+}
 
-    return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+std::vector<std::uint8_t> IecCodec::buildIec101CounterInterrogationAsdu(const IecProtocolConfig& config) {
+    std::vector<std::uint8_t> asdu;
+    appendAsduHeader(asdu, 101, kIecCauseActivation, config.commonAddress, config);
+    appendLe(asdu, 0, config.ioaSize);
+    asdu.push_back(static_cast<std::uint8_t>(config.counterInterrogationQualifier));
+    return asdu;
 }
 
 std::vector<std::uint8_t> IecCodec::buildIec104ClockSyncCommand(
@@ -701,13 +665,45 @@ std::vector<std::uint8_t> IecCodec::buildIec104ClockSyncCommand(
     std::int64_t unixTimeMs
 ) {
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(103);
-    asdu.push_back(1);
-    appendCot(asdu, 6, config);
-    appendLe(asdu, config.commonAddress, config.caSize);
+    appendAsduHeader(asdu, 103, kIecCauseActivation, config.commonAddress, config);
     appendLe(asdu, 0, config.ioaSize);
     appendCp56Time2a(asdu, unixTimeMs);
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
+}
+
+int IecCodec::commandTypeOf(const PointDefinition& point) {
+    if (point.write.iec.typeId > 0) {
+        return point.write.iec.typeId;
+    }
+    const auto dataType = lowercase(point.write.dataType.empty() ? point.read.dataType : point.write.dataType);
+    if (dataType == "single_command" || dataType == "single_point" || dataType == "bool" || dataType == "bit") {
+        return 45;
+    }
+    if (dataType == "double_command" || dataType == "double_point") {
+        return 46;
+    }
+    if (dataType == "regulating_step_command") {
+        return 47;
+    }
+    if (dataType == "setpoint_normalized") {
+        return 48;
+    }
+    if (dataType == "setpoint_float" || dataType == "float" || dataType == "float32") {
+        return 50;
+    }
+    if (dataType == "bitstring_command" || dataType == "bitstring32") {
+        return 51;
+    }
+    return 49;
+}
+
+bool IecCodec::isCommandType(int typeId) {
+    return (typeId >= 45 && typeId <= 51) || (typeId >= 58 && typeId <= 64);
+}
+
+bool IecCodec::commandSupportsSelect(int typeId) {
+    const int untimed = untimedCommandType(typeId);
+    return untimed >= 45 && untimed <= 50;
 }
 
 std::vector<std::uint8_t> IecCodec::buildIec104ControlCommand(
@@ -717,12 +713,20 @@ std::vector<std::uint8_t> IecCodec::buildIec104ControlCommand(
     std::uint16_t sendSequence,
     std::uint16_t receiveSequence,
     bool select,
-    bool cancel
+    bool cancel,
+    std::int64_t unixTimeMs
 ) {
     if (!point.write.enable) {
         throw std::invalid_argument("IEC point write is disabled");
     }
     const int typeId = commandTypeOf(point);
+    if (!isCommandType(typeId)) {
+        throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
+    }
+    const int untimed = untimedCommandType(typeId);
+    if (select && !commandSupportsSelect(typeId)) {
+        throw std::invalid_argument("IEC104 command type " + std::to_string(typeId) + " has no select/execute");
+    }
     const int ioa = commandIoaOf(point);
     if (ioa < 0) {
         throw std::invalid_argument("IEC write point missing IOA");
@@ -731,50 +735,55 @@ std::vector<std::uint8_t> IecCodec::buildIec104ControlCommand(
     const double rawValue = (requestedValue - point.write.offset) / scale;
 
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(static_cast<std::uint8_t>(typeId));
-    asdu.push_back(1);
-    appendCot(asdu, cancel ? 8 : 6, config);
-    appendLe(asdu, commandCommonAddressOf(config, point), config.caSize);
-    appendLe(asdu, ioa, config.ioaSize);
+    appendAsduHeader(
+        asdu,
+        typeId,
+        cancel ? kIecCauseDeactivation : kIecCauseActivation,
+        commandCommonAddressOf(config, point),
+        config);
+    appendLe(asdu, static_cast<std::uint32_t>(ioa), config.ioaSize);
 
-    switch (typeId) {
+    switch (untimed) {
         case 45: {
             const bool on = std::abs(requestedValue) > 1e-9;
-            asdu.push_back(buildQualifier(point, select, on ? 0x01 : 0x00));
+            asdu.push_back(commandQualifierByte(point, untimed, select, on ? 0x01 : 0x00));
             break;
         }
-        case 46: {
-            int state = static_cast<int>(std::round(requestedValue));
-            if (state < 0 || state > 3) {
-                throw std::invalid_argument("IEC double command value must be 0..3");
+        case 46:
+        case 47: {
+            // DCS / RCS: 1 = OFF/lower, 2 = ON/higher; 0 and 3 are not permitted.
+            const int state = static_cast<int>(std::round(requestedValue));
+            if ((state != 1 && state != 2) || std::abs(requestedValue - state) > 1e-9) {
+                throw std::invalid_argument(std::string("IEC ") +
+                    (untimed == 46 ? "double command DCS" : "regulating step RCS") + " must be 1 or 2");
             }
-            asdu.push_back(buildQualifier(point, select, static_cast<std::uint8_t>(state & 0x03)));
+            asdu.push_back(commandQualifierByte(point, untimed, select, static_cast<std::uint8_t>(state)));
             break;
         }
-        case 48: {
-            int raw = static_cast<int>(std::round(rawValue * 32768.0));
-            raw = std::max(-32768, std::min(32767, raw));
-            appendLe(asdu, raw, 2);
-            asdu.push_back(buildQualifier(point, select, 0));
+        case 48:
+            appendLe(asdu, static_cast<std::uint32_t>(static_cast<std::uint16_t>(quantizeNormalized(rawValue))), 2);
+            asdu.push_back(commandQualifierByte(point, untimed, select, 0));
             break;
-        }
-        case 49: {
-            int raw = static_cast<int>(std::round(rawValue));
-            raw = std::max(-32768, std::min(32767, raw));
-            appendLe(asdu, raw, 2);
-            asdu.push_back(buildQualifier(point, select, 0));
+        case 49:
+            appendLe(asdu, static_cast<std::uint32_t>(static_cast<std::uint16_t>(quantizeScaled(rawValue))), 2);
+            asdu.push_back(commandQualifierByte(point, untimed, select, 0));
             break;
-        }
         case 50: {
             const auto rawFloat = static_cast<float>(rawValue);
             std::uint32_t raw = 0;
             std::memcpy(&raw, &rawFloat, sizeof(rawFloat));
-            appendLe(asdu, static_cast<int>(raw), 4);
-            asdu.push_back(buildQualifier(point, select, 0));
+            appendLe(asdu, raw, 4);
+            asdu.push_back(commandQualifierByte(point, untimed, select, 0));
             break;
         }
+        case 51:
+            appendLe(asdu, quantizeBitstring(requestedValue), 4);
+            break;
         default:
             throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
+    }
+    if (typeId != untimed) {
+        appendCp56Time2a(asdu, unixTimeMs > 0 ? unixTimeMs : iec_detail::systemNowMs());
     }
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
 }
@@ -783,23 +792,20 @@ double IecCodec::expectedControlEchoValue(const PointDefinition& point, double r
     const int typeId = commandTypeOf(point);
     const double scale = std::abs(point.write.scale) > 1e-12 ? point.write.scale : 1.0;
     const double rawValue = (requestedValue - point.write.offset) / scale;
-    switch (typeId) {
+    switch (untimedCommandType(typeId)) {
         case 45:
             return std::abs(requestedValue) > 1e-9 ? 1.0 : 0.0;
         case 46:
+        case 47:
             return static_cast<double>(static_cast<int>(std::round(requestedValue)) & 0x03);
-        case 48: {
-            int raw = static_cast<int>(std::round(rawValue * 32768.0));
-            raw = std::max(-32768, std::min(32767, raw));
-            return static_cast<double>(raw) / 32768.0;
-        }
-        case 49: {
-            int raw = static_cast<int>(std::round(rawValue));
-            raw = std::max(-32768, std::min(32767, raw));
-            return static_cast<double>(raw);
-        }
+        case 48:
+            return static_cast<double>(quantizeNormalized(rawValue)) / 32768.0;
+        case 49:
+            return static_cast<double>(quantizeScaled(rawValue));
         case 50:
             return static_cast<double>(static_cast<float>(rawValue));
+        case 51:
+            return static_cast<double>(quantizeBitstring(requestedValue));
         default:
             throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
     }
@@ -819,31 +825,22 @@ std::vector<std::uint8_t> IecCodec::buildIec104ParameterCommand(
         throw std::invalid_argument("IEC104 parameter typeId must be 110, 111 or 112");
     }
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(static_cast<std::uint8_t>(typeId));
-    asdu.push_back(1);
-    appendCot(asdu, cause, config);
-    appendLe(asdu, config.commonAddress, config.caSize);
-    appendLe(asdu, ioa, config.ioaSize);
+    appendAsduHeader(asdu, typeId, cause, config.commonAddress, config);
+    appendLe(asdu, static_cast<std::uint32_t>(ioa), config.ioaSize);
     switch (typeId) {
-        case 110: {
-            int raw = static_cast<int>(std::round(value * 32768.0));
-            raw = std::max(-32768, std::min(32767, raw));
-            appendLe(asdu, raw, 2);
+        case 110:
+            appendLe(asdu, static_cast<std::uint32_t>(static_cast<std::uint16_t>(quantizeNormalized(value))), 2);
             asdu.push_back(qualifier);
             break;
-        }
-        case 111: {
-            int raw = static_cast<int>(std::round(value));
-            raw = std::max(-32768, std::min(32767, raw));
-            appendLe(asdu, raw, 2);
+        case 111:
+            appendLe(asdu, static_cast<std::uint32_t>(static_cast<std::uint16_t>(quantizeScaled(value))), 2);
             asdu.push_back(qualifier);
             break;
-        }
         case 112: {
             const auto rawFloat = static_cast<float>(value);
             std::uint32_t raw = 0;
             std::memcpy(&raw, &rawFloat, sizeof(rawFloat));
-            appendLe(asdu, static_cast<int>(raw), 4);
+            appendLe(asdu, raw, 4);
             asdu.push_back(qualifier);
             break;
         }
@@ -861,11 +858,8 @@ std::vector<std::uint8_t> IecCodec::buildIec104ParameterActivationCommand(
     std::uint16_t receiveSequence
 ) {
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(113);
-    asdu.push_back(1);
-    appendCot(asdu, 6, config);
-    appendLe(asdu, config.commonAddress, config.caSize);
-    appendLe(asdu, ioa, config.ioaSize);
+    appendAsduHeader(asdu, 113, kIecCauseActivation, config.commonAddress, config);
+    appendLe(asdu, static_cast<std::uint32_t>(ioa), config.ioaSize);
     asdu.push_back(qualifier);
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
 }
@@ -880,12 +874,9 @@ std::vector<std::uint8_t> IecCodec::buildIec104FileCallCommand(
     std::uint16_t receiveSequence
 ) {
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(122);
-    asdu.push_back(1);
-    appendCot(asdu, 13, config);
-    appendLe(asdu, config.commonAddress, config.caSize);
-    appendLe(asdu, ioa, config.ioaSize);
-    appendLe(asdu, nameOfFile, 2);
+    appendAsduHeader(asdu, 122, 13, config.commonAddress, config);
+    appendLe(asdu, static_cast<std::uint32_t>(ioa), config.ioaSize);
+    appendLe(asdu, static_cast<std::uint32_t>(nameOfFile), 2);
     asdu.push_back(static_cast<std::uint8_t>(nameOfSection & 0xFF));
     asdu.push_back(qualifier);
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
@@ -901,19 +892,17 @@ std::vector<std::uint8_t> IecCodec::buildIec104FileAckCommand(
     std::uint16_t receiveSequence
 ) {
     std::vector<std::uint8_t> asdu;
-    asdu.push_back(124);
-    asdu.push_back(1);
-    appendCot(asdu, 13, config);
-    appendLe(asdu, config.commonAddress, config.caSize);
-    appendLe(asdu, ioa, config.ioaSize);
-    appendLe(asdu, nameOfFile, 2);
+    appendAsduHeader(asdu, 124, 13, config.commonAddress, config);
+    appendLe(asdu, static_cast<std::uint32_t>(ioa), config.ioaSize);
+    appendLe(asdu, static_cast<std::uint32_t>(nameOfFile), 2);
     asdu.push_back(static_cast<std::uint8_t>(nameOfSection & 0xFF));
     asdu.push_back(qualifier);
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
 }
 
 bool IecCodec::isIec104Frame(const std::vector<std::uint8_t>& frame) {
-    return frame.size() >= 6 && frame[0] == 0x68 && frame[1] == frame.size() - 2;
+    return frame.size() >= 6 && frame[0] == 0x68 && frame[1] >= 4 && frame[1] <= 253 &&
+        frame[1] == frame.size() - 2;
 }
 
 bool IecCodec::isIec104IFrame(const std::vector<std::uint8_t>& frame) {
@@ -965,247 +954,12 @@ std::vector<std::uint8_t> IecCodec::iec104AsduPayload(const std::vector<std::uin
     return std::vector<std::uint8_t>(frame.begin() + 6, frame.end());
 }
 
-std::vector<std::uint8_t> IecCodec::buildIec101InterrogationFrame(const IecProtocolConfig& config) {
-    std::vector<std::uint8_t> userData;
-    userData.push_back(0x73);
-    appendLe(userData, config.linkAddress, config.linkAddressSize);
-    userData.push_back(100);
-    userData.push_back(1);
-    appendCot(userData, config.interrogationCot, config);
-    appendLe(userData, config.commonAddress, config.caSize);
-    appendLe(userData, 0, config.ioaSize);
-    userData.push_back(static_cast<std::uint8_t>(config.interrogationQualifier));
-
-    std::vector<std::uint8_t> frame;
-    appendFt12VariableFrame(frame, userData);
-    return frame;
-}
-
-std::vector<std::uint8_t> IecCodec::buildIec103GeneralInterrogationFrame(const IecProtocolConfig& config) {
-    std::vector<std::uint8_t> userData;
-    userData.push_back(0x73);
-    appendLe(userData, config.linkAddress, config.linkAddressSize);
-    userData.push_back(7);
-    userData.push_back(0x81);
-    appendLe(userData, config.interrogationCot, 1);
-    appendLe(userData, config.commonAddress, 1);
-    userData.push_back(0xFF);
-    userData.push_back(0x00);
-    userData.push_back(static_cast<std::uint8_t>(config.returnInformationIdentifier & 0xFF));
-
-    std::vector<std::uint8_t> frame;
-    appendFt12VariableFrame(frame, userData);
-    return frame;
-}
-
-std::vector<std::uint8_t> IecCodec::buildFt12FixedFrame(
-    std::uint8_t control,
-    int linkAddress,
-    int linkAddressSize
-) {
-    if (linkAddressSize < 0 || linkAddressSize > 2) {
-        throw std::invalid_argument("IEC FT1.2 link address size must be between 0 and 2");
-    }
-    std::vector<std::uint8_t> frame = {0x10, control};
-    appendLe(frame, linkAddress, linkAddressSize);
-    frame.push_back(ft12Checksum(frame, 1, frame.size()));
-    frame.push_back(0x16);
-    return frame;
-}
-
-bool IecCodec::isFt12FixedFrame(const std::vector<std::uint8_t>& frame, int linkAddressSize) {
-    if (linkAddressSize < 0 || linkAddressSize > 2 ||
-        frame.size() != static_cast<std::size_t>(4 + linkAddressSize) ||
-        frame.front() != 0x10 || frame.back() != 0x16) {
-        return false;
-    }
-    return frame[frame.size() - 2] == ft12Checksum(frame, 1, frame.size() - 2);
-}
-
-std::uint8_t IecCodec::ft12Control(const std::vector<std::uint8_t>& frame) {
-    if (frame.size() < 2) {
-        throw std::runtime_error("IEC FT1.2 frame is too short");
-    }
-    if (frame.front() == 0x10) {
-        return frame[1];
-    }
-    if (frame.front() == 0x68 && frame.size() >= 5) {
-        return frame[4];
-    }
-    throw std::runtime_error("unsupported IEC FT1.2 frame start");
-}
-
-bool IecCodec::ft12AccessDemand(const std::vector<std::uint8_t>& frame) {
-    return (ft12Control(frame) & 0x20U) != 0;
-}
-
-std::vector<std::uint8_t> IecCodec::buildIec103ClassRequestFrame(
-    const IecProtocolConfig& config,
-    int dataClass,
-    bool frameCountBit
-) {
-    if (dataClass != 1 && dataClass != 2) {
-        throw std::invalid_argument("IEC103 data class must be 1 or 2");
-    }
-    const auto function = static_cast<std::uint8_t>(dataClass == 1 ? 10 : 11);
-    const auto control = static_cast<std::uint8_t>(
-        0x40U | 0x10U | (frameCountBit ? 0x20U : 0x00U) | function);
-    return buildFt12FixedFrame(control, config.linkAddress, config.linkAddressSize);
-}
-
-std::vector<std::uint8_t> IecCodec::buildIec103ResetCommunicationFrame(const IecProtocolConfig& config) {
-    return buildFt12FixedFrame(0x40, config.linkAddress, config.linkAddressSize);
-}
-
-std::vector<std::uint8_t> IecCodec::buildIec103RecordingDirectoryFrame(
-    const IecProtocolConfig& config,
-    bool frameCountBit
-) {
-    std::vector<std::uint8_t> userData;
-    userData.push_back(static_cast<std::uint8_t>(0x53U | (frameCountBit ? 0x20U : 0x00U)));
-    appendLe(userData, config.linkAddress, config.linkAddressSize);
-    userData.insert(userData.end(), {
-        0x18, 0x81, 0x1F,
-        static_cast<std::uint8_t>(config.commonAddress & 0xFF),
-        0xFF, 0x00, 0x18, 0x01, 0x00, 0x00, 0x00
-    });
-    std::vector<std::uint8_t> frame;
-    appendFt12VariableFrame(frame, userData);
-    return frame;
-}
-
-std::vector<Iec103DisturbanceRecord> IecCodec::decodeIec103RecordingDirectory(
-    const std::vector<std::uint8_t>& userData,
-    const IecProtocolConfig& config
-) {
-    const auto headerSize = static_cast<std::size_t>(1 + std::max(0, config.linkAddressSize));
-    if (userData.size() < headerSize + 6 || userData[headerSize] != 0x17) {
-        return {};
-    }
-    const int count = static_cast<int>(userData[headerSize + 1] & 0x7FU);
-    const int cause = userData[headerSize + 2] & 0x3F;
-    if (cause != 0x1F) {
-        return {};
-    }
-    std::size_t offset = headerSize + 6;
-    std::vector<Iec103DisturbanceRecord> records;
-    records.reserve(static_cast<std::size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        if (offset + 10 > userData.size()) {
-            throw std::runtime_error("IEC103 ASDU23 directory entry is truncated");
-        }
-        Iec103DisturbanceRecord record;
-        record.fan = readLe(userData, offset, 2);
-        record.state = userData[offset + 2];
-        record.timestampMs = decodeCp56Time2a(userData, offset + 3);
-        record.rawTimeHex = toHex(std::vector<std::uint8_t>(
-            userData.begin() + static_cast<std::ptrdiff_t>(offset + 3),
-            userData.begin() + static_cast<std::ptrdiff_t>(offset + 10)));
-        records.push_back(std::move(record));
-        offset += 10;
-    }
-    return records;
-}
-
-std::vector<std::uint8_t> IecCodec::buildIec103ComtradeFileCallFrame(
-    const IecProtocolConfig& config,
-    int fan,
-    int fileType,
-    bool frameCountBit
-) {
-    if (fan < 0 || fan > 0xFFFF) {
-        throw std::invalid_argument("IEC103 disturbance FAN must be between 0 and 65535");
-    }
-    if (fileType != 0x51 && fileType != 0x52) {
-        throw std::invalid_argument("IEC103 COMTRADE file type must be 0x51 or 0x52");
-    }
-    std::vector<std::uint8_t> userData;
-    userData.push_back(static_cast<std::uint8_t>(0x53U | (frameCountBit ? 0x20U : 0x00U)));
-    appendLe(userData, config.linkAddress, config.linkAddressSize);
-    userData.insert(userData.end(), {
-        0x44, 0x81, 0x00,
-        static_cast<std::uint8_t>(config.commonAddress & 0xFF),
-        0xFF, static_cast<std::uint8_t>(fileType)
-    });
-    appendLe(userData, fan, 2);
-    std::vector<std::uint8_t> frame;
-    appendFt12VariableFrame(frame, userData);
-    return frame;
-}
-
-Iec103ComtradeChunk IecCodec::decodeIec103ComtradeChunk(
-    const std::vector<std::uint8_t>& userData,
-    const IecProtocolConfig& config
-) {
-    const auto headerSize = static_cast<std::size_t>(1 + std::max(0, config.linkAddressSize));
-    if (userData.size() < headerSize + 8 || userData[headerSize] != 0x50) {
-        throw std::runtime_error("IEC103 response is not an ASDU80 COMTRADE packet");
-    }
-    const int cause = userData[headerSize + 2] & 0x3F;
-    if (cause != 0x14) {
-        throw std::runtime_error("IEC103 ASDU80 has unexpected cause " + std::to_string(cause));
-    }
-    const auto sequenceLow = userData[headerSize + 6];
-    const auto sequenceHigh = userData[headerSize + 7];
-    Iec103ComtradeChunk chunk;
-    chunk.fileType = userData[headerSize + 5];
-    chunk.packetNumber = static_cast<int>(sequenceLow) |
-        (static_cast<int>(sequenceHigh & 0x7FU) << 8);
-    chunk.lastPacket = (sequenceHigh & 0x80U) != 0;
-    chunk.data.assign(
-        userData.begin() + static_cast<std::ptrdiff_t>(headerSize + 8),
-        userData.end());
-    if (chunk.data.size() > 240U) {
-        throw std::runtime_error("IEC103 ASDU80 payload exceeds 240 bytes");
-    }
-    chunk.rawHex = toHex(userData);
-    return chunk;
-}
-
-std::vector<std::uint8_t> IecCodec::buildAm5seUdpDiscoveryPacket(
-    std::int64_t unixTimeMs,
-    const std::string& stationName
-) {
-    std::vector<std::uint8_t> packet(41, 0);
-    packet[0] = 0xFF;
-    packet[1] = 0x01;
-    std::vector<std::uint8_t> time;
-    appendCp56Time2a(time, unixTimeMs);
-    std::copy(time.begin(), time.end(), packet.begin() + 2);
-    const auto stationBytes = std::min<std::size_t>(16U, stationName.size());
-    std::copy_n(stationName.begin(), stationBytes, packet.begin() + 9);
-    return packet;
-}
-
-bool IecCodec::isFt12VariableFrame(const std::vector<std::uint8_t>& frame) {
-    if (frame.size() < 6 || frame.front() != 0x68 || frame.back() != 0x16) {
-        return false;
-    }
-    if (frame[1] != frame[2] || frame[3] != 0x68) {
-        return false;
-    }
-    const auto length = static_cast<std::size_t>(frame[1]);
-    if (frame.size() != length + 6) {
-        return false;
-    }
-    return frame[frame.size() - 2] == ft12Checksum(frame, 4, frame.size() - 2);
-}
-
-std::vector<std::uint8_t> IecCodec::ft12UserData(const std::vector<std::uint8_t>& frame, int linkAddressSize) {
-    if (!isFt12VariableFrame(frame)) {
-        throw std::runtime_error("invalid IEC FT1.2 variable frame");
-    }
-    const auto begin = static_cast<std::size_t>(4);
-    const auto end = frame.size() - 2;
-    if (end <= begin + static_cast<std::size_t>(1 + std::max(0, linkAddressSize))) {
-        return {};
-    }
-    return std::vector<std::uint8_t>(frame.begin() + begin, frame.begin() + end);
-}
-
-IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecProtocolConfig& config) {
+IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecProtocolConfig& config, std::int64_t nowMs) {
     if (asdu.size() < static_cast<std::size_t>(2 + config.cotSize + config.caSize)) {
         throw std::runtime_error("IEC ASDU too short");
+    }
+    if (nowMs <= 0) {
+        nowMs = iec_detail::systemNowMs();
     }
     IecAsdu result;
     result.typeId = asdu[0];
@@ -1221,6 +975,14 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     result.commonAddress = readLe(asdu, offset, config.caSize);
     offset += static_cast<std::size_t>(config.caSize);
 
+    if (result.typeId == 100 || result.typeId == 101) {
+        // QOI / QCC of a mirrored system command.
+        const auto qualifierOffset = offset + static_cast<std::size_t>(config.ioaSize);
+        if (qualifierOffset < asdu.size()) {
+            result.commandQualifier = asdu[qualifierOffset];
+        }
+        return result;
+    }
     const auto payloadSize = typePayloadSize(result.typeId);
     const bool stepPosition = result.typeId == 5 || result.typeId == 6 || result.typeId == 32;
     if (isParameterType(result.typeId)) {
@@ -1265,12 +1027,18 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
         }
         return result;
     }
-    if (payloadSize == 0) {
+    if (payloadSize == 0 || count <= 0) {
         return result;
     }
-    if (count <= 0) {
-        return result;
-    }
+    const auto decodeObject = [&](std::size_t objectOffset, int ioa) {
+        if (isProtectionType(result.typeId)) {
+            result.protectionEvents.push_back(decodeProtectionEvent(
+                asdu, objectOffset, result.typeId, result.cause, result.commonAddress, ioa, nowMs));
+        } else {
+            decodeInformationObject(
+                result.values, asdu, objectOffset, result.typeId, result.cause, result.commonAddress, ioa, nowMs);
+        }
+    };
     if (sequential) {
         const int baseIoa = readLe(asdu, offset, config.ioaSize);
         offset += static_cast<std::size_t>(config.ioaSize);
@@ -1279,11 +1047,7 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
                 if (stepPosition) throw std::runtime_error("IEC step-position object is truncated");
                 break;
             }
-            if (isProtectionType(result.typeId)) {
-                result.protectionEvents.push_back(decodeProtectionEvent(asdu, offset, result.typeId, result.cause, result.commonAddress, baseIoa + i));
-            } else {
-                result.values.push_back(decodeInformationObject(asdu, offset, result.typeId, result.cause, result.commonAddress, baseIoa + i));
-            }
+            decodeObject(offset, baseIoa + i);
             offset += payloadSize;
         }
     } else {
@@ -1294,137 +1058,35 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
             }
             const int ioa = readLe(asdu, offset, config.ioaSize);
             offset += static_cast<std::size_t>(config.ioaSize);
-            if (isProtectionType(result.typeId)) {
-                result.protectionEvents.push_back(decodeProtectionEvent(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
-            } else {
-                result.values.push_back(decodeInformationObject(asdu, offset, result.typeId, result.cause, result.commonAddress, ioa));
-            }
+            decodeObject(offset, ioa);
             offset += payloadSize;
         }
     }
-    (void)hasCp56Time;
     for (auto& value : result.values) {
         value.negative = result.negative;
         value.test = result.test;
     }
+    for (auto& event : result.protectionEvents) {
+        event.test = result.test;
+    }
     return result;
 }
 
-std::vector<IecDataValue> IecCodec::decodeIec103Data(
-    const std::vector<std::uint8_t>& userData,
-    const IecProtocolConfig& config
-) {
-    std::vector<IecDataValue> values;
-    const auto headerSize = static_cast<std::size_t>(1 + std::max(0, config.linkAddressSize));
-    if (userData.size() <= headerSize + 4) {
-        return values;
-    }
-    std::size_t offset = headerSize;
-    const int typeId = userData[offset++];
-    const auto vsq = userData[offset++];
-    const int count = std::max(1, static_cast<int>(vsq & 0x7FU));
-    const int cause = userData[offset++];
-    const int commonAddress = userData[offset++];
-
-    if (typeId == 44) {
-        if (offset + 2 > userData.size()) {
-            return values;
-        }
-        const int functionType = userData[offset++];
-        const int baseInformationNumber = userData[offset++];
-        for (int block = 0; block < count; ++block) {
-            if (offset + 5 > userData.size()) {
-                throw std::runtime_error("IEC103 ASDU44 information element is truncated");
-            }
-            const auto states = static_cast<std::uint16_t>(readLe(userData, offset, 2));
-            for (int bit = 0; bit < 16; ++bit) {
-                IecDataValue value;
-                value.typeId = typeId;
-                value.cause = cause;
-                value.commonAddress = commonAddress;
-                value.functionType = functionType;
-                value.informationNumber = baseInformationNumber + block * 16 + bit;
-                value.ioa = value.functionType * 256 + value.informationNumber;
-                value.value = (states & (static_cast<std::uint16_t>(1U) << bit)) != 0 ? 1.0 : 0.0;
-                value.text = value.value > 0.0 ? "1" : "0";
-                value.rawHex = toHex(userData);
-                values.push_back(std::move(value));
-            }
-            offset += 5;
-        }
-        return values;
-    }
-
-    if (typeId == 10) {
-        if (offset + 4 > userData.size()) {
-            return values;
-        }
-        offset += 2;  // Generic classification FUN/INF (normally FE/F1).
-        offset += 1;  // Return information identifier.
-        const int genericCount = static_cast<int>(userData[offset++] & 0x3FU);
-        for (int i = 0; i < genericCount; ++i) {
-            if (offset + 6 > userData.size()) {
-                throw std::runtime_error("IEC103 ASDU10 generic identifier is truncated");
-            }
-            const int group = userData[offset++];
-            const int entry = userData[offset++];
-            offset += 1;  // KOD.
-            const int dataType = userData[offset++];
-            const int dataSize = userData[offset++];
-            const int number = userData[offset++];
-            const auto payloadBytes = static_cast<std::size_t>(dataSize) * static_cast<std::size_t>(number);
-            if (number <= 0 || offset + payloadBytes > userData.size()) {
-                throw std::runtime_error("IEC103 ASDU10 generic value is truncated");
-            }
-            if (group == 0 && entry > 0) {
-                IecDataValue value;
-                value.typeId = typeId;
-                value.cause = cause;
-                value.commonAddress = commonAddress;
-                value.functionType = config.deviceFunctionType;
-                value.informationNumber = 139 + entry;
-                value.ioa = value.functionType * 256 + value.informationNumber;
-                value.value = decodeGenericValue(userData, offset, dataType, dataSize);
-                value.text = std::to_string(value.value);
-                value.rawHex = toHex(userData);
-                values.push_back(std::move(value));
-            }
-            offset += payloadBytes;
-        }
-        return values;
-    }
-
-    if (typeId == 23 || typeId == 50) {
-        return values;
-    }
-
-    for (int i = 0; i < count && offset + 2 <= userData.size(); ++i) {
-        IecDataValue value;
-        value.typeId = typeId;
-        value.cause = cause;
-        value.commonAddress = commonAddress;
-        value.functionType = userData[offset++];
-        value.informationNumber = userData[offset++];
-        value.ioa = value.functionType * 256 + value.informationNumber;
-        if (offset < userData.size()) {
-            if (typeId == 9 && offset + 5 <= userData.size()) {
-                const auto raw = readInt16Le(userData, offset);
-                const auto exponent = static_cast<int>(userData[offset + 2] & 0x7FU);
-                const double divisor = exponent > 0 ? std::pow(10.0, exponent) : 1.0;
-                value.value = static_cast<double>(raw) / divisor;
-                offset += 5;
-            } else if (typeId == 1 || typeId == 2 || typeId == 6) {
-                value.value = static_cast<double>(userData[offset++] & 0x03U);
-            } else if (offset + 2 <= userData.size()) {
-                value.value = static_cast<double>(readInt16Le(userData, offset));
-                offset += 2;
-            }
-        }
-        value.text = std::to_string(value.value);
-        value.rawHex = toHex(userData);
-        values.push_back(value);
-    }
-    return values;
+IecDataValue IecCodec::protectionEventValue(const IecProtectionEvent& event) {
+    IecDataValue value;
+    value.commonAddress = event.commonAddress;
+    value.ioa = event.ioa;
+    value.typeId = event.typeId;
+    value.cause = event.cause;
+    value.value = static_cast<double>(event.eventState);
+    value.text = std::to_string(event.eventState);
+    value.doublePoint = event.typeId == 17 || event.typeId == 38;
+    value.quality = event.quality;
+    value.qualityMsg = event.qualityMsg;
+    value.timestampMs = event.timestampMs;
+    value.test = event.test;
+    value.rawHex = event.rawHex;
+    return value;
 }
 
 bool IecCodec::pointMatches(const PointDefinition& point, const IecDataValue& value) {
@@ -1436,12 +1098,8 @@ bool IecCodec::pointMatches(const PointDefinition& point, const IecDataValue& va
     if (spec.commonAddress > 0 && spec.commonAddress != value.commonAddress) {
         return false;
     }
-    if (spec.typeId > 0 && spec.typeId != value.typeId) {
-        const bool iec103SignalFamily = spec.typeId == 44 &&
-            (value.typeId == 1 || value.typeId == 2 || value.typeId == 44);
-        if (!iec103SignalFamily) {
-            return false;
-        }
+    if (spec.typeId > 0 && !typeMatches(spec.typeId, value)) {
+        return false;
     }
     if (spec.cause > 0 && spec.cause != value.cause) {
         return false;
@@ -1452,18 +1110,39 @@ bool IecCodec::pointMatches(const PointDefinition& point, const IecDataValue& va
     if (spec.informationNumber >= 0 && spec.informationNumber != value.informationNumber) {
         return false;
     }
+    if (spec.elementIndex != value.elementIndex) {
+        return false;
+    }
     return true;
+}
+
+bool IecCodec::holdsPreviousValue(const PointDefinition& point, const IecDataValue& value) {
+    if (!value.doublePoint || !isBooleanDataType(pointDataType(point))) {
+        return false;
+    }
+    const int dpi = static_cast<int>(value.value) & 0x03;
+    return dpi == 0 || dpi == 3;
 }
 
 DecodedValue IecCodec::decodePointValue(const PointDefinition& point, const IecDataValue& value) {
     DecodedValue decoded;
-    const auto dataType = lowercase(point.read.dataType.empty() ? point.read.iec.valueKind : point.read.dataType);
+    const auto dataType = pointDataType(point);
     double raw = value.value;
-    if (dataType == "bit" || dataType == "bool" || dataType == "single_point" || dataType == "double_point") {
+    std::string text = value.text;
+    if (isBooleanDataType(dataType)) {
+        if (value.doublePoint) {
+            // DPI 1 = OFF -> 0, 2 = ON -> 1. DPI 0/3 is held by the collector (holdsPreviousValue).
+            const int dpi = static_cast<int>(value.value) & 0x03;
+            raw = dpi == 2 ? 1.0 : 0.0;
+            text = dpi == 2 ? "on" : dpi == 1 ? "off" : "indeterminate";
+        } else {
+            raw = value.value > 0.0 ? value.value : 0.0;
+        }
+    } else if (dataType == "double_point") {
         raw = value.value > 0.0 ? value.value : 0.0;
     }
-    decoded.value = normalizeValue(point, raw);
-    decoded.text = value.text.empty() ? std::to_string(decoded.value) : value.text;
+    decoded.value = raw * point.read.scale + point.read.offset;
+    decoded.text = text.empty() ? std::to_string(decoded.value) : text;
     decoded.rawHex = value.rawHex;
     return decoded;
 }

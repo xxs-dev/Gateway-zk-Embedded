@@ -1,5 +1,4 @@
 #include "edge_gateway/am5se_iec103_client.hpp"
-#include "edge_gateway/channel_trace.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -10,6 +9,7 @@
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -18,8 +18,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
-#include <fcntl.h>
-#include <netdb.h>
+#include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -39,9 +38,17 @@ using SocketHandle = int;
 constexpr SocketHandle kInvalidSocket = -1;
 #endif
 
-std::int64_t nowMs() {
+constexpr int kClass2DuringTransferMs = 1000;
+constexpr std::size_t kMaxBufferedValues = 4096;
+
+std::int64_t wallClockMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+std::int64_t steadyNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 void closeSocket(SocketHandle socketHandle) {
@@ -82,64 +89,6 @@ bool waitReadable(SocketHandle socketHandle, int timeoutMs) {
     const auto result = select(socketHandle + 1, &set, nullptr, nullptr, &timeout);
 #endif
     return result > 0 && FD_ISSET(socketHandle, &set);
-}
-
-int lastSocketError() {
-#ifdef _WIN32
-    return WSAGetLastError();
-#else
-    return errno;
-#endif
-}
-
-bool connectInProgress(int error) {
-#ifdef _WIN32
-    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS || error == WSAEINVAL;
-#else
-    return error == EINPROGRESS || error == EWOULDBLOCK || error == EAGAIN;
-#endif
-}
-
-bool setSocketBlocking(SocketHandle socketHandle, bool blocking) {
-#ifdef _WIN32
-    u_long mode = blocking ? 0UL : 1UL;
-    return ioctlsocket(socketHandle, FIONBIO, &mode) == 0;
-#else
-    const auto flags = fcntl(socketHandle, F_GETFL, 0);
-    return flags >= 0 && fcntl(
-        socketHandle,
-        F_SETFL,
-        blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK)) == 0;
-#endif
-}
-
-bool waitConnected(SocketHandle socketHandle, int timeoutMs) {
-    fd_set writeSet;
-    FD_ZERO(&writeSet);
-    FD_SET(socketHandle, &writeSet);
-    fd_set errorSet;
-    FD_ZERO(&errorSet);
-    FD_SET(socketHandle, &errorSet);
-    timeval timeout{};
-    timeout.tv_sec = std::max(1, timeoutMs) / 1000;
-    timeout.tv_usec = (std::max(1, timeoutMs) % 1000) * 1000;
-#ifdef _WIN32
-    const auto result = select(0, nullptr, &writeSet, &errorSet, &timeout);
-#else
-    const auto result = select(socketHandle + 1, nullptr, &writeSet, &errorSet, &timeout);
-#endif
-    if (result <= 0) {
-        return false;
-    }
-    int socketError = 0;
-#ifdef _WIN32
-    int length = sizeof(socketError);
-    return getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
-        reinterpret_cast<char*>(&socketError), &length) == 0 && socketError == 0;
-#else
-    socklen_t length = sizeof(socketError);
-    return getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &socketError, &length) == 0 && socketError == 0;
-#endif
 }
 
 sockaddr_in ipv4Address(const std::string& address, int port) {
@@ -231,7 +180,10 @@ void writeBinaryFile(const std::string& path, const std::vector<std::uint8_t>& b
 }  // namespace
 
 Am5seIec103Client::Am5seIec103Client(IecProtocolConfig config, TcpTransportConfig tcp)
-    : config_(std::move(config)), tcp_(std::move(tcp)) {
+    : config_(std::move(config)),
+      tcp_(std::move(tcp)),
+      master_(ft12LinkOptions(Ft12Profile::Iec103, config_)),
+      session_(Ft12Profile::Iec103, config_, master_) {
     if (config_.transportMode != "am5se_passive_tcp" &&
         config_.transportMode != "am5se_active_tcp") {
         throw std::invalid_argument(
@@ -249,62 +201,59 @@ Am5seIec103Client::~Am5seIec103Client() {
 }
 
 std::vector<IecDataValue> Am5seIec103Client::poll() {
-    std::lock_guard<std::mutex> lock(operationMutex_);
-    ensureConnected();
-    if (!generalInterrogationDone_) {
-        auto values = performGeneralInterrogation(config_.pollTimeoutMs);
-        generalInterrogationDone_ = true;
-        return values;
+    // A recording transfer holds the link for its whole duration; it keeps requesting class 1
+    // (and periodically class 2) data and buffers every event for drainBufferedValues().
+    std::unique_lock<std::mutex> lock(operationMutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return {};
     }
+    try {
+        ensureConnected();
+        return session_.poll();
+    } catch (const Ft12TransportError&) {
+        disconnect();
+        throw;
+    }
+}
 
-    auto frames = requestClassData(2, config_.pollTimeoutMs);
-    auto values = decodeDataFrames(frames);
-    bool accessDemand = std::any_of(frames.begin(), frames.end(), [](const auto& frame) {
-        return IecCodec::ft12AccessDemand(frame);
-    });
-    for (int i = 0; accessDemand && i < config_.maxPollFrames; ++i) {
-        frames = requestClassData(1, config_.pollTimeoutMs);
-        const auto more = decodeDataFrames(frames);
-        values.insert(values.end(), more.begin(), more.end());
-        accessDemand = std::any_of(frames.begin(), frames.end(), [](const auto& frame) {
-            return IecCodec::ft12AccessDemand(frame);
-        });
-    }
+std::vector<IecDataValue> Am5seIec103Client::drainBufferedValues() {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    std::vector<IecDataValue> values;
+    values.swap(bufferedValues_);
     return values;
 }
 
 std::vector<Iec103DisturbanceRecord> Am5seIec103Client::listDisturbanceRecords(int timeoutMs) {
     std::lock_guard<std::mutex> lock(operationMutex_);
-    ensureConnected();
-    exchangeWithFrameCount(
-        [this](bool fcb) { return IecCodec::buildIec103RecordingDirectoryFrame(config_, fcb); },
-        timeoutMs,
-        1);
-
-    std::vector<Iec103DisturbanceRecord> result;
-    for (int i = 0; i < config_.maxPollFrames && result.size() < 50U; ++i) {
-        const auto frames = requestClassData(1, timeoutMs);
-        bool accessDemand = false;
-        for (const auto& frame : frames) {
-            accessDemand = accessDemand || IecCodec::ft12AccessDemand(frame);
-            if (!IecCodec::isFt12VariableFrame(frame)) {
-                continue;
+    try {
+        ensureConnected();
+        session_.ensureLink();
+        const auto deadline = steadyNowMs() + std::max(1, timeoutMs);
+        sendRecordingRequest(IecCodec::buildIec103RecordingDirectoryAsdu(config_), "recording directory request");
+        std::vector<Iec103DisturbanceRecord> result;
+        for (int i = 0; i < config_.maxPollFrames && result.size() < 50U && steadyNowMs() < deadline; ++i) {
+            const auto reply = master_.requestClassData(1);
+            if (reply.hasUserData() && reply.asdu[0] == 0x17) {
+                const auto records = IecCodec::decodeIec103RecordingDirectory(reply.asdu);
+                result.insert(result.end(), records.begin(), records.end());
+            } else {
+                keepEvents(reply);
             }
-            const auto userData = IecCodec::ft12UserData(frame, config_.linkAddressSize);
-            const auto records = IecCodec::decodeIec103RecordingDirectory(userData, config_);
-            result.insert(result.end(), records.begin(), records.end());
+            if (!reply.accessDemand) {
+                break;
+            }
         }
-        if (!accessDemand) {
-            break;
-        }
+        std::sort(result.begin(), result.end(), [](const Iec103DisturbanceRecord& left, const Iec103DisturbanceRecord& right) {
+            return left.fan < right.fan;
+        });
+        result.erase(std::unique(result.begin(), result.end(), [](const Iec103DisturbanceRecord& left, const Iec103DisturbanceRecord& right) {
+            return left.fan == right.fan;
+        }), result.end());
+        return result;
+    } catch (const Ft12TransportError&) {
+        disconnect();
+        throw;
     }
-    std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
-        return left.fan < right.fan;
-    });
-    result.erase(std::unique(result.begin(), result.end(), [](const auto& left, const auto& right) {
-        return left.fan == right.fan;
-    }), result.end());
-    return result;
 }
 
 Iec103ComtradeFiles Am5seIec103Client::pullComtradeRecording(
@@ -313,15 +262,24 @@ Iec103ComtradeFiles Am5seIec103Client::pullComtradeRecording(
     int timeoutMs
 ) {
     std::lock_guard<std::mutex> lock(operationMutex_);
-    ensureConnected();
-    if (recordingProgressCallback_) {
-        recordingProgressCallback_("pulling_cfg");
+    std::vector<std::uint8_t> cfg;
+    std::vector<std::uint8_t> dat;
+    try {
+        ensureConnected();
+        session_.ensureLink();
+        const auto deadline = steadyNowMs() + std::max(1, timeoutMs);
+        if (recordingProgressCallback_) {
+            recordingProgressCallback_("pulling_cfg");
+        }
+        cfg = pullComtradeFile(fan, 0x51, deadline);
+        if (recordingProgressCallback_) {
+            recordingProgressCallback_("pulling_dat");
+        }
+        dat = pullComtradeFile(fan, 0x52, deadline);
+    } catch (const Ft12TransportError&) {
+        disconnect();
+        throw;
     }
-    const auto cfg = pullComtradeFile(fan, 0x51, timeoutMs);
-    if (recordingProgressCallback_) {
-        recordingProgressCallback_("pulling_dat");
-    }
-    const auto dat = pullComtradeFile(fan, 0x52, timeoutMs);
 
     const auto directory = outputDirectory.empty() ? config_.recordingDirectory : outputDirectory;
     ensureDirectory(directory);
@@ -329,7 +287,7 @@ Iec103ComtradeFiles Am5seIec103Client::pullComtradeRecording(
     baseName << "FAN" << std::setw(5) << std::setfill('0') << fan;
     const auto cfgPath = joinPath(directory, baseName.str() + ".CFG");
     const auto datPath = joinPath(directory, baseName.str() + ".DAT");
-    const auto token = std::to_string(nowMs());
+    const auto token = std::to_string(wallClockMs());
     const auto cfgTemp = joinPath(directory, baseName.str() + ".CFG." + token + ".tmp");
     const auto datTemp = joinPath(directory, baseName.str() + ".DAT." + token + ".tmp");
 
@@ -367,78 +325,17 @@ void Am5seIec103Client::setRecordingProgressCallback(
 }
 
 void Am5seIec103Client::ensureConnected() {
-    if (socket_ == static_cast<std::intptr_t>(kInvalidSocket)) {
-        if (config_.transportMode == "am5se_active_tcp") {
-            connectToDeviceServer();
-        } else {
-            sendDiscoveryIfDue();
-            acceptReverseConnection();
-        }
+    if (transport_) {
+        return;
     }
-    if (!linkInitialized_) {
-        initializeLink();
+    if (config_.transportMode == "am5se_active_tcp") {
+        ensureSocketRuntime();
+        transport_ = SocketFt12Transport::connect(tcp_.host, tcp_.port, tcp_.connectTimeoutMs);
+    } else {
+        sendDiscoveryIfDue();
+        acceptReverseConnection();
     }
-}
-
-void Am5seIec103Client::connectToDeviceServer() {
-    ensureSocketRuntime();
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    addrinfo* addresses = nullptr;
-    const auto port = std::to_string(tcp_.port);
-    if (getaddrinfo(tcp_.host.c_str(), port.c_str(), &hints, &addresses) != 0) {
-        throw std::runtime_error("AM5SE IEC103 cannot resolve device server: " + tcp_.host);
-    }
-
-    SocketHandle connected = kInvalidSocket;
-    for (auto* address = addresses; address != nullptr; address = address->ai_next) {
-        connected = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-        if (connected == kInvalidSocket) {
-            continue;
-        }
-        if (!setSocketBlocking(connected, false)) {
-            closeSocket(connected);
-            connected = kInvalidSocket;
-            continue;
-        }
-        const auto result = connect(
-            connected,
-            address->ai_addr,
-            static_cast<int>(address->ai_addrlen));
-        if (result != 0 &&
-            (!connectInProgress(lastSocketError()) ||
-             !waitConnected(connected, tcp_.connectTimeoutMs))) {
-            closeSocket(connected);
-            connected = kInvalidSocket;
-            continue;
-        }
-        if (!setSocketBlocking(connected, true)) {
-            closeSocket(connected);
-            connected = kInvalidSocket;
-            continue;
-        }
-        break;
-    }
-    freeaddrinfo(addresses);
-    if (connected == kInvalidSocket) {
-        throw std::runtime_error(
-            "AM5SE IEC103 cannot connect to device server " + tcp_.host + ":" + port);
-    }
-
-    int keepAlive = 1;
-#ifdef _WIN32
-    setsockopt(connected, SOL_SOCKET, SO_KEEPALIVE,
-        reinterpret_cast<const char*>(&keepAlive), sizeof(keepAlive));
-#else
-    setsockopt(connected, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
-#endif
-    socket_ = static_cast<std::intptr_t>(connected);
-    rxBuffer_.clear();
-    linkInitialized_ = false;
-    generalInterrogationDone_ = false;
-    frameCountBit_ = false;
+    master_.attach(transport_.get());
 }
 
 void Am5seIec103Client::ensureListener() {
@@ -502,11 +399,7 @@ void Am5seIec103Client::acceptReverseConnection() {
 #else
         setsockopt(accepted, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
 #endif
-        socket_ = static_cast<std::intptr_t>(accepted);
-        rxBuffer_.clear();
-        linkInitialized_ = false;
-        generalInterrogationDone_ = false;
-        frameCountBit_ = false;
+        transport_.reset(new SocketFt12Transport(static_cast<std::intptr_t>(accepted)));
         return;
     }
     throw std::runtime_error(
@@ -514,26 +407,10 @@ void Am5seIec103Client::acceptReverseConnection() {
         std::to_string(config_.listenPort));
 }
 
-void Am5seIec103Client::initializeLink() {
-    const auto frames = exchange(
-        IecCodec::buildIec103ResetCommunicationFrame(config_),
-        config_.pollTimeoutMs,
-        1);
-    const auto acknowledged = std::any_of(frames.begin(), frames.end(), [&](const auto& frame) {
-        return IecCodec::isFt12FixedFrame(frame, config_.linkAddressSize) &&
-            (IecCodec::ft12Control(frame) & 0x0FU) == 0;
-    });
-    if (!acknowledged) {
-        throw std::runtime_error("AM5SE IEC103 reset communication was not acknowledged");
-    }
-    linkInitialized_ = true;
-    frameCountBit_ = false;
-}
-
 void Am5seIec103Client::sendDiscoveryIfDue(bool force) {
-    const auto timestamp = nowMs();
+    const auto now = steadyNowMs();
     const auto intervalMs = static_cast<std::int64_t>(config_.udpBroadcastIntervalSec) * 1000;
-    if (!force && lastDiscoveryMs_ > 0 && timestamp - lastDiscoveryMs_ < intervalMs) {
+    if (!force && lastDiscoveryMs_ > 0 && now - lastDiscoveryMs_ < intervalMs) {
         return;
     }
     ensureListener();
@@ -555,7 +432,8 @@ void Am5seIec103Client::sendDiscoveryIfDue(bool force) {
             }
         }
         const auto destination = ipv4Address(config_.udpBroadcastAddress, config_.udpPort);
-        const auto packet = IecCodec::buildAm5seUdpDiscoveryPacket(timestamp, config_.stationName);
+        // The broadcast doubles as the station clock source: it carries wall-clock time.
+        const auto packet = IecCodec::buildAm5seUdpDiscoveryPacket(wallClockMs(), config_.stationName);
 #ifdef _WIN32
         const auto sent = sendto(
             udp,
@@ -581,214 +459,59 @@ void Am5seIec103Client::sendDiscoveryIfDue(bool force) {
         throw;
     }
     closeSocket(udp);
-    lastDiscoveryMs_ = timestamp;
+    lastDiscoveryMs_ = now;
 }
 
-void Am5seIec103Client::sendAll(const std::vector<std::uint8_t>& bytes) {
-    std::size_t sent = 0;
-    while (sent < bytes.size()) {
-#ifdef _WIN32
-        const auto result = send(
-            static_cast<SocketHandle>(socket_),
-            reinterpret_cast<const char*>(bytes.data() + sent),
-            static_cast<int>(bytes.size() - sent),
-            0);
-#else
-        const auto result = send(
-            static_cast<SocketHandle>(socket_),
-            bytes.data() + sent,
-            bytes.size() - sent,
-#ifdef MSG_NOSIGNAL
-            MSG_NOSIGNAL);
-#else
-            0);
-#endif
-#endif
-        if (result <= 0) {
-            disconnect();
-            throw std::runtime_error("AM5SE IEC103 TCP send failed");
-        }
-        traceBytes(true, bytes.data() + sent, static_cast<std::size_t>(result));
-        sent += static_cast<std::size_t>(result);
+void Am5seIec103Client::sendRecordingRequest(const std::vector<std::uint8_t>& asdu, const char* what) {
+    const auto reply = master_.sendConfirm(asdu);
+    if (reply.nack()) {
+        throw std::runtime_error(std::string("AM5SE IEC103 ") + what + " not accepted (NACK)");
     }
 }
 
-std::vector<std::vector<std::uint8_t>> Am5seIec103Client::readFrames(int timeoutMs, int maxFrames) {
-    std::vector<std::vector<std::uint8_t>> frames;
-    const auto deadline = std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(std::max(1, timeoutMs));
-    while (std::chrono::steady_clock::now() < deadline &&
-        static_cast<int>(frames.size()) < std::max(1, maxFrames)) {
-        const auto remaining = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - std::chrono::steady_clock::now()).count());
-        const int waitMs = frames.empty()
-            ? std::max(1, remaining)
-            : std::min(std::max(1, config_.idleReadTimeoutMs), std::max(1, remaining));
-        if (!waitReadable(static_cast<SocketHandle>(socket_), waitMs)) {
-            if (!frames.empty()) {
-                break;
-            }
-            continue;
-        }
-        std::vector<std::uint8_t> chunk(1024);
-#ifdef _WIN32
-        const auto received = recv(
-            static_cast<SocketHandle>(socket_),
-            reinterpret_cast<char*>(chunk.data()),
-            static_cast<int>(chunk.size()),
-            0);
-#else
-        const auto received = recv(
-            static_cast<SocketHandle>(socket_),
-            chunk.data(),
-            chunk.size(),
-            0);
-#endif
-        if (received <= 0) {
-            disconnect();
-            throw std::runtime_error("AM5SE IEC103 TCP connection closed");
-        }
-        chunk.resize(static_cast<std::size_t>(received));
-        traceBytes(false, chunk.data(), chunk.size());
-        rxBuffer_.insert(rxBuffer_.end(), chunk.begin(), chunk.end());
-
-        while (!rxBuffer_.empty() && static_cast<int>(frames.size()) < maxFrames) {
-            const auto start = std::find_if(rxBuffer_.begin(), rxBuffer_.end(), [](std::uint8_t byte) {
-                return byte == 0x10 || byte == 0x68;
-            });
-            rxBuffer_.erase(rxBuffer_.begin(), start);
-            if (rxBuffer_.empty()) {
-                break;
-            }
-            std::size_t frameSize = 0;
-            if (rxBuffer_.front() == 0x10) {
-                frameSize = static_cast<std::size_t>(4 + config_.linkAddressSize);
-            } else {
-                if (rxBuffer_.size() < 4) {
-                    break;
-                }
-                if (rxBuffer_[1] != rxBuffer_[2] || rxBuffer_[3] != 0x68) {
-                    rxBuffer_.erase(rxBuffer_.begin());
-                    continue;
-                }
-                frameSize = static_cast<std::size_t>(rxBuffer_[1]) + 6U;
-            }
-            if (rxBuffer_.size() < frameSize) {
-                break;
-            }
-            std::vector<std::uint8_t> frame(
-                rxBuffer_.begin(),
-                rxBuffer_.begin() + static_cast<std::ptrdiff_t>(frameSize));
-            rxBuffer_.erase(
-                rxBuffer_.begin(),
-                rxBuffer_.begin() + static_cast<std::ptrdiff_t>(frameSize));
-            const bool valid = frame.front() == 0x10
-                ? IecCodec::isFt12FixedFrame(frame, config_.linkAddressSize)
-                : IecCodec::isFt12VariableFrame(frame);
-            if (valid) {
-                frames.push_back(std::move(frame));
-            }
-        }
+void Am5seIec103Client::keepEvents(const Ft12Reply& reply) {
+    if (!reply.hasUserData()) {
+        return;
     }
-    return frames;
-}
-
-std::vector<std::vector<std::uint8_t>> Am5seIec103Client::exchange(
-    const std::vector<std::uint8_t>& request,
-    int timeoutMs,
-    int maxFrames
-) {
-    sendAll(request);
-    auto frames = readFrames(timeoutMs, maxFrames);
-    if (frames.empty()) {
-        throw std::runtime_error("AM5SE IEC103 response timeout");
-    }
-    return frames;
-}
-
-std::vector<std::vector<std::uint8_t>> Am5seIec103Client::requestClassData(
-    int dataClass,
-    int timeoutMs
-) {
-    return exchangeWithFrameCount(
-        [this, dataClass](bool fcb) { return IecCodec::buildIec103ClassRequestFrame(config_, dataClass, fcb); },
-        timeoutMs,
-        1);
-}
-
-std::vector<IecDataValue> Am5seIec103Client::decodeDataFrames(
-    const std::vector<std::vector<std::uint8_t>>& frames
-) const {
     std::vector<IecDataValue> values;
-    for (const auto& frame : frames) {
-        if (!IecCodec::isFt12VariableFrame(frame)) {
-            continue;
-        }
-        const auto userData = IecCodec::ft12UserData(frame, config_.linkAddressSize);
-        const auto decoded = IecCodec::decodeIec103Data(userData, config_);
-        values.insert(values.end(), decoded.begin(), decoded.end());
+    session_.absorb(reply.asdu, values);
+    if (values.empty()) {
+        return;
     }
-    return values;
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    bufferedValues_.insert(bufferedValues_.end(), values.begin(), values.end());
+    if (bufferedValues_.size() > kMaxBufferedValues) {
+        bufferedValues_.erase(
+            bufferedValues_.begin(),
+            bufferedValues_.begin() + static_cast<std::ptrdiff_t>(bufferedValues_.size() - kMaxBufferedValues));
+    }
 }
 
-std::vector<IecDataValue> Am5seIec103Client::performGeneralInterrogation(int timeoutMs) {
-    exchange(IecCodec::buildIec103GeneralInterrogationFrame(config_), timeoutMs, 1);
-    frameCountBit_ = true;
-    std::vector<IecDataValue> values;
-    for (int i = 0; i < config_.maxPollFrames; ++i) {
-        const auto frames = requestClassData(1, timeoutMs);
-        const auto decoded = decodeDataFrames(frames);
-        values.insert(values.end(), decoded.begin(), decoded.end());
-        bool completed = false;
-        bool accessDemand = false;
-        for (const auto& frame : frames) {
-            accessDemand = accessDemand || IecCodec::ft12AccessDemand(frame);
-            if (!IecCodec::isFt12VariableFrame(frame)) {
-                continue;
-            }
-            const auto data = IecCodec::ft12UserData(frame, config_.linkAddressSize);
-            const auto header = static_cast<std::size_t>(1 + config_.linkAddressSize);
-            completed = completed || (data.size() > header && data[header] == 0x08);
-        }
-        if (completed || !accessDemand) {
-            break;
-        }
+void Am5seIec103Client::pollClass2IfDue(std::int64_t& lastClass2Ms) {
+    const auto now = steadyNowMs();
+    if (now - lastClass2Ms < std::max(kClass2DuringTransferMs, config_.pollTimeoutMs)) {
+        return;
     }
-    return values;
+    lastClass2Ms = now;
+    keepEvents(master_.requestClassData(2));
 }
 
-std::vector<std::uint8_t> Am5seIec103Client::pullComtradeFile(
-    int fan,
-    int fileType,
-    int timeoutMs
-) {
-    const auto deadline = std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(std::max(1, timeoutMs));
-    exchangeWithFrameCount(
-        [this, fan, fileType](bool fcb) {
-            return IecCodec::buildIec103ComtradeFileCallFrame(config_, fan, fileType, fcb);
-        },
-        timeoutMs,
-        1);
+std::vector<std::uint8_t> Am5seIec103Client::pullComtradeFile(int fan, int fileType, std::int64_t deadlineMs) {
+    sendRecordingRequest(IecCodec::buildIec103ComtradeFileCallAsdu(config_, fan, fileType), "COMTRADE file call");
     Iec103ComtradeAssembler assembler(config_.recordingMaxFileBytes);
-    // Packet numbers use 15 bits; unlike a normal poll, a COMTRADE DAT file
-    // can legitimately require far more than maxPollFrames class requests.
-    for (int packet = 0; packet <= 0x7FFF && !assembler.complete(); ++packet) {
-        const auto remainingMs = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - std::chrono::steady_clock::now()).count());
-        if (remainingMs <= 0) {
-            break;
-        }
-        const auto frames = requestClassData(1, remainingMs);
-        for (const auto& frame : frames) {
-            if (!IecCodec::isFt12VariableFrame(frame)) {
-                continue;
-            }
-            const auto userData = IecCodec::ft12UserData(frame, config_.linkAddressSize);
-            const auto header = static_cast<std::size_t>(1 + config_.linkAddressSize);
-            if (userData.size() > header && userData[header] == 0x50) {
-                assembler.add(IecCodec::decodeIec103ComtradeChunk(userData, config_));
-            }
+    std::int64_t lastClass2Ms = steadyNowMs();
+    // The total deadline bounds the transfer: a DAT file can need far more class 1 requests
+    // than maxPollFrames allows for a normal poll.
+    while (!assembler.complete() && steadyNowMs() < deadlineMs) {
+        pollClass2IfDue(lastClass2Ms);
+        const auto reply = master_.requestClassData(1);
+        if (reply.hasUserData() && reply.asdu[0] == 0x50) {
+            assembler.add(IecCodec::decodeIec103ComtradeChunk(reply.asdu));
+        } else if (reply.hasUserData()) {
+            keepEvents(reply);
+        } else if (!reply.accessDemand) {
+            // Station is still preparing the next packet.
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
     if (!assembler.complete()) {
@@ -799,41 +522,9 @@ std::vector<std::uint8_t> Am5seIec103Client::pullComtradeFile(
     return assembler.bytes();
 }
 
-bool Am5seIec103Client::nextFrameCountBit() {
-    frameCountBit_ = !frameCountBit_;
-    return frameCountBit_;
-}
-
-std::vector<std::vector<std::uint8_t>> Am5seIec103Client::exchangeWithFrameCount(
-    const std::function<std::vector<std::uint8_t>(bool)>& build,
-    int timeoutMs,
-    int maxFrames
-) {
-    // IEC 60870-5-2: after a response timeout the primary station repeats the
-    // identical frame (same FCB), so a relay whose answer was lost resends its
-    // buffered response (e.g. a class 1 trip event) instead of discarding it.
-    constexpr int kRetransmissions = 2;
-    const auto request = build(nextFrameCountBit());
-    for (int attempt = 0; attempt <= kRetransmissions; ++attempt) {
-        // Transport errors (send/recv failure) disconnect and propagate; the
-        // FCB state is reset on reconnect, so it is not rolled back here.
-        sendAll(request);
-        auto frames = readFrames(timeoutMs, maxFrames);
-        if (!frames.empty()) {
-            return frames;
-        }
-    }
-    // Repeated timeouts: re-initialise the link (reset also resets the FCB).
-    linkInitialized_ = false;
-    throw std::runtime_error("AM5SE IEC103 response timeout");
-}
-
 void Am5seIec103Client::disconnect() {
-    closeSocket(static_cast<SocketHandle>(socket_));
-    socket_ = static_cast<std::intptr_t>(kInvalidSocket);
-    rxBuffer_.clear();
-    linkInitialized_ = false;
-    generalInterrogationDone_ = false;
+    master_.detach();
+    transport_.reset();
 }
 
 void Am5seIec103Client::closeListener() {
