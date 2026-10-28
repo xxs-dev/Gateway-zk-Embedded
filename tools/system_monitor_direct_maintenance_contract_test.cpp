@@ -41,12 +41,14 @@ void verifyRealtimeCoverage() {
     require(::mkdtemp(directory) != nullptr, "private coverage fixture directory");
     const std::string root(directory), name = root.substr(root.find_last_of('/') + 1);
     const auto app = root + "/app.json", device = root + "/device.json";
+    const auto identity = root + "/device_identity.json";
     const auto cleanup = [&] {
         ::shm_unlink(("/" + name).c_str());
-        std::remove(app.c_str()); std::remove(device.c_str()); ::rmdir(root.c_str());
+        std::remove(app.c_str()); std::remove(device.c_str()); std::remove(identity.c_str()); ::rmdir(root.c_str());
     };
     try {
-        { std::ofstream f(app); f << "{\"mqtt\":{\"clientId\":\"COVERAGE\"},\"deviceConfigFiles\":[\"" << device
+        { std::ofstream f(identity); f << "{\"machineCode\":\"COVERAGE\"}"; require(f.good(), "write coverage identity"); }
+        { std::ofstream f(app); f << "{\"identityConfigFile\":\"" << identity << "\",\"mqtt\":{\"clientId\":\"COVERAGE\"},\"deviceConfigFiles\":[\"" << device
             << "\"],\"mqttDriver\":{\"sharedMemoryName\":\"" << name << "\"}}"; require(f.good(), "write coverage app"); }
         { std::ofstream f(device); f << "{\"machineCode\":\"COVERAGE\",\"protocol\":{\"type\":\"modbus_tcp\"},"
             << "\"memoryStore\":{\"sharedMemoryName\":\"" << name << "\"},\"meters\":["
@@ -61,7 +63,7 @@ void verifyRealtimeCoverage() {
             PointValue p; p.index = i; p.machineCode = "COVERAGE"; p.meterCode = i == 3 ? "B" : "A";
             p.pointCode = "P" + std::to_string(i); p.value = i * 10; p.ts = 1000; p.expireAt = 0; p.quality = 1; store.putLatest(p);
         }
-        SystemMonitorConfig::DirectMaintenanceConfig config; config.appConfigFile = app; config.scadaUpperComputerSafetyEnabled = false;
+        SystemMonitorConfig::DirectMaintenanceConfig config; config.appConfigFile = app; config.identityConfigFile = identity; config.scadaUpperComputerSafetyEnabled = false;
         const auto check = [&](const json::JsonValue& body, int available, int returned) {
             require(body.find("count") && body.find("count")->asNumber() == returned, "count must remain returned size");
             require(body.find("availableCount") && body.find("availableCount")->asNumber() == available, "availableCount must be before truncation and after meter selection");
@@ -72,7 +74,7 @@ void verifyRealtimeCoverage() {
             config.maxRealtimePoints = cap;
             for (const auto& route : {"/api/v1/realtime/points", "/api/v1/telemetry/full"}) {
                 const auto response = system_monitor_direct_maintenance::handleHttpRequest(config, "GET", route, "", "", "", "127.0.0.1");
-                require(startsWith(response, "HTTP/1.1 200"), "coverage endpoint failed");
+                require(startsWith(response, "HTTP/1.1 200"), "coverage endpoint failed: " + response);
                 const auto text = response.substr(response.find("\r\n\r\n") + 4);
                 const auto body = json::JsonParser(text).parse(); check(body, 3, cap == 1 ? 1 : 3);
                 if (const auto* raw = body.find("rawPayload")) check(json::JsonParser(raw->asString()).parse(), 3, cap == 1 ? 1 : 3);
