@@ -570,6 +570,19 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
+    {
+        const auto verifyIndex = requireInt(object, "verifyIndex", 0);
+        if (verifyIndex < 0) {
+            throw std::invalid_argument("write.verifyIndex must be a point index");
+        }
+        spec.verifyIndex = static_cast<std::uint32_t>(verifyIndex);
+    }
+    if (const auto* verifyValue = value->find("verifyValue")) {
+        if (!verifyValue->isNull()) {
+            spec.verifyValue = verifyValue->asNumber();
+        }
+    }
+    spec.verifyTimeoutMs = requireInt(object, "verifyTimeoutMs", spec.verifyTimeoutMs);
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
         spec.dlt645.di = requireString(dlt645Object, "di", spec.dlt645.di);

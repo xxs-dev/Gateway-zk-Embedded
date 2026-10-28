@@ -3,6 +3,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace edge_gateway {
 
@@ -17,6 +18,65 @@ struct GpioUse {
     std::string outputOwner;  // point that drives the pin (write.enable)
     std::string outputReader; // read-only digital_output point
 };
+
+// DO action confirmation (write.verifyIndex): a feedback DI defined in this config must be a DI;
+// one outside it is read from the shared point store and cannot be checked here.
+void validateFeedbackInputs(const DeviceConfig& config) {
+    std::map<std::uint32_t, const PointDefinition*> byIndex;
+    std::vector<const PointDefinition*> points;
+    const auto collect = [&](const std::vector<PointDefinition>& list) {
+        for (const auto& point : list) {
+            if (point.enabled) {
+                byIndex[point.index] = &point;
+                points.push_back(&point);
+            }
+        }
+    };
+    if (config.meters.empty()) {
+        collect(config.points);
+    }
+    for (const auto& meter : config.meters) {
+        if (meter.enabled) {
+            collect(meter.points);
+        }
+    }
+    for (const auto* point : points) {
+        const auto& write = point->write;
+        const auto label = pointLabel(config, *point);
+        if (write.verifyIndex == 0) {
+            if (write.verifyValue) {
+                configWarning("local_dio " + label + ": write.verifyValue has no effect without write.verifyIndex");
+            }
+            continue;
+        }
+        if (!write.enable) {
+            configWarning("local_dio " + label + ": write.verifyIndex has no effect on a point that is not written");
+            continue;
+        }
+        if (write.verifyIndex == point->index) {
+            reject(label, "write.verifyIndex", "must name a feedback DI, not the DO itself");
+        }
+        if (write.verifyValue && *write.verifyValue != 0.0 && *write.verifyValue != 1.0) {
+            reject(label, "write.verifyValue", "must be 0 or 1");
+        }
+        if (write.verifyTimeoutMs <= 0 || write.verifyTimeoutMs > 60000) {
+            reject(label, "write.verifyTimeoutMs", "must be 1..60000");
+        }
+        const auto feedback = byIndex.find(write.verifyIndex);
+        if (feedback == byIndex.end()) {
+            continue;
+        }
+        const auto& input = *feedback->second;
+        if (!input.read.enable || input.read.dataType != "digital_input") {
+            reject(label, "write.verifyIndex", "index " + std::to_string(write.verifyIndex) +
+                   " in this config is not an enabled digital_input");
+        }
+        if (input.read.debounceMs >= write.verifyTimeoutMs) {
+            reject(label, "write.verifyTimeoutMs", "must be longer than the feedback DI's debounceMs (" +
+                   std::to_string(input.read.debounceMs) + ")");
+        }
+    }
+}
 
 }  // namespace
 
@@ -93,6 +153,7 @@ void validateDioDeviceConfig(const DeviceConfig& config) {
             validatePoints(meter.points);
         }
     }
+    validateFeedbackInputs(config);
 }
 
 }  // namespace edge_gateway

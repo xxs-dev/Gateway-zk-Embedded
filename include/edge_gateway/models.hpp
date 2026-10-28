@@ -121,6 +121,11 @@ struct WriteSpec {
     bool verifyAfterWrite = false;
     int verifyDelayMs = 200;
     bool verifyByRead = true;
+    // local_dio DO: action confirmed by a feedback DI (auxiliary contact) at gateway index
+    // verifyIndex, which must read verifyValue (unset: the written value) within verifyTimeoutMs.
+    std::uint32_t verifyIndex = 0;
+    Optional<double> verifyValue;
+    int verifyTimeoutMs = 3000;
     Dlt645WriteSpec dlt645;
     CanSignalSpec can;
     IecPointSpec iec;

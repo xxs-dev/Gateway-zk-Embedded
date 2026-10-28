@@ -4464,7 +4464,7 @@
     {
       "widgetId": "qt_label_16",
       "type": "qtLabel",
-      "title": "\u5F00\u51FA\u4FE1\u53F7",
+      "title": "\u8F93\u51FA\u72B6\u6001",
       "geometry": {
         "x": 1090,
         "y": 260,
@@ -4483,7 +4483,7 @@
         "qtPixmap": "",
         "qtImageFile": "",
         "qtStyleSheet": "border-image: none;\nfont: bold 24pt \u0022\u5FAE\u8F6F\u96C5\u9ED1\u0022;\nbackground-color: transparent;\ncolor: rgb(32, 219, 233);",
-        "qtText": "\u5F00\u51FA\u4FE1\u53F7",
+        "qtText": "\u8F93\u51FA\u72B6\u6001",
         "qtTextColor": "#20dbe9",
         "qtBackgroundColor": "Transparent",
         "qtFontSize": 26.7,

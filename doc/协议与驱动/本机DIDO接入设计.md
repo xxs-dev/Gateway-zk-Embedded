@@ -321,7 +321,10 @@ config/runtime/devices/device_dio.json
 | `read.activeHigh=false` | 因为说明书定义 DO 拉低闭合 |
 | `write.enable=true` | 允许通过 pendingWrites 下发 |
 | `write.startupValue` | 可选，`0` 或 `1`：上电后驱动首次启动时该 DO 的逻辑值；不填为 `0`（非激活）。驱动重启时引脚已是输出，保持原电平 |
-| `write.verifyByRead=true` | 写后读取 GPIO 电平确认状态（读到的是 SoC 输出锁存，不是继电器触点） |
+| `write.verifyByRead=true` | 写后回读“输出状态”：读到的是 SoC 的 GPIO 输出锁存，只能证明输出已置位，不能证明继电器触点动作 |
+| `write.verifyIndex` | 可选：动作确认用的反馈 DI（继电器/接触器辅助触点）的网关 index，见“DO 动作确认” |
+| `write.verifyValue` | 可选，`0`/`1`：反馈 DI 动作后应读到的值；不填等于写入的逻辑值（常开辅助触点） |
+| `write.verifyTimeoutMs` | 等待反馈的时间，默认 `3000`，`1`–`60000`；必须大于反馈 DI 的 `debounceMs` |
 
 #### DO 启动与退出状态
 
@@ -341,6 +344,31 @@ config/runtime/devices/device_dio.json
 - 两个可写 DO 使用同一个 GPIO。
 - `digital_input` 点打开了 `write.enable`；可写点的 `write.dataType` 不是 `digital_output`。
 - 读点缺少 `read.gpio`、`read.dataType` 不是 `digital_input`/`digital_output`、`debounceMs` 为负、`startupValue` 不是 `0`/`1`。
+- `write.verifyIndex` 指向自己；指向本配置内的点但该点不是启用的 `digital_input`；`verifyValue` 不是 `0`/`1`；`verifyTimeoutMs` 不在 `1`–`60000` 或不大于反馈 DI 的 `debounceMs`。指向本配置以外的 index 时只能在运行时从共享点库读取，加载时不检查。
+
+#### 输出状态与动作确认
+
+DO 写入的回执（`CommandResult.message`、写回记录）和画面一律把回读称为“输出状态”：
+
+| 配置 | 成功回执示例 | 含义 |
+| --- | --- | --- |
+| 不回读 | `ok：输出状态已置为 1（未回读），未确认继电器触点动作` | GPIO 已写入 |
+| `verifyAfterWrite` + `verifyByRead` | `ok：输出状态回读=1（GPIO 输出锁存），未确认继电器触点动作` | 输出锁存与写入一致；触点是否动作未知 |
+| `write.verifyIndex` | `ok：输出状态回读=1（GPIO 输出锁存），动作已由反馈 DI(index 998)=1 确认` | 辅助触点证实设备已动作 |
+
+输出状态回读不一致时命令失败：`输出状态回读不一致：写入 1，GPIO 输出锁存回读 0`。
+
+需要实际动作确认时，给 DO 接一路独立的 DI 辅助触点并配置 `write.verifyIndex`。写 GPIO 之后在 `verifyTimeoutMs` 内等反馈：
+
+- 只认写出之后的新值：反馈 DI 属于同一逻辑设备（同一 `meter`）时，执行器直接读该 DI 的 GPIO，按其 `debounceMs` 判稳（与采集线程无关，采集因优先控制暂停时也能确认）；属于其他设备（例如另一台 IO 模块）时从共享点库读取，只认好质量、未过期且时间戳严格晚于写出时刻的值。
+- 期间读到等于期望值的新值：成功，`verifyPassed=true`。
+- 超时时读到过新值但不等于期望值：确定失败，`writeback-failed`，回执 `反馈不一致：输出状态已置为 1，反馈 DI(index 998)=0，期望 1（3000 ms 内）`。
+- 超时内没有任何新值（反馈 DI 读失败、跨设备的采集未更新）：输出已置位但动作未确认，`outcomeUnknown=true`、`writeback-timeout`，回执含“结果未知”；调用方不得换新命令号重试。
+- 无论确认成功与否，输出保持已置位状态，驱动不自动回退。
+- 跨设备反馈依赖对方驱动的采集：优先控制租约期间其他驱动的采集会暂停，此时可能等不到新值而报结果未知；需要可靠确认的 DO 应把辅助触点接到同一 DIO 设备。
+- 等待期间本驱动的写回线程被占用（最长 `verifyTimeoutMs`），同批后续写命令顺延。
+- 平台持久化去重的命令（durableControl）沿用共用去重语义：执行失败的回执一律记为 `writeback-timeout`。
+- 命令之外的持续“输出与反馈不一致”告警暂未实现（待办），可先用事件规则比较 DO 点与反馈 DI 点。
 
 ## 6. 写回设备逻辑
 
@@ -356,8 +384,9 @@ DO 必须支持“写共享内存后实际下发设备”。
   -> 根据 index 找到 DO1
   -> value=1 转换为 GPIO 0
   -> 写 /sys/class/gpio/gpio231/value
-  -> 读回 GPIO 0（输出锁存），转换回点值 1
-  -> 更新 latest
+  -> 读回 GPIO 0（输出状态 = 输出锁存），转换回点值 1
+  -> 更新 latest（DO 点的值就是输出状态）
+  -> 配置了 write.verifyIndex 时等反馈 DI 确认动作
   -> 发布命令执行结果
 ```
 
@@ -366,7 +395,7 @@ DO 必须支持“写共享内存后实际下发设备”。
 - GPIO 不存在：点质量置为 `0`，状态消息上报 `gpio not found`。
 - 没有权限：点质量置为 `0`，状态消息上报 `permission denied`。
 - 写入值不在 `0/1`：拒绝命令，不触碰 GPIO。
-- 写后读回不一致：命令失败，不伪造成功状态。读回只能确认 SoC 输出锁存，确认不了继电器触点是否真的动作；需要触点确认时应接一路 DI 反馈。
+- 写后输出状态回读不一致：命令失败，不伪造成功状态。回读只能确认 SoC 输出锁存（输出状态），确认不了继电器触点是否真的动作；需要触点确认时接一路 DI 辅助触点并配置 `write.verifyIndex`。
 - sysfs 控制文件写入被拒绝：命令失败并带上内核错误原因。
 - pendingWrites 中不是本 DIDO 点：忽略，交给对应驱动消费。
 

@@ -46,7 +46,14 @@ public:
 
 private:
     const PointDefinition& findPointByIndex(std::uint32_t index) const;
-    void dispatchLocalDioWrite(const PointDefinition& point, double value, std::int64_t nowMs) const;
+    // Validates and drives the output; returns the GPIO level written.
+    bool driveOutput(const PointDefinition& point, double value) const;
+    void publishOutputState(const PointDefinition& point, double value, bool gpioHigh, std::int64_t nowMs) const;
+    // Action confirmation by the feedback DI write.verifyIndex: a DI of this device is read from its
+    // GPIO (debounced like the collector, independent of the collection thread); any other point
+    // from the shared point store, counting only values collected after sentAtWallMs.
+    void confirmByFeedback(const PointDefinition& point, double written, std::int64_t sentAtWallMs,
+                           CommandResult& result) const;
 
     DeviceConfig config_;
     MemoryPointStore& store_;
