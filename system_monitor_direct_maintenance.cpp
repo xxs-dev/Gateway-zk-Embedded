@@ -852,7 +852,9 @@ std::string realtimePointsJson(
         : std::min(values.size(), static_cast<std::size_t>(config.maxRealtimePoints));
 
     std::ostringstream out;
-    out << "{\"ts\":" << ts << ",\"count\":" << limit << ",\"points\":[";
+    out << "{\"ts\":" << ts << ",\"count\":" << limit
+        << ",\"availableCount\":" << values.size()
+        << ",\"truncated\":" << (limit < values.size() ? "true" : "false") << ",\"points\":[";
     for (std::size_t i = 0; i < limit; ++i) {
         const auto& item = values[i];
         if (i > 0) {
@@ -907,12 +909,16 @@ std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config
     raw << "{\"type\":\"telemetry/snapshot\",\"machineCode\":\"" << jsonEscape(machineCode)
         << "\",\"ts\":" << ts
         << ",\"count\":" << limit
+        << ",\"availableCount\":" << values.size()
+        << ",\"truncated\":" << (limit < values.size() ? "true" : "false")
         << ",\"points\":" << pointsJson
         << "}";
 
     std::ostringstream out;
     out << "{\"ts\":" << ts
         << ",\"count\":" << limit
+        << ",\"availableCount\":" << values.size()
+        << ",\"truncated\":" << (limit < values.size() ? "true" : "false")
         << ",\"topic\":\"direct:/api/v1/telemetry/full\""
         << ",\"rawPayload\":\"" << jsonEscape(raw.str()) << "\""
         << ",\"points\":" << pointsJson
@@ -2980,6 +2986,7 @@ bool isSensitiveEndpoint(const std::string& method, const std::string& path) {
         "/api/v1/channel-trace/stop",
         "/api/v1/config/snapshot",
         "/api/v1/compute/loaded-graphs",
+        "/api/v1/control/receipts",
         "/api/v1/control/batch",
         "/api/v1/diag/execute",
         "/api/v1/config/apply",
@@ -3100,6 +3107,78 @@ std::string handleRequest(
     }
     if (method == "POST" && path == "/api/v1/control/batch") {
         return batchControlResponse(config, body);
+    }
+    if (method == "POST" && path == "/api/v1/control/receipts") {
+        try {
+            const auto doc = [&]() {
+                try {
+                    if (body.size() > 8192) throw std::invalid_argument("receipt request too large");
+                    return edge_gateway::json::JsonParser(body, 8, 100).parse();
+                } catch (...) { throw std::invalid_argument("invalid receipt query JSON"); }
+            }();
+            const auto text = [&](const char* key) {
+                const auto* v = doc.find(key);
+                if (!v || !v->isString() || v->asString().empty() || v->asString().size() > 128)
+                    throw std::invalid_argument("invalid receipt query identity");
+                return v->asString();
+            };
+            const auto machine = text("machineCode"), requestId = text("requestId"),
+                meter = text("meterCode"), point = text("pointCode");
+            const auto* number = doc.find("index");
+            if (!number || !number->isNumber() || !std::isfinite(number->asNumber()) ||
+                number->asNumber() < 1 || number->asNumber() > 4294967295.0 ||
+                std::floor(number->asNumber()) != number->asNumber())
+                throw std::invalid_argument("invalid receipt query index");
+            const auto index = static_cast<std::uint32_t>(number->asNumber());
+            if (machine != loadIdentity(config.identityConfigFile).machineCode)
+                throw std::invalid_argument("receipt machineCode mismatch");
+            const auto app = edge_gateway::ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
+            edge_gateway::DeviceIdentity identity;
+            if (!app.identityConfigFile.empty()) identity = edge_gateway::ConfigLoader::loadDeviceIdentityFromFile(app.identityConfigFile);
+            const auto devices = edge_gateway::ConfigLoader::loadMany(app.deviceConfigFiles, identity);
+            edge_gateway::Optional<edge_gateway::PointStoreRoute> selected;
+            for (auto device : devices) {
+                // Build routing metadata without attaching stores: no point registration,
+                // virtual parameter restoration, ledger creation or command submission.
+                device.memoryStore.allowDuplicateIndexAcrossSegments = false;
+                edge_gateway::PointStoreRouter metadata;
+                metadata.addRoutesFromDeviceConfigs({device}, app.mqttDriver.sharedMemoryName);
+                const auto route = metadata.routeByIndex(index);
+                if (!route) continue;
+                if (selected) throw std::invalid_argument("ambiguous receipt point index");
+                selected = route;
+            }
+            if (!selected || selected->derived || selected->machineCode != machine ||
+                selected->meterCode != meter || selected->pointCode != point || selected->sharedMemoryName.empty())
+                throw std::invalid_argument("receipt point identity mismatch or unavailable");
+            edge_gateway::MemoryPointStore store(selected->sharedMemoryName, edge_gateway::MemoryStoreOpenMode::OpenExisting);
+            const auto records = store.recentWritebackResults(index, 20);
+            std::ostringstream out;
+            out.imbue(std::locale::classic());
+            out << std::setprecision(std::numeric_limits<double>::max_digits10)
+                << "{\"format\":\"gateway-command-receipts/1\",\"requestId\":\"" << jsonEscape(requestId)
+                << "\",\"machineCode\":\"" << jsonEscape(machine) << "\",\"meterCode\":\"" << jsonEscape(meter)
+                << "\",\"pointCode\":\"" << jsonEscape(point) << "\",\"index\":" << index
+                << ",\"observedAt\":" << nowMs() << ",\"retention\":\"bounded-shared-memory\",\"limit\":20,\"records\":[";
+            bool comma = false;
+            for (const auto& r : records) {
+                if (!std::isfinite(r.value)) throw std::runtime_error("invalid stored receipt value");
+                if (comma) out << ',';
+                comma = true;
+                out << "{\"cmdId\":\"" << jsonEscape(r.cmdId) << "\",\"index\":" << r.index
+                    << ",\"value\":" << r.value << ",\"success\":" << (r.success ? "true" : "false")
+                    << ",\"message\":\"" << jsonEscape(r.message) << '"';
+                appendControlTimingJson(out, r);
+                out << '}';
+            }
+            out << "]}";
+            return response(200, "OK", out.str());
+        } catch (const std::invalid_argument& ex) {
+            return response(400, "Bad Request", "{\"success\":false,\"message\":\"" + jsonEscape(ex.what()) + "\"}");
+        } catch (const std::exception& ex) {
+            std::cerr << "SystemMonitor command receipt observation unavailable: " << ex.what() << std::endl;
+            return response(503, "Service Unavailable", "{\"success\":false,\"message\":\"command receipt observation unavailable\"}");
+        }
     }
     if (method == "GET" && path == "/api/v1/system/status") {
         try {

@@ -1,4 +1,5 @@
 #include "edge_gateway/ota_service.hpp"
+#include "../src/ota_query_sha256.hpp"
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -59,6 +60,8 @@ int main(int argc, char** argv) {
         const auto originalHealth = read(healthPath), originalFinal = read(finalPath);
         const auto handoffPath = config.stagingDir + "/ota_handoff_" + request.jobId + ".json";
         const auto originalHandoff = read(handoffPath);
+        if (originalHandoff.find("\"owner\":") == std::string::npos)
+            throw std::runtime_error("native handoff never reached an independent systemd owner");
         for (const auto& damaged : {originalHandoff.substr(0, originalHandoff.size() - 1),
                                    "{\"runtimeMayChange\":false," + originalHandoff.substr(1)}) {
             std::ofstream(handoffPath) << damaged;
@@ -99,23 +102,29 @@ int main(int argc, char** argv) {
             productionConfig.stagingDir = root + (healthy ? "/promoted-journals" : "/recovered-journals");
             if (mkdir(productionConfig.stagingDir.c_str(), 0700)) throw std::runtime_error("cannot create production fixture");
             const auto staging = productionConfig.stagingDir;
-            const std::string job = "PRODUCTION_FINISHED", tx = "OTA_" + std::string(32, 'a');
+            const std::string job = "PRODUCTION_FINISHED";
+            const std::string tx = "OTA_" + edge_gateway::ota_query_detail::sha256Hex(job + token).substr(0, 32);
             const std::string result = healthy ? "healthy" : "failed", rollback = healthy ? "none" : "succeeded";
             const auto healthBytes = "{\"format\":\"ota-health-v1\",\"jobId\":\"" + job + "\",\"version\":\"1.1\",\"token\":\"" + token +
                 "\",\"status\":\"" + result + "\",\"rollback\":\"" + rollback + "\",\"ts\":\"1000\"}\n";
             std::ofstream(staging + "/ota_job_" + job + ".lock");
             chmod((staging + "/ota_job_" + job + ".lock").c_str(), 0600);
+            struct stat leaseInfo{};
+            if (stat((staging + "/ota_job_" + job + ".lock").c_str(), &leaseInfo))
+                throw std::runtime_error("cannot inspect production fixture lease");
             std::ofstream(staging + "/ota_job_" + job + ".json") <<
                 "{\"format\":\"ota-job-v1\",\"jobId\":\"" << job << "\",\"machineCode\":\"LOCAL_ONLY\",\"version\":\"1.1\","
                 "\"previousVersion\":\"1.0\",\"artifactPath\":\"/fixture.tar.gz\",\"token\":\"" << token << "\","
                 "\"lifecycle\":\"systemd-handoff-v1\",\"artifactSha256\":\"" << std::string(64, 'a') <<
-                "\",\"artifactSize\":\"1\",\"leaseDev\":\"0\",\"leaseInode\":\"1\"}\n";
+                "\",\"artifactSize\":\"1\",\"leaseDev\":\"" << leaseInfo.st_dev <<
+                "\",\"leaseInode\":\"" << leaseInfo.st_ino << "\"}\n";
             std::ofstream(staging + "/ota_active_job.txt") << "jobId=" << job << "\ntoken=" << token << "\n";
             std::ofstream(staging + "/health_" + job + ".txt") << healthBytes;
             const auto record = "{\"format\":\"ota-handoff-v1\",\"jobId\":\"" + job + "\",\"version\":\"1.1\",\"token\":\"" + token +
                 "\",\"phase\":\"OWNER_FINISHED\",\"runtimeMayChange\":true,\"productionTransaction\":\"" + tx +
                 "\",\"completionProof\":{\"status\":\"" + result + "\",\"rollback\":\"" + rollback + "\",\"transaction\":\"" + tx +
-                "\",\"healthSha256\":\"" + std::string(64, 'a') + "\",\"healthRecord\":" + jsonString(healthBytes) + "}}\n";
+                "\",\"healthSha256\":\"" + edge_gateway::ota_query_detail::sha256Hex(healthBytes) +
+                "\",\"healthRecord\":" + jsonString(healthBytes) + "}}\n";
             const auto handoff = staging + "/ota_handoff_" + job + ".json";
             std::ofstream(handoff) << record;
             edge_gateway::OtaService production(productionConfig);

@@ -400,6 +400,15 @@ private:
                 if (i == begin) fail("missing exponent digits");
             }
             if (i != pos_) fail("invalid json number syntax");
+            // At most 15 decimal digits are exact in double; avoid a locale stream for common indices/timestamps.
+            const auto digits = start + (text_[start] == '-' ? 1 : 0);
+            if (pos_ - digits <= 15) {
+                double integer = 0;
+                auto digit = digits;
+                for (; digit < pos_ && text_[digit] >= '0' && text_[digit] <= '9'; ++digit)
+                    integer = integer * 10 + (text_[digit] - '0');
+                if (digit == pos_) return text_[start] == '-' ? -integer : integer;
+            }
             std::istringstream number(text_.substr(start, pos_ - start));
             number.imbue(std::locale::classic());
             double value = 0;

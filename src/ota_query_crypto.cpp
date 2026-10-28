@@ -26,6 +26,7 @@ struct Crypto {
     int (*keyBits)(const void*) = nullptr;
     int (*keyBaseId)(const void*) = nullptr;
     int (*setRsaPadding)(void*, int) = nullptr;
+    int (*rsaContextCtrl)(void*, int, int, int, void*) = nullptr;
     void* (*digestContextNew)() = nullptr;
     void (*digestContextFree)(void*) = nullptr;
     const void* (*sha256)() = nullptr;
@@ -46,6 +47,8 @@ struct Crypto {
 
     Crypto() {
         library = dlopen("libcrypto.so.3", RTLD_NOW | RTLD_LOCAL);
+        const bool legacy = !library;
+        if (legacy) library = dlopen("libcrypto.so.1.1", RTLD_NOW | RTLD_LOCAL);
         if (!library) throw Error(Failure::Library);
         try {
             bioNewMemory = symbol<decltype(bioNewMemory)>("BIO_new_mem_buf");
@@ -53,17 +56,18 @@ struct Crypto {
             readPrivateKey = symbol<decltype(readPrivateKey)>("PEM_read_bio_PrivateKey");
             readPublicKey = symbol<decltype(readPublicKey)>("PEM_read_bio_PUBKEY");
             keyFree = symbol<decltype(keyFree)>("EVP_PKEY_free");
-            keyBits = symbol<decltype(keyBits)>("EVP_PKEY_get_bits");
-            keyBaseId = symbol<decltype(keyBaseId)>("EVP_PKEY_get_base_id");
-            setRsaPadding = symbol<decltype(setRsaPadding)>("EVP_PKEY_CTX_set_rsa_padding");
+            keyBits = symbol<decltype(keyBits)>(legacy ? "EVP_PKEY_bits" : "EVP_PKEY_get_bits");
+            keyBaseId = symbol<decltype(keyBaseId)>(legacy ? "EVP_PKEY_base_id" : "EVP_PKEY_get_base_id");
+            if (legacy) rsaContextCtrl = symbol<decltype(rsaContextCtrl)>("RSA_pkey_ctx_ctrl");
+            else setRsaPadding = symbol<decltype(setRsaPadding)>("EVP_PKEY_CTX_set_rsa_padding");
             digestContextNew = symbol<decltype(digestContextNew)>("EVP_MD_CTX_new");
             digestContextFree = symbol<decltype(digestContextFree)>("EVP_MD_CTX_free");
             sha256 = symbol<decltype(sha256)>("EVP_sha256");
             signInit = symbol<decltype(signInit)>("EVP_DigestSignInit");
-            signUpdate = symbol<decltype(signUpdate)>("EVP_DigestSignUpdate");
+            signUpdate = symbol<decltype(signUpdate)>(legacy ? "EVP_DigestUpdate" : "EVP_DigestSignUpdate");
             signFinal = symbol<decltype(signFinal)>("EVP_DigestSignFinal");
             verifyInit = symbol<decltype(verifyInit)>("EVP_DigestVerifyInit");
-            verifyUpdate = symbol<decltype(verifyUpdate)>("EVP_DigestVerifyUpdate");
+            verifyUpdate = symbol<decltype(verifyUpdate)>(legacy ? "EVP_DigestUpdate" : "EVP_DigestVerifyUpdate");
             verifyFinal = symbol<decltype(verifyFinal)>("EVP_DigestVerifyFinal");
             encodeBlock = symbol<decltype(encodeBlock)>("EVP_EncodeBlock");
             decodeBlock = symbol<decltype(decodeBlock)>("EVP_DecodeBlock");
@@ -74,6 +78,13 @@ struct Crypto {
     }
 
     ~Crypto() { dlclose(library); }
+
+    int setPkcs1Padding(void* context) const {
+        // OpenSSL 1.1 exposes this operation as a macro over RSA_pkey_ctx_ctrl.
+        constexpr int rsaPaddingControl = 0x1000 + 1; // EVP_PKEY_ALG_CTRL + 1
+        return setRsaPadding ? setRsaPadding(context, 1)
+                             : rsaContextCtrl(context, -1, rsaPaddingControl, 1, nullptr);
+    }
 };
 
 int rejectPassword(char*, int, int, void*) { return 0; }
@@ -180,7 +191,7 @@ bool verifyDescriptor(const std::string& descriptor, const std::string& encodedS
     CryptoObject context(api.digestContextNew(), api.digestContextFree);
     void* keyContext = nullptr;
     if (!context || api.verifyInit(context.get(), &keyContext, api.sha256(), nullptr, key.get()) != 1 ||
-        !keyContext || api.setRsaPadding(keyContext, 1) != 1 ||
+        !keyContext || api.setPkcs1Padding(keyContext) != 1 ||
         api.verifyUpdate(context.get(), descriptor.data(), descriptor.size()) != 1)
         throw Error(Failure::Operation);
     const int result = api.verifyFinal(context.get(), signature.data(), signature.size());
@@ -194,7 +205,7 @@ std::string signDescriptor(const std::string& descriptor, const std::string& pri
     CryptoObject context(api.digestContextNew(), api.digestContextFree);
     void* keyContext = nullptr;
     if (!context || api.signInit(context.get(), &keyContext, api.sha256(), nullptr, key.get()) != 1 ||
-        !keyContext || api.setRsaPadding(keyContext, 1) != 1 ||
+        !keyContext || api.setPkcs1Padding(keyContext) != 1 ||
         api.signUpdate(context.get(), descriptor.data(), descriptor.size()) != 1)
         throw std::runtime_error("OTA query signing failed");
     std::size_t size = 0;

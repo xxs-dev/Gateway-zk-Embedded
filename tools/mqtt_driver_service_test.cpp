@@ -2646,6 +2646,53 @@ void testIpcDriverStatsIdentityAndBackoff() {
     }
 }
 
+void testEmptyGatewayQueryTarget(const std::string& request, const std::string& expired,
+                                const OtaConfig& ota) {
+    auto fixture = makeFixture("empty_gateway_query", 0);
+    fixture.service.reset();
+    PointStoreRouter emptyRouter;
+    emptyRouter.addStore(fixture.shmName, *fixture.store);
+    fixture.driverConfig.fullUploadIndexes.clear();
+    const auto responseCount = [&] {
+        return std::count(fixture.publisher->jsonTopics.begin(), fixture.publisher->jsonTopics.end(),
+                          fixture.mqttConfig.otaQueryReplyTopic);
+    };
+    const auto deliver = [&](const std::string& payload, bool retained = false) {
+        MqttIncomingMessage message;
+        message.type = MqttIncomingType::OtaQueryRequest;
+        message.topic = fixture.mqttConfig.otaQueryRequestTopic + "/GW_TEST";
+        message.payload = payload; message.retained = retained;
+        fixture.publisher->incoming.push_back(std::move(message));
+        fixture.service->runScanOnce(1000);
+    };
+    const auto configure = [&](const std::string& machine, const std::vector<DeviceConfig>& devices) {
+        fixture.service.reset();
+        fixture.publisher->jsonTopics.clear(); fixture.publisher->statusPayloads.clear();
+        auto config = fixture.mqttConfig; config.topicMachineCode = machine;
+        fixture.service.reset(new MqttDriverService(config, fixture.driverConfig, devices, emptyRouter,
+            fixture.publisher, nullptr, std::unique_ptr<OtaService>(new OtaService(ota))));
+    };
+    // An uncommissioned gateway, or one whose last device was removed, still
+    // has a bound gateway identity and must be able to verify its original job.
+    configure("GW_TEST", {});
+    deliver(request);
+    require(responseCount() == 1, "empty gateway dropped its authenticated original-job query");
+    auto tampered = request;
+    const auto at = tampered.find(std::string(64, 'b'));
+    require(at != std::string::npos, "empty gateway query nonce fixture missing");
+    tampered.replace(at, 64, std::string(64, 'd'));
+    deliver(tampered); deliver(request, true); deliver(expired);
+    require(responseCount() == 1, "empty gateway answered tampered/retained/expired query");
+    configure("", {}); deliver(request);
+    require(responseCount() == 0, "unbound gateway answered original-job query");
+    configure("GW_OTHER", {}); deliver(request);
+    require(responseCount() == 0, "empty gateway answered another gateway's signed query");
+    auto foreign = fixture.deviceConfig; foreign.machineCode = "GW_OTHER";
+    configure("GW_TEST", {foreign}); deliver(request);
+    require(responseCount() == 0, "configured device identity conflict was ignored");
+    cleanupFixture(fixture);
+}
+
 void testOriginalJobQueryHandler(const std::string& requestPath,
                                  const std::string& expiredRequestPath,
                                  const std::string& platformPublicKey,
@@ -2826,6 +2873,7 @@ void testOriginalJobQueryHandler(const std::string& requestPath,
     collect();
     require(responses.size() == boundedResponses + 1,
         "missing local query signing key produced an OTA query response");
+    testEmptyGatewayQueryTarget(request, expiredRequest, ota);
     std::cout << accepted << '\n';
     cleanupFixture(fixture);
 }
@@ -2927,6 +2975,7 @@ void testFullOriginalJobQueryHandler(const std::string& requestPath, const std::
     require(edge_gateway::filesystem::directory_iterator(stagingDir) == edge_gateway::filesystem::directory_iterator(),
         "full query wrote evidence or a lock");
     runOriginalJobQueryWireBridge(requestPath, publicKey, privateKey, stagingDir, full.machineCode);
+    testEmptyGatewayQueryTarget(readFile(requestPath), readFile(expiredPath), ota);
 }
 
 }  // namespace

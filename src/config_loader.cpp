@@ -887,6 +887,7 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     device.onlineTimeoutMs = requireInt(object, "onlineTimeoutMs", device.onlineTimeoutMs);
     device.onlineFrameIds = parseStringArray(value.find("onlineFrameIds"));
     if (const auto* points = value.find("points")) {
+        device.points.reserve(points->asArray().values.size());
         for (const auto& item : points->asArray().values) {
             device.points.push_back(parsePointDefinition(*item));
         }
@@ -4203,6 +4204,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
     }
 
     if (const auto* meters = root.find("meters")) {
+        config.meters.reserve(meters->asArray().values.size());
         for (const auto& item : meters->asArray().values) {
             config.meters.push_back(parseLogicalDevice(*item, config.protocol.slave));
         }
@@ -4211,6 +4213,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
     }
 
     if (const auto* points = root.find("points")) {
+        config.points.reserve(points->asArray().values.size());
         for (const auto& item : points->asArray().values) {
             config.points.push_back(parsePointDefinition(*item));
         }

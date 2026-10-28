@@ -20,6 +20,7 @@
 
 #include "edge_gateway/system_monitor_direct_maintenance.hpp"
 #include "edge_gateway/json_value.hpp"
+#include "edge_gateway/memory_point_store.hpp"
 
 namespace {
 
@@ -31,6 +32,60 @@ void require(bool condition, const std::string& message) {
 
 bool startsWith(const std::string& value, const std::string& prefix) {
     return value.compare(0, prefix.size(), prefix) == 0;
+}
+
+void verifyRealtimeCoverage() {
+    using namespace edge_gateway;
+    char directory[] = "/tmp/gateway-realtime-coverage-XXXXXX";
+    require(::mkdtemp(directory) != nullptr, "private coverage fixture directory");
+    const std::string root(directory), name = root.substr(root.find_last_of('/') + 1);
+    const auto app = root + "/app.json", device = root + "/device.json";
+    const auto cleanup = [&] {
+        ::shm_unlink(("/" + name).c_str());
+        std::remove(app.c_str()); std::remove(device.c_str()); ::rmdir(root.c_str());
+    };
+    try {
+        { std::ofstream f(app); f << "{\"mqtt\":{\"clientId\":\"COVERAGE\"},\"deviceConfigFiles\":[\"" << device
+            << "\"],\"mqttDriver\":{\"sharedMemoryName\":\"" << name << "\"}}"; require(f.good(), "write coverage app"); }
+        { std::ofstream f(device); f << "{\"machineCode\":\"COVERAGE\",\"protocol\":{\"type\":\"modbus_tcp\"},"
+            << "\"memoryStore\":{\"sharedMemoryName\":\"" << name << "\"},\"meters\":["
+            << "{\"meterCode\":\"A\",\"points\":[{\"index\":1,\"pointCode\":\"P1\"},{\"index\":2,\"pointCode\":\"P2\"}]},"
+            << "{\"meterCode\":\"B\",\"points\":[{\"index\":3,\"pointCode\":\"P3\"}]}]}";
+          require(f.good(), "write coverage device"); }
+        MemoryPointStore store(name, MemoryStoreOpenMode::CreateExclusive);
+        DeviceConfig a, b; a.machineCode = b.machineCode = "COVERAGE"; a.meterCode = "A"; b.meterCode = "B";
+        for (int i = 1; i <= 3; ++i) { PointDefinition p; p.index = i; p.pointCode = "P" + std::to_string(i); (i == 3 ? b : a).points.push_back(p); }
+        store.registerDevicePoints({a, b});
+        for (int i = 1; i <= 3; ++i) {
+            PointValue p; p.index = i; p.machineCode = "COVERAGE"; p.meterCode = i == 3 ? "B" : "A";
+            p.pointCode = "P" + std::to_string(i); p.value = i * 10; p.ts = 1000; p.expireAt = 0; p.quality = 1; store.putLatest(p);
+        }
+        SystemMonitorConfig::DirectMaintenanceConfig config; config.appConfigFile = app; config.scadaUpperComputerSafetyEnabled = false;
+        const auto check = [&](const json::JsonValue& body, int available, int returned) {
+            require(body.find("count") && body.find("count")->asNumber() == returned, "count must remain returned size");
+            require(body.find("availableCount") && body.find("availableCount")->asNumber() == available, "availableCount must be before truncation and after meter selection");
+            require(body.find("truncated") && body.find("truncated")->asBool() == (returned < available), "truncated flag disagrees");
+            require(body.find("points")->asArray().values.size() == static_cast<std::size_t>(returned), "points count disagrees");
+        };
+        for (const int cap : {1, 3, 4, 0, -1}) {
+            config.maxRealtimePoints = cap;
+            for (const auto& route : {"/api/v1/realtime/points", "/api/v1/telemetry/full"}) {
+                const auto response = system_monitor_direct_maintenance::handleHttpRequest(config, "GET", route, "", "", "", "127.0.0.1");
+                require(startsWith(response, "HTTP/1.1 200"), "coverage endpoint failed");
+                const auto text = response.substr(response.find("\r\n\r\n") + 4);
+                const auto body = json::JsonParser(text).parse(); check(body, 3, cap == 1 ? 1 : 3);
+                if (const auto* raw = body.find("rawPayload")) check(json::JsonParser(raw->asString()).parse(), 3, cap == 1 ? 1 : 3);
+            }
+        }
+        config.maxRealtimePoints = 1;
+        for (const auto& meter : {"A", "B", "missing"}) {
+            const auto response = system_monitor_direct_maintenance::handleHttpRequest(config, "GET", "/api/v1/realtime/points", std::string("meterCode=") + meter, "", "", "127.0.0.1");
+            require(startsWith(response, "HTTP/1.1 200"), "filtered coverage endpoint failed");
+            const auto text = response.substr(response.find("\r\n\r\n") + 4);
+            check(json::JsonParser(text).parse(), std::string(meter) == "A" ? 2 : std::string(meter) == "B" ? 1 : 0, std::string(meter) == "missing" ? 0 : 1);
+        }
+    } catch (...) { cleanup(); throw; }
+    cleanup();
 }
 
 void verifyDisabledCameraDoesNotCreateStore() {
@@ -99,11 +154,28 @@ std::string loopbackRequest(int port, const std::string& request) {
     }
     std::string reply;
     char buffer[4096];
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
     for (;;) {
+        const auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+            deadline - std::chrono::steady_clock::now());
+        require(remaining.count() > 0, "private HTTP overall response timeout");
+        timeout.tv_sec = remaining.count() / 1000000;
+        timeout.tv_usec = remaining.count() % 1000000;
+        require(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0,
+                "private HTTP remaining timeout failed");
         const auto count = ::recv(fd, buffer, sizeof(buffer), 0);
         if (count == 0) break;
-        require(count > 0 && reply.size() + static_cast<std::size_t>(count) < 1024 * 1024,
-                "private HTTP response failed or unbounded");
+        // A child diagnostic exiting may deliver SIGCHLD to this client thread.
+        // EINTR is not a transport failure; keep the original overall deadline.
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) {
+            const auto error = errno;
+            ::close(fd);
+            throw std::runtime_error("private HTTP receive failed: errno=" + std::to_string(error) +
+                " bytes=" + std::to_string(reply.size()) + " request=" + request.substr(0, request.find("\r\n")));
+        }
+        require(reply.size() + static_cast<std::size_t>(count) < 1024 * 1024,
+                "private HTTP response unbounded");
         reply.append(buffer, static_cast<std::size_t>(count));
     }
     ::close(fd);
@@ -557,7 +629,13 @@ void verifyMaintenanceCredential(bool ownerMode) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--coverage") {
+            verifyRealtimeCoverage();
+            std::cout << "realtime coverage endpoint tests passed\n";
+            return 0;
+        }
         verifyDisabledCameraDoesNotCreateStore();
+        verifyRealtimeCoverage();
         const auto json = edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson();
         require(json.find("\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]") != std::string::npos,
                 "OTA package capabilities are incomplete");

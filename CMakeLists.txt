@@ -13,6 +13,14 @@ if(BUILD_TESTING)
     target_include_directories(manual_recovery_test PRIVATE include)
     add_test(NAME manual_recovery COMMAND manual_recovery_test)
 endif()
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(ota_query_crypto_test tools/ota_query_crypto_test.cpp src/ota_query_crypto.cpp)
+    target_include_directories(ota_query_crypto_test PRIVATE include)
+    target_link_libraries(ota_query_crypto_test PRIVATE ${CMAKE_DL_LIBS})
+    add_test(NAME ota_query_crypto
+        COMMAND bash "${CMAKE_SOURCE_DIR}/tools/ota_query_crypto_local_test.sh" $<TARGET_FILE:ota_query_crypto_test>)
+    set_tests_properties(ota_query_crypto PROPERTIES TIMEOUT 30)
+endif()
 if(BUILD_TESTING AND UNIX)
     add_executable(channel_trace_test tools/channel_trace_test.cpp src/channel_trace.cpp)
     target_include_directories(channel_trace_test PRIVATE include)
@@ -477,6 +485,12 @@ add_executable(config_loader_test tools/config_loader_test.cpp)
 target_link_libraries(config_loader_test PRIVATE edge_gateway)
 target_compile_options(config_loader_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(json_value_number_test tools/json_value_number_test.cpp)
+target_include_directories(json_value_number_test PRIVATE include)
+if(BUILD_TESTING)
+    add_test(NAME json_value_number COMMAND json_value_number_test)
+endif()
+
 add_executable(timing_policy_test tools/timing_policy_test.cpp)
 target_link_libraries(timing_policy_test PRIVATE edge_gateway)
 target_compile_options(timing_policy_test PRIVATE -fdiagnostics-color=never)
@@ -776,6 +790,10 @@ add_executable(
     tools/system_monitor_direct_maintenance_contract_test.cpp
     system_monitor_direct_maintenance.cpp
 )
+add_executable(command_receipt_observation_test
+    tools/command_receipt_observation_test.cpp system_monitor_direct_maintenance.cpp)
+target_link_libraries(command_receipt_observation_test PRIVATE edge_gateway)
+target_compile_options(command_receipt_observation_test PRIVATE -fdiagnostics-color=never)
 target_link_libraries(system_monitor_direct_maintenance_contract_test PRIVATE edge_gateway)
 target_compile_options(system_monitor_direct_maintenance_contract_test PRIVATE -fdiagnostics-color=never)
 add_executable(
@@ -792,6 +810,7 @@ target_link_options(system_monitor_direct_maintenance_owner_test PRIVATE
     "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/system_monitor_direct_maintenance_owner.map")
 
 if(BUILD_TESTING)
+    add_test(NAME command_receipt_observation COMMAND command_receipt_observation_test)
     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
     add_test(NAME mqtt_forwarder_service COMMAND mqtt_forwarder_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)

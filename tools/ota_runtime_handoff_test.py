@@ -23,8 +23,11 @@ spec.loader.exec_module(health)
 class HandoffTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='ota-handoff-')
-        self.root = Path(self.temp.name)
-        self.job = 'JOB_' + self.root.name.replace('-', '_')
+        self.home = Path(self.temp.name) / 'home'
+        self.root = self.home / 'ota/staging'
+        self.root.mkdir(parents=True, mode=0o700)
+        self.job = 'JOB_' + Path(self.temp.name).name.replace('-', '_')
+        self.baseline(self.home)
         self.token = '12345678-1234-4234-8234-123456789abc'
         self.entry = self.root / 'entry'
         self.entry.mkdir()
@@ -45,12 +48,53 @@ class HandoffTest(unittest.TestCase):
         self.intent.update(leaseDev=str(info.st_dev), leaseInode=str(info.st_ino))
         self.intent_path.write_text(json.dumps(self.intent) + '\n')
 
+    def baseline(self, home, version=1):
+        # The staged helper set comes from a pinned baseline, even when admission
+        # will later reject this intentionally incomplete private fixture.
+        root = home / 'data/runtime-production'
+        (root / 'baselines').mkdir(parents=True, exist_ok=True)
+        raw = (json.dumps(dict(format='runtime-baseline-v' + str(version))) + '\n').encode()
+        (root / 'baselines/LOCAL_HANDOFF.json').write_bytes(raw)
+        (root / 'current.json').write_text(json.dumps(dict(baselineId='LOCAL_HANDOFF',
+            sha256=hashlib.sha256(raw).hexdigest())) + '\n')
+
+    def test_changed_baseline_refuses_dispatch_before_unit_launch(self):
+        protocol = health.RuntimeHandoff(self.root, self.job, self.token)
+        (self.home / 'data/runtime-production/baselines/LOCAL_HANDOFF.json').write_text('{}\n')
+        with self.assertRaisesRegex(ValueError, 'baseline changed'):
+            protocol.launch(self.entry / 'offline-runtime-upgrade.py', self.lease)
+        self.assertFalse(protocol.path.exists())
+        self.assertEqual(protocol.properties()['LoadState'], 'not-found')
+
+    def test_config_handoff_stages_v2_role_policy_before_admission(self):
+        self.baseline(self.home, version=2)
+        shutil.copyfile(REPO / 'deploy/production_role_policy.py', self.entry / 'production_role_policy.py')
+        self.intent['packageType'] = 'config'
+        self.intent_path.write_text(json.dumps(self.intent) + '\n')
+        protocol = self.launch()
+        ready = protocol.read()
+        self.assertEqual(ready['phase'], 'OWNER_READY')
+        self.assertEqual(ready['entrySchema'], 'paired-v2')
+        self.assertEqual(set(ready['pins']), {'offline-runtime-upgrade.py',
+            'runtime-upgrade-guard.py', 'ota-health-result.py', 'production_role_policy.py'})
+        self.release()
+        self.wait_phase(protocol, 'OWNER_BLOCKED')
+        self.assertFalse(protocol.read()['runtimeMayChange'])
+        protocol.cancel()
+        self.assertEqual(protocol.read()['phase'], 'CANCELLED')
+
     def tearDown(self):
         if self.lease >= 0:
             os.close(self.lease)
         # Only this private transaction's transient unit; never business services.
         protocol = health.RuntimeHandoff(self.root, self.job, self.token)
         subprocess.run(['/usr/bin/systemctl', 'stop', protocol.unit], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        props = protocol.properties()
+        self.assertEqual(props['MainPID'], '0')
+        self.assertIn(props['ActiveState'], ('inactive', 'failed'))
+        if props['LoadState'] != 'not-found':
+            subprocess.run(['/usr/bin/systemctl', 'reset-failed', protocol.unit], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
         self.temp.cleanup()
 
     def launch(self):
@@ -561,8 +605,9 @@ time.sleep(60)
 
     @unittest.skipUnless(os.environ.get('OTA_HANDOFF_BINARY'), 'build the narrow native test to exercise C++')
     def test_cpp_execute_signed_handoff_and_durable_cancelled_final(self):
-        root = self.root / 'native'
-        root.mkdir(mode=0o700)
+        root = self.home / 'native/ota'
+        root.mkdir(parents=True, mode=0o700)
+        self.baseline(root.parent)
         private, public = self.root / 'private.pem', self.root / 'public.pem'
         subprocess.run(['openssl', 'genpkey', '-algorithm', 'RSA', '-pkeyopt', 'rsa_keygen_bits:2048',
                         '-out', str(private)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

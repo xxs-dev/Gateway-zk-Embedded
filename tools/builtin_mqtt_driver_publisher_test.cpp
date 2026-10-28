@@ -1849,6 +1849,102 @@ void testRealtimeSessionIdIsPresentInEveryFormatChunkAndAbsentFromFull() {
     }
 }
 
+std::vector<edge_gateway::StoredPointValue> realtimeBatchValues() {
+    std::vector<edge_gateway::StoredPointValue> values;
+    for (std::uint32_t i = 0; i < 60; ++i) {
+        edge_gateway::StoredPointValue value;
+        value.index = 1000 + i; value.machineCode = "GW_TEST"; value.meterCode = "METER_A";
+        value.pointCode = std::string(1000, 'A') + std::to_string(i);
+        value.value = i; value.quality = 1;
+        value.ts = 1770000000000LL; value.expireAt = 1770000600000LL;
+        values.push_back(std::move(value));
+    }
+    return values;
+}
+
+void testRealtimeBatchWindowAndPayload() {
+    TestMqttBroker broker(20, 0, true, true, 8);
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.topicMachineCode = "GW_TEST"; config.qos = 1;
+    config.offlineBufferEnabled = false; config.maxPayloadBytes = 4096;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishRealtime("edge/telemetry/realtime", realtimeBatchValues(), "compactArray", "FOCUS");
+    }
+    const auto messages = broker.messages();
+    require(messages.size() == 20 && !broker.qos1WindowViolated(), "realtime must pipeline at most eight chunks");
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        const auto& m = messages[i];
+        require(m.qos == 1 && m.packetId != 0 && m.topic == "edge/telemetry/realtime/GW_TEST",
+            "realtime batch changed routing or QoS");
+        require(m.payload.size() <= config.maxPayloadBytes &&
+            m.payload.find("\"sessionId\":\"FOCUS\"") != std::string::npos &&
+            m.payload.find("\"chunkCount\":20") != std::string::npos &&
+            m.payload.find("\"chunkIndex\":" + std::to_string(i + 1) + ",") != std::string::npos,
+            "realtime batch lost chunk identity or ordering");
+        for (std::size_t j = 0; j < 3; ++j)
+            require(m.payload.find("[" + std::to_string(1000 + i * 3 + j) + ",") != std::string::npos,
+                "realtime batch lost a point");
+    }
+}
+
+void testRealtimeBatchFailureClosesBeforeNextSnapshot(bool timeout) {
+    int connections = 0;
+    LeasedScriptBroker broker([&](int fd) {
+        ++connections;
+        require((readMqttPacket(fd)[0] & 0xf0) == 0x10, "realtime reconnect missing CONNECT");
+        const std::uint8_t connack[]{0x20, 2, 0, 0}; send(fd, connack, sizeof(connack), 0);
+        if (connections == 1) {
+            for (int i = 0; i < 8; ++i) readMqttPacket(fd);
+            if (!timeout) sendPubAck(fd, 0);
+            char byte;
+            require(recv(fd, &byte, 1, 0) == 0, "failed realtime batch kept connection or sent more chunks");
+        } else {
+            for (int i = 0; i < 20; ++i) {
+                const auto packet = readMqttPacket(fd);
+                require(packetPayload(packet).find("\"sessionId\":\"NEW\"") != std::string::npos,
+                    "failed live snapshot replayed on new connection");
+                sendPubAck(fd, packetId(packet));
+            }
+        }
+    }, 2);
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.topicMachineCode = "GW_TEST"; config.qos = 1;
+    config.offlineBufferEnabled = false; config.maxPayloadBytes = 4096; config.connectTimeoutMs = 200;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        const auto values = realtimeBatchValues();
+        publisher.publishRealtime("edge/telemetry/realtime", values, "compactArray", "OLD");
+        publisher.publishRealtime("edge/telemetry/realtime", values, "compactArray", "NEW");
+    }
+    broker.checked();
+    require(connections == 2, "realtime failure did not reconnect");
+}
+
+void testRealtimeBatchKeepsMqtt5Serial() {
+    LeasedScriptBroker broker([&](int fd) {
+        readMqttPacket(fd);
+        const std::uint8_t connack[]{0x20, 3, 0, 0, 0}; send(fd, connack, sizeof(connack), 0);
+        for (int i = 0; i < 20; ++i) {
+            const auto packet = readMqttPacket(fd);
+            require(((packet[0] >> 1) & 3) == 1, "MQTT5 realtime QoS changed");
+            require(!socketReadableWithin(fd, 5), "MQTT5 pipelined without negotiated Receive Maximum");
+            sendPubAck(fd, packetId(packet));
+        }
+    });
+    edge_gateway::MqttConfig config;
+    config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.topicMachineCode = "GW_TEST"; config.qos = 1; config.protocolVersion = "mqtt5";
+    config.offlineBufferEnabled = false; config.maxPayloadBytes = 4096;
+    {
+        edge_gateway::BuiltinMqttDriverPublisher publisher(config);
+        publisher.publishRealtime("edge/telemetry/realtime", realtimeBatchValues(), "compactArray", "FOCUS");
+    }
+    broker.checked();
+}
+
 void testRealtimeRingReplayPreservesSerializedSessionId() {
     const auto dir = std::string("/tmp/gateway_mqtt_realtime_session_test_") + std::to_string(getpid());
     require(std::system((std::string("mkdir -p ") + dir).c_str()) == 0, "realtime ring test mkdir failed");
@@ -2036,6 +2132,10 @@ int main(int argc, char** argv) {
     testLeasedBatchInputGates();
     testLeasedBatchRejectsPersistentSession();
     testRealtimeSessionIdIsPresentInEveryFormatChunkAndAbsentFromFull();
+    testRealtimeBatchWindowAndPayload();
+    testRealtimeBatchFailureClosesBeforeNextSnapshot(false);
+    testRealtimeBatchFailureClosesBeforeNextSnapshot(true);
+    testRealtimeBatchKeepsMqtt5Serial();
     testRealtimeRingReplayPreservesSerializedSessionId();
     testRealtimeLegacyEscapingAndTxOnlyIsolation();
 #endif

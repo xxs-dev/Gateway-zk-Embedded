@@ -97,6 +97,8 @@ public:
     );
     std::vector<PendingWriteCommand> peekPendingWriteCommands(std::size_t limit = 0) const;
     void recordWritebackResult(const WritebackResultRecord& result);
+    // Newest retained records for one point; never consumes the bounded ring.
+    std::vector<WritebackResultRecord> recentWritebackResults(std::uint32_t index, std::size_t limit) const;
     Optional<WritebackResultRecord> getWritebackResult(const std::string& cmdId) const;
     Optional<WritebackResultRecord> getWritebackResult(
         const std::string& cmdId,

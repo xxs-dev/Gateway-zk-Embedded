@@ -7,6 +7,22 @@
 #include <unistd.h>
 
 int main(int argc, char** argv) {
+    if (argc == 3 && (std::string(argv[1]) == "--reject-private-key" ||
+                      std::string(argv[1]) == "--reject-library")) {
+        using namespace edge_gateway;
+        const auto expected = std::string(argv[1]) == "--reject-private-key"
+            ? ota_query_crypto::Failure::Key : ota_query_crypto::Failure::Library;
+        OtaQueryObservation observation;
+        observation.jobId = "JOB_1"; observation.machineCode = "GW_TEST";
+        observation.nonce = std::string(64, 'b'); observation.outcome = "UNKNOWN";
+        try { (void)ota_query_crypto::signObservation(observation, argv[2]); }
+        catch (const ota_query_crypto::Error& error) {
+            if (error.failure() != expected) throw;
+            std::cout << "expected rejection classified\n";
+            return 0;
+        }
+        throw std::runtime_error("unsafe key or unavailable library was accepted");
+    }
     if (argc >= 2 && std::string(argv[1]) == "--full") {
         if (argc != 5) throw std::runtime_error("full bridge requires platform public, device private, full request signature");
         edge_gateway::OtaFullQueryChallenge full{"QUERY_JOB", "GW_QUERY", std::string(64, 'b'), "full",

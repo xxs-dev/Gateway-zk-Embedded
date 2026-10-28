@@ -2523,7 +2523,7 @@ void SystemMonitorService::runOnce(std::int64_t nowMs) {
             publishStatusEvent("scada-offline-safety", nowMs, details.str());
         }
     }
-    if (hasActiveLease(nowMs)) {
+    if (hasActiveLease(nowMs, true)) {
         const int pointIntervalMs = effectiveIntervalMs(nowMs);
         if (lastPointSnapshotMs_ == 0 || nowMs - lastPointSnapshotMs_ >= pointIntervalMs) {
             publishPointSnapshot(nowMs);
@@ -2665,6 +2665,13 @@ void SystemMonitorService::processIncomingMessages(std::int64_t nowMs) {
 }
 
 void SystemMonitorService::handleMonitorRequest(const std::string& payload, std::int64_t nowMs) {
+    const auto request = json::JsonParser(payload).parse();
+    if (!request.isObject()) throw std::runtime_error("monitor request must be an object");
+    bool includePoints = true;
+    if (const auto* value = request.find("includePoints")) {
+        if (!value->isBool()) throw std::runtime_error("includePoints must be a boolean");
+        includePoints = value->asBool();
+    }
     FlatJsonReader json(payload);
     std::string action;
     std::string sessionId;
@@ -2705,11 +2712,14 @@ void SystemMonitorService::handleMonitorRequest(const std::string& payload, std:
         MonitorLease lease;
         lease.sessionId = sessionId;
         lease.meterCode = meterCode;
+        lease.includePoints = includePoints;
         lease.intervalMs = std::max(monitorConfig_.minIntervalMs, intervalMs);
         lease.expireAtMs = nowMs + static_cast<std::int64_t>(std::max(1, ttlSec)) * 1000;
         leases_[sessionId] = lease;
-        publishPointSnapshot(nowMs);
-        lastPointSnapshotMs_ = nowMs;
+        if (includePoints) {
+            publishPointSnapshot(nowMs);
+            lastPointSnapshotMs_ = nowMs;
+        }
     }
     try {
         writeRealtimeMeterLeases(nowMs);
@@ -3821,7 +3831,7 @@ void SystemMonitorService::publishPointSnapshot(std::int64_t nowMs) {
     if (activeLeaseRequiresAllPoints(nowMs)) {
         values = router_->getAllLatest(nowMs);
     } else {
-        for (const auto& meterCode : activeMeterCodes(nowMs)) {
+        for (const auto& meterCode : activeMeterCodes(nowMs, true)) {
             auto meterValues = router_->getLatestByMeter(machineCode_, meterCode, nowMs);
             values.insert(values.end(), meterValues.begin(), meterValues.end());
         }
@@ -3888,9 +3898,9 @@ void SystemMonitorService::publishStatusEvent(const std::string& event, std::int
     }
 }
 
-bool SystemMonitorService::hasActiveLease(std::int64_t nowMs) const {
+bool SystemMonitorService::hasActiveLease(std::int64_t nowMs, bool pointsOnly) const {
     for (const auto& entry : leases_) {
-        if (entry.second.expireAtMs > nowMs) {
+        if (entry.second.expireAtMs > nowMs && (!pointsOnly || entry.second.includePoints)) {
             return true;
         }
     }
@@ -3899,18 +3909,18 @@ bool SystemMonitorService::hasActiveLease(std::int64_t nowMs) const {
 
 bool SystemMonitorService::activeLeaseRequiresAllPoints(std::int64_t nowMs) const {
     for (const auto& entry : leases_) {
-        if (entry.second.expireAtMs > nowMs && entry.second.meterCode.empty()) {
+        if (entry.second.expireAtMs > nowMs && entry.second.includePoints && entry.second.meterCode.empty()) {
             return true;
         }
     }
     return false;
 }
 
-std::vector<std::string> SystemMonitorService::activeMeterCodes(std::int64_t nowMs) const {
+std::vector<std::string> SystemMonitorService::activeMeterCodes(std::int64_t nowMs, bool pointsOnly) const {
     std::set<std::string> unique;
     for (const auto& entry : leases_) {
         const auto& lease = entry.second;
-        if (lease.expireAtMs <= nowMs || lease.meterCode.empty()) {
+        if (lease.expireAtMs <= nowMs || lease.meterCode.empty() || (pointsOnly && !lease.includePoints)) {
             continue;
         }
         unique.insert(lease.meterCode);
@@ -3921,7 +3931,7 @@ std::vector<std::string> SystemMonitorService::activeMeterCodes(std::int64_t now
 int SystemMonitorService::effectiveIntervalMs(std::int64_t nowMs) const {
     int interval = monitorConfig_.defaultIntervalMs;
     for (const auto& entry : leases_) {
-        if (entry.second.expireAtMs <= nowMs) {
+        if (entry.second.expireAtMs <= nowMs || !entry.second.includePoints) {
             continue;
         }
         interval = std::min(interval, entry.second.intervalMs);

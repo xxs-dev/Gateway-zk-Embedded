@@ -590,7 +590,7 @@ std::vector<std::string> encodeRealtimeChunks(
 
     const auto flushCurrent = [&]() {
         if (!currentMeters.empty()) {
-            chunks.push_back(currentMeters);
+            chunks.push_back(std::move(currentMeters));
             currentMeters.clear();
             currentBytes = baseBytes;
         }
@@ -602,8 +602,9 @@ std::vector<std::string> encodeRealtimeChunks(
         currentBytes += separatorBytes + meterWrapperBytes(meterCode);
     };
 
-    groupedValues.reserve(values.size());
-    groupedIndexByMeter.reserve(values.size());
+    // Most snapshots have many points per meter; grow normally if there are more meters.
+    groupedValues.reserve(std::min<std::size_t>(values.size(), 1024));
+    groupedIndexByMeter.reserve(std::min<std::size_t>(values.size(), 1024));
     for (const auto& item : values) {
         if (item.meterCode.empty()) {
             continue;
@@ -615,6 +616,7 @@ std::vector<std::string> encodeRealtimeChunks(
         groupedValues[inserted.first->second].second.push_back(&item);
     }
 
+    std::ostringstream itemJson;
     for (const auto& group : groupedValues) {
         const auto& meterCode = group.first;
         for (const auto* itemPtr : group.second) {
@@ -624,9 +626,10 @@ std::vector<std::string> encodeRealtimeChunks(
             if (currentMeters.empty() || currentMeters.back().first != meterCode) {
                 appendMeter(meterCode);
             }
-            std::ostringstream itemJson;
+            itemJson.str(std::string());
+            itemJson.clear();
             appendPointValueJson(itemJson, *itemPtr, format);
-            const auto itemPayload = itemJson.str();
+            auto itemPayload = itemJson.str();
             auto& meter = currentMeters.back();
             const auto separatorBytes = meter.second.empty() ? 0U : 1U;
             const auto addedBytes = separatorBytes + itemPayload.size();
@@ -640,14 +643,14 @@ std::vector<std::string> encodeRealtimeChunks(
             const auto targetSeparatorBytes = targetMeter.second.empty() ? 0U : 1U;
             const auto targetAddedBytes = targetSeparatorBytes + itemPayload.size();
             if (currentBytes + targetAddedBytes <= limit || targetMeter.second.empty()) {
-                targetMeter.second.push_back(itemPayload);
+                targetMeter.second.push_back(std::move(itemPayload));
                 currentBytes += targetAddedBytes;
                 continue;
             }
             flushCurrent();
             appendMeter(meterCode);
-            currentMeters.back().second.push_back(itemPayload);
             currentBytes += itemPayload.size();
+            currentMeters.back().second.push_back(std::move(itemPayload));
         }
     }
     flushCurrent();
@@ -2267,14 +2270,32 @@ void BuiltinMqttDriverPublisher::publishRealtime(
     }
     std::lock_guard<std::mutex> lock(mutex_);
     const auto format = pointValueJsonFormat(valueFormat);
-    for (const auto& payload : encodeRealtimeChunks(
+    auto payloads = encodeRealtimeChunks(
         "telemetry",
         values,
         config_.maxPayloadBytes,
         format,
         config_.topicMachineCode,
         sessionId
-    )) {
+    );
+    const auto scoped = scopedPublishTopic(topic);
+    if (scoped.empty()) return;
+    // Keep persisted replay and MQTT5 Receive Maximum handling on the serial path.
+    if (!config_.offlineBufferEnabled && config_.protocolVersion != "mqtt5" &&
+        qosForTopic(scoped) == 1 && payloads.size() > 1) {
+        std::vector<MqttJsonMessage> messages;
+        messages.reserve(payloads.size());
+        for (auto& payload : payloads) messages.push_back({scoped, std::move(payload)});
+        try {
+            sendQos1BatchOnTxConnection(messages);
+        } catch (...) {
+            // Live snapshots are not queued when buffering is disabled. Discard
+            // outstanding ACKs with this connection; the next snapshot is fresh.
+            closeTx(false);
+        }
+        return;
+    }
+    for (const auto& payload : payloads) {
         publishRealtimeJson(topic, payload);
     }
 }

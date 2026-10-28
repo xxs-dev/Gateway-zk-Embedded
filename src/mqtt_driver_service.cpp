@@ -2477,8 +2477,10 @@ void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
         const auto root = ota_request_json::parseRoot(payload);
         if (ota_request_json::stringField(root, "format") == ota_full_query_protocol::requestFormat) {
             const auto challenge = ota_full_query_protocol::parseChallenge(payload);
+            // Gateway identity survives initial commissioning or removal of the
+            // last device. Read-only job queries do not require point routes.
             if (challenge.machineCode != mqttConfig_.topicMachineCode ||
-                machineCodes_.find(challenge.machineCode) == machineCodes_.end()) {
+                (!machineCodes_.empty() && machineCodes_.find(challenge.machineCode) == machineCodes_.end())) {
                 reportOtaQueryDiagnostic("TARGET");
                 return;
             }
@@ -2515,7 +2517,7 @@ void MqttDriverService::handleOtaQueryRequest(const std::string& payload) {
             issuedAtMs > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
             expiresAtMs > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
             challenge.machineCode != mqttConfig_.topicMachineCode ||
-            machineCodes_.find(challenge.machineCode) == machineCodes_.end()) {
+            (!machineCodes_.empty() && machineCodes_.find(challenge.machineCode) == machineCodes_.end())) {
             reportOtaQueryDiagnostic("TARGET");
             return;
         }

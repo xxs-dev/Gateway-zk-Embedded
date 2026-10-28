@@ -1,0 +1,38 @@
+实时取数范围接口说明
+2026-10-22
+
+适用接口
+GET /api/v1/realtime/points（含meterCode过滤）
+GET /api/v1/telemetry/full（外层及rawPayload内的telemetry/snapshot）
+
+兼容扩展
+原有count继续表示points数组实际返回条数，所有既有字段及取数方式不变。
+新增availableCount：本次查询在meterCode等条件过滤后、maxRealtimePoints
+裁剪前，实际取得的记录条数。它不是工程配置总点数，也不证明全部共享内存
+源可读、物理采集正常或每条值仍有效；数据质量继续由各点quality/ts/expireAt判断。
+新增truncated：布尔值，仅当count < availableCount时为true。
+两个新字段随每次响应共同返回，full的外层和rawPayload保持一致。
+
+例如默认上限2000，而本次能取得50000条时：
+{"count":2000,"availableCount":50000,"truncated":true,"points":[...]}
+按设备过滤后仅剩1条且上限为2000时为1/1/false；空查询为0/0/false。
+本次不修改maxRealtimePoints的默认2000及<=0旧语义，也不自动调大现场上限。
+
+Qt兼容行为
+旧接口没有availableCount/truncated时继续接收，显示“边端未提供返回范围，
+无法确认是否截断”。count如果存在，必须与points条数一致。
+新字段出现时，要求count、availableCount为有效非负安全整数，availableCount
+不小于实际返回条数，truncated必须是与大小关系一致的布尔值；缺字段、类型
+错误或自相矛盾的范围会停止采样，上一份已接收数据仅作为历史快照保留。
+新接口每次返回均重新核对；从新接口切回旧接口时恢复“范围未知”。
+断开连接清除范围；暂停、恢复中、读配置或失败期间标为“上次快照”。
+筛选显示数与收到的条数分开；本机筛选不会消除截断警告。
+该扩展不改变MQTT订阅、分片、控制或配置下发协议。
+
+验证入口
+tools/system_monitor_direct_maintenance_contract_test.cpp：真实路由与私有共享
+内存测试两个端点、rawPayload、设备过滤、空结果及1/3/4/0/-1上限。
+--coverage只运行该组；默认测试入口仍包含该组及原有维护接口回归。
+独立工具仓库desktop-qt/tests/http_tests.cpp及window_tests.cpp覆盖校验、
+已接收快照生命周期、旧接口兼容、筛选警告和停止/异常后的历史提示。
+实际ARM五万点证据及范围以独立工具仓库验收记录为准；本文不代表生产放行。

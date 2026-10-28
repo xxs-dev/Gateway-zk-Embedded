@@ -2051,6 +2051,43 @@ Optional<WritebackResultRecord> MemoryPointStore::getWritebackResult(const std::
     return findWritebackResult(layout2, cmdId, 0, false);
 }
 
+std::vector<WritebackResultRecord> MemoryPointStore::recentWritebackResults(
+    std::uint32_t index, std::size_t limit
+) const {
+    if (index == 0 || limit == 0 || limit > 100) throw std::invalid_argument("invalid receipt query bounds");
+    ensureCurrentMapping();
+    ReadLock lock(mutex_);
+#ifdef _WIN32
+    SharedLockGuard sharedLock(mutexHandle_);
+#else
+    auto* layout = layoutFrom(sharedView_);
+    SharedLockGuard sharedLock(&layout->header.mutex);
+#endif
+    const auto* data = layoutFrom(sharedView_);
+    std::vector<WritebackResultRecord> results;
+    auto cursor = data->header.writebackResultTail;
+    // Walk backwards by insertion order, independent of clock corrections.
+    while (cursor != data->header.writebackResultHead && results.size() < limit) {
+        cursor = (cursor + kMaxWritebackResultSlots - 1) % kMaxWritebackResultSlots;
+        const auto& slot = data->writebackResults[cursor];
+        if (!slot.occupied || slot.index != index) continue;
+        WritebackResultRecord r;
+        r.cmdId = readString(slot.cmdId, kCmdIdSize);
+        r.index = slot.index; r.value = slot.value;
+        r.success = (slot.success & 0x01U) != 0;
+        r.highPriority = (slot.success & 0x02U) != 0;
+        r.message = readString(slot.message, kWritebackMessageSize);
+        r.stage = readString(slot.stage, kWritebackStageSize);
+        r.requestedAt = slot.requestedAt; r.acceptedAt = slot.acceptedAt;
+        r.startedAt = slot.startedAt; r.completedAt = slot.completedAt;
+        r.queueDelayMs = slot.queueDelayMs; r.deviceWriteMs = slot.deviceWriteMs;
+        r.edgeElapsedMs = slot.edgeElapsedMs; r.totalElapsedMs = slot.totalElapsedMs;
+        r.verifyAttempted = slot.verifyAttempted != 0; r.verifyPassed = slot.verifyPassed != 0;
+        results.push_back(std::move(r));
+    }
+    return results;
+}
+
 Optional<WritebackResultRecord> MemoryPointStore::getWritebackResult(
     const std::string& cmdId,
     std::uint32_t index

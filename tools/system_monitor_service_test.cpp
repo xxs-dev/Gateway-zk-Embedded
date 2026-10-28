@@ -776,6 +776,63 @@ int main() {
     require(leaseFile.find("\"METER_2\"") == std::string::npos, "filtered monitor lease should not include unrelated meters");
     require(leaseFile.find("\"expireAtMs\":1770000040000") != std::string::npos, "filtered monitor lease should include expiry");
 
+    auto quietPublisher = std::make_shared<CapturingPublisher>();
+    SystemMonitorService quietService(leaseConfig, leaseMqtt, quietPublisher, "GW_TEST", std::vector<std::string>{}, &router);
+    const auto quietRequest = [&](const std::string& body, std::int64_t now) {
+        MqttIncomingMessage request;
+        request.type = MqttIncomingType::SystemMonitorRequest;
+        request.payload = body;
+        quietPublisher->incoming.push_back(request);
+        quietService.runOnce(now);
+    };
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"QUIET","meterCode":"METER_1","includePoints":false,"intervalMs":500,"ttlSec":30})", 1770000020000LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 0,
+            "includePoints=false must not publish a duplicate point table");
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorTelemetryTopic) == 1,
+            "quiet point lease must keep system telemetry");
+    require(lastPayloadForTopic(*quietPublisher, leaseMqtt.systemMonitorReplyTopic).find("\"accepted\":true") != std::string::npos,
+            "quiet point lease must be acknowledged");
+    auto quietLeaseFile = readFile(leaseConfig.realtimeMeterLeaseFile);
+    require(quietLeaseFile.find("\"meterCodes\":[\"METER_1\"]") != std::string::npos &&
+            quietLeaseFile.find("\"expireAtMs\":1770000050000") != std::string::npos,
+            "suppressing duplicate output must preserve driver sampling hints and expiry");
+    quietService.runOnce(1770000020500LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 0,
+            "quiet point lease must suppress periodic output too");
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"QUIET_ALL","includePoints":false,"intervalMs":500,"ttlSec":30})", 1770000020600LL);
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"LEGACY","meterCode":"METER_2","intervalMs":2000,"ttlSec":30})", 1770000021000LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 1,
+            "legacy request without includePoints must still publish immediately");
+    auto quietPayload = lastPayloadForTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic);
+    require(quietPayload.find("\"meterCode\":\"METER_2\"") != std::string::npos &&
+            quietPayload.find("\"meterCode\":\"METER_1\"") == std::string::npos,
+            "quiet filtered/global sessions must not broaden another client's requested point scope");
+    quietService.runOnce(1770000021500LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 1,
+            "quiet sessions must not accelerate another client's point publication interval");
+    quietService.runOnce(1770000023000LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 2,
+            "legacy periodic output must remain active at its requested interval");
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"LEGACY","meterCode":"METER_2","includePoints":false,"ttlSec":30})", 1770000023100LL);
+    quietService.runOnce(1770000029000LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 2,
+            "renewing the last point subscriber as quiet must stop periodic tables");
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"QUIET","meterCode":"METER_1","includePoints":"false","ttlSec":30})", 1770000029100LL);
+    require(lastPayloadForTopic(*quietPublisher, leaseMqtt.statusTopic).find("request-failed") != std::string::npos,
+            "non-boolean includePoints must reject the request before changing its lease");
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 2,
+            "invalid flag must not enable output");
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"QUIET","meterCode":"METER_1","ttlSec":1})", 1770000030000LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 3,
+            "omitted flag on renewal must restore legacy point output");
+    quietService.runOnce(1770000031000LL);
+    require(countTopic(*quietPublisher, leaseMqtt.systemMonitorPointTopic) == 3,
+            "expired point subscriber must not publish for remaining quiet sessions");
+    quietRequest(R"({"machineCode":"GW_TEST","sessionId":"LEGACY","action":"unsubscribe"})", 1770000031100LL);
+    quietLeaseFile = readFile(leaseConfig.realtimeMeterLeaseFile);
+    require(quietLeaseFile.find("\"meterCodes\":[]") != std::string::npos,
+            "unsubscribe/expiry must still remove quiet driver sampling hints");
+
     const std::string lockedStoreName = "system_monitor_service_locked_" + std::to_string(getpid());
     MemoryPointStore::cleanupOrphanedSegment(lockedStoreName);
     MemoryPointStore lockedStore(lockedStoreName);

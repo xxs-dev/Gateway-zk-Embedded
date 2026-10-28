@@ -144,6 +144,7 @@ private:
     struct MonitorLease {
         std::string sessionId;
         std::string meterCode;
+        bool includePoints = true;
         int intervalMs = 5000;
         std::int64_t expireAtMs = 0;
     };
@@ -195,9 +196,9 @@ private:
     void publishStatusEvent(const std::string& event, std::int64_t ts, const std::string& detailsJson = std::string()) const;
     void publishPointSnapshot(std::int64_t nowMs);
     void writeRealtimeMeterLeases(std::int64_t nowMs) const;
-    bool hasActiveLease(std::int64_t nowMs) const;
+    bool hasActiveLease(std::int64_t nowMs, bool pointsOnly = false) const;
     bool activeLeaseRequiresAllPoints(std::int64_t nowMs) const;
-    std::vector<std::string> activeMeterCodes(std::int64_t nowMs) const;
+    std::vector<std::string> activeMeterCodes(std::int64_t nowMs, bool pointsOnly = false) const;
     int effectiveIntervalMs(std::int64_t nowMs) const;
     bool isCommandAllowed(const std::string& command) const;
     std::string buildDiagShellCommand(const std::string& command, const std::string& arg) const;
