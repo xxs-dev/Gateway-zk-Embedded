@@ -1,0 +1,75 @@
+{
+  "savedAtUtc": "2026-09-24T07:34:40.769231+00:00",
+  "mode": "fixed",
+  "source": "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924",
+  "runs": [
+    {
+      "label": "fixed-configure",
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924",
+        "-B",
+        "/tmp/gateway-fixed-cluster-7e392ce-20260924",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "seconds": 4.576
+    },
+    {
+      "label": "fixed-build",
+      "argv": [
+        "cmake",
+        "--build",
+        "/tmp/gateway-fixed-cluster-7e392ce-20260924",
+        "--target",
+        "ems_cluster_test",
+        "graph_ems_cluster_dispatch_test",
+        "--parallel",
+        "4"
+      ],
+      "exitCode": 0,
+      "seconds": 22.319
+    },
+    {
+      "label": "fixed-ems_cluster_test",
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/tmp/gateway-fixed-cluster-7e392ce-20260924/ems_cluster_test",
+        "/tmp/cluster-suite-ehc3vc_o"
+      ],
+      "exitCode": 0,
+      "seconds": 4.127,
+      "binarySha256": "6975a211af7d7795403bbcc3eb5f33a23315c8281c46ebf363fce42b73742375"
+    },
+    {
+      "label": "fixed-graph_ems_cluster_dispatch_test",
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/tmp/gateway-fixed-cluster-7e392ce-20260924/graph_ems_cluster_dispatch_test",
+        "/tmp/cluster-suite-njmx7t8j"
+      ],
+      "exitCode": 0,
+      "seconds": 0.117,
+      "binarySha256": "5f2866667eadbfbe5db70907a90495b33d0f2f4cfaddd63b2eb0e737cfb19b32"
+    }
+  ],
+  "provenance": "Native Linux x86 test-only build from pinned worktree"
+}

@@ -1,0 +1,195 @@
+{
+  "sourceCommit": "7e392cec6218244b0a230a5f0d58c96888fd51de",
+  "steps": [
+    {
+      "label": "probe-configure",
+      "argv": [
+        "cmake",
+        "-S",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924",
+        "-B",
+        "/home/wmzdxs/.cache/edge-cluster-fixed-7e392ce-20260924",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DBUILD_TESTING=ON"
+      ],
+      "exitCode": 0,
+      "seconds": 4.325
+    },
+    {
+      "label": "probe-library-build",
+      "argv": [
+        "cmake",
+        "--build",
+        "/home/wmzdxs/.cache/edge-cluster-fixed-7e392ce-20260924",
+        "--target",
+        "edge_gateway",
+        "--parallel",
+        "4"
+      ],
+      "exitCode": 0,
+      "seconds": 19.363
+    },
+    {
+      "label": "probe-compile",
+      "argv": [
+        "c++",
+        "-std=c++17",
+        "-O0",
+        "-g",
+        "-I/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/include",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/lease_probe.cpp",
+        "/home/wmzdxs/.cache/edge-cluster-fixed-7e392ce-20260924/libedge_gateway.a",
+        "-pthread",
+        "-ldl",
+        "-o",
+        "/home/wmzdxs/.cache/edge-cluster-fixed-7e392ce-20260924/lease_probe"
+      ],
+      "exitCode": 0,
+      "seconds": 1.82
+    },
+    {
+      "label": "probe-trace",
+      "argv": [
+        "unshare",
+        "--mount",
+        "--net",
+        "--ipc",
+        "--pid",
+        "--fork",
+        "--mount-proc",
+        "sh",
+        "/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924/evidence/realese1.0/cluster-20260924/isolated_test.sh",
+        "/home/wmzdxs/.cache/edge-cluster-fixed-7e392ce-20260924/lease_probe",
+        "/tmp/lease-probe-3fv7mo7q"
+      ],
+      "exitCode": 0,
+      "seconds": 0.034
+    }
+  ],
+  "stepMs": 25,
+  "partitionLeaderLeaseMs": 400,
+  "electionTimeoutMinMs": 500,
+  "electionTimeoutMaxMs": 800,
+  "librarySha256": "385b538253e5a7efd82d845da035ad7afba9533c2b120fc2e405ded14da4869f",
+  "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "buildCacheSource": [
+    "CMAKE_HOME_DIRECTORY:INTERNAL=/mnt/d/workspace/GatewaySuite-workspaces/GW-20260809-002/edge/cluster-evidence-20260924"
+  ],
+  "binarySha256": "400ec734cb11f9eabed5a3613b139cc9c8b2170dd3ca6dd43359613294bd76b4",
+  "scenarios": [
+    {
+      "scenario": "partition-repeat-1",
+      "roleOverlap": {
+        "firstMs": 750,
+        "lastMs": 800,
+        "samples": 3,
+        "longestSampleIntervalMs": 50,
+        "longestUntilNextTickMs": 75
+      },
+      "quorumLeaderOverlap": {
+        "firstMs": 750,
+        "lastMs": 800,
+        "samples": 3,
+        "longestSampleIntervalMs": 50,
+        "longestUntilNextTickMs": 75
+      },
+      "controlLeaderOverlap": {
+        "firstMs": 775,
+        "lastMs": 800,
+        "samples": 2,
+        "longestSampleIntervalMs": 25,
+        "longestUntilNextTickMs": 50
+      },
+      "dispatchLeaderOverlap": {
+        "firstMs": 775,
+        "lastMs": 800,
+        "samples": 2,
+        "longestSampleIntervalMs": 25,
+        "longestUntilNextTickMs": 50
+      },
+      "combinedLeaderOverlap": {
+        "firstMs": 775,
+        "lastMs": 800,
+        "samples": 2,
+        "longestSampleIntervalMs": 25,
+        "longestUntilNextTickMs": 50
+      }
+    },
+    {
+      "scenario": "partition-repeat-2",
+      "roleOverlap": {
+        "firstMs": 750,
+        "lastMs": 800,
+        "samples": 3,
+        "longestSampleIntervalMs": 50,
+        "longestUntilNextTickMs": 75
+      },
+      "quorumLeaderOverlap": {
+        "firstMs": 750,
+        "lastMs": 800,
+        "samples": 3,
+        "longestSampleIntervalMs": 50,
+        "longestUntilNextTickMs": 75
+      },
+      "controlLeaderOverlap": {
+        "firstMs": 775,
+        "lastMs": 800,
+        "samples": 2,
+        "longestSampleIntervalMs": 25,
+        "longestUntilNextTickMs": 50
+      },
+      "dispatchLeaderOverlap": {
+        "firstMs": 775,
+        "lastMs": 800,
+        "samples": 2,
+        "longestSampleIntervalMs": 25,
+        "longestUntilNextTickMs": 50
+      },
+      "combinedLeaderOverlap": {
+        "firstMs": 775,
+        "lastMs": 800,
+        "samples": 2,
+        "longestSampleIntervalMs": 25,
+        "longestUntilNextTickMs": 50
+      }
+    },
+    {
+      "scenario": "connected-control",
+      "roleOverlap": {
+        "firstMs": null,
+        "lastMs": null,
+        "samples": 0,
+        "longestSampleIntervalMs": 0,
+        "longestUntilNextTickMs": 0
+      },
+      "quorumLeaderOverlap": {
+        "firstMs": null,
+        "lastMs": null,
+        "samples": 0,
+        "longestSampleIntervalMs": 0,
+        "longestUntilNextTickMs": 0
+      },
+      "controlLeaderOverlap": {
+        "firstMs": null,
+        "lastMs": null,
+        "samples": 0,
+        "longestSampleIntervalMs": 0,
+        "longestUntilNextTickMs": 0
+      },
+      "dispatchLeaderOverlap": {
+        "firstMs": null,
+        "lastMs": null,
+        "samples": 0,
+        "longestSampleIntervalMs": 0,
+        "longestUntilNextTickMs": 0
+      },
+      "combinedLeaderOverlap": {
+        "firstMs": null,
+        "lastMs": null,
+        "samples": 0,
+        "longestSampleIntervalMs": 0,
+        "longestUntilNextTickMs": 0
+      }
+    }
+  ]
+}
