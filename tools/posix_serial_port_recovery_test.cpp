@@ -39,6 +39,21 @@ int main() {
         port.open();
         require(port.isOpen(), "pseudo serial port should open");
 
+        // driver-review: one owner per line. A second configuration on the same port must fail
+        // loudly instead of overwriting the line settings and interleaving frames.
+        {
+            edge_gateway::PosixSerialPort second(options);
+            bool busy = false;
+            try {
+                second.open();
+            } catch (const std::exception& ex) {
+                busy = std::string(ex.what()).find("busy") != std::string::npos &&
+                    std::string(ex.what()).find(slaveName) != std::string::npos;
+            }
+            require(busy, "a second open of a held serial port must report it busy with the device path");
+            require(!second.isOpen(), "the refused port must not keep a descriptor");
+        }
+
         close(master);
         bool failed = false;
         try {
