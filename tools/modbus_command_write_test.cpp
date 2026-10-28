@@ -112,7 +112,9 @@ DeviceConfig config(const std::string& shm) {
     scaled.read.scale = 0.1;
     scaled.write.scale = 0.1;
     auto mismatch = writablePoint(4, "limit", 400, "uint16");
-    cfg.points = {power, bit, scaled, mismatch};
+    auto unverifiable = writablePoint(5, "unverifiable", 500, "uint16");
+    unverifiable.read.enable = false;
+    cfg.points = {power, bit, scaled, mismatch, unverifiable};
     return cfg;
 }
 
@@ -148,8 +150,9 @@ int main() {
         client->registers[400] = 7;
         client->writeFault = RegisterClient::Fault::IgnoreWrite;  // acknowledged, but the device keeps 7
         const auto mismatch = write(executor, 4, 9.0);
-        require(!mismatch.success && !mismatch.outcomeUnknown && mismatch.message.find("verify failed") == 0,
-                "a readback that differs from the written value is a definite verify failure");
+        require(!mismatch.success && mismatch.feedbackMismatch && !mismatch.outcomeUnknown &&
+                mismatch.verifyAttempted && !mismatch.verifyPassed && mismatch.message.find("verify failed") == 0,
+                "an acknowledged write whose readback differs is a feedback mismatch, not a definite failure");
 
         client->writeFault = RegisterClient::Fault::TimeoutAfterSend;
         auto unknown = write(executor, 4, 11.0);
@@ -172,6 +175,13 @@ int main() {
                 "an acknowledged write whose verification read failed must be outcome unknown");
         client->failReads = false;
         client->writeFault = RegisterClient::Fault::None;
+
+        // Regression: verify without read capability used to be checked after the device had written.
+        const auto writesBefore = client->writes;
+        const auto unverifiable = write(executor, 5, 3.0);
+        require(!unverifiable.success && !unverifiable.outcomeUnknown && !unverifiable.feedbackMismatch &&
+                client->writes == writesBefore && client->registers.count(500) == 0,
+                "an unverifiable write must be refused before anything is sent");
 
         // Read-modify-write: a failing pre-read is a definite failure (nothing was written).
         client->failReads = true;
