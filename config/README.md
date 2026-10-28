@@ -101,7 +101,7 @@ DLT645-2007 单串口多表：
 ./MqttDriver --app-config config/runtime/apps/mqtt-service.json
 ```
 
-模拟采集联调时才追加 `--mock`。
+模拟采集联调时才追加 `--mock`。DL/T 645-1997 表的示例配置为 `examples/device_dlt645_1997_meters.json`（`protocol.type=dlt645_1997`，模板 `templates/dlt645_1997_standard_points.json`）；只接一块表时可加 `--read-address` 读出表地址，见 `doc/协议与驱动/电表协议接入方案.md`。
 
 本机 DI/DO：
 
