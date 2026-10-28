@@ -67,6 +67,9 @@ void validateProtocol(const DeviceConfig& config) {
     if (iec.balanced) {
         reject("protocol.iec.balanced=true: only unbalanced FT1.2 transmission is implemented");
     }
+    if (iec.timestampZone != "local" && iec.timestampZone != "utc") {
+        reject("protocol.iec.timestampZone=\"" + iec.timestampZone + "\" must be \"local\" or \"utc\"");
+    }
     if (mode == "am5se_active_tcp" && (config.protocol.tcp.host.empty() || config.protocol.tcp.port <= 0)) {
         reject("protocol.iec.transportMode=am5se_active_tcp requires protocol.tcp.host and protocol.tcp.port");
     }

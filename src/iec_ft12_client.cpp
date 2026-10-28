@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -35,6 +38,36 @@ std::string normalizedProtocol(std::string value) {
     return value;
 }
 
+// GATEWAY_IEC103_DEBUG=1 (same convention as GATEWAY_DLT645_DEBUG): log every IEC 103 change
+// frame (ASDU 1/2) with its raw octets, raw DPI and CP32Time2a fields, so that the DPI can be
+// compared with the real breaker position on site. Off by default.
+bool iec103DebugEnabled() {
+    const char* value = std::getenv("GATEWAY_IEC103_DEBUG");
+    return value != nullptr && std::string(value) != "0" && std::string(value) != "false";
+}
+
+void logIec103ChangeFrame(const std::vector<std::uint8_t>& asdu, const std::vector<IecDataValue>& decoded) {
+    const std::size_t timeOffset = 4 + 3 + (asdu[0] == 2 ? 4 : 0);
+    if (asdu.size() < timeOffset + 4) {
+        std::cerr << "IEC103 change frame (truncated) raw=" << IecCodec::toHex(asdu) << std::endl;
+        return;
+    }
+    const int ms = asdu[timeOffset] | (asdu[timeOffset + 1] << 8);
+    std::ostringstream line;
+    line << "IEC103 change frame ASDU" << static_cast<int>(asdu[0])
+         << " COT=" << static_cast<int>(asdu[2]) << " CA=" << static_cast<int>(asdu[3])
+         << " FUN=" << static_cast<int>(asdu[4]) << " INF=" << static_cast<int>(asdu[5])
+         << " DPI=" << (asdu[6] & 0x03)
+         << " CP32=" << std::setfill('0') << std::setw(2) << (asdu[timeOffset + 3] & 0x1F)
+         << ':' << std::setw(2) << (asdu[timeOffset + 2] & 0x3F)
+         << ':' << std::setw(2) << ms / 1000 << '.' << std::setw(3) << ms % 1000
+         << " IV=" << ((asdu[timeOffset + 2] & 0x80) != 0 ? 1 : 0)
+         << " SU=" << ((asdu[timeOffset + 3] & 0x80) != 0 ? 1 : 0)
+         << " timestampMs=" << (decoded.empty() ? 0 : decoded.front().timestampMs)
+         << " raw=" << IecCodec::toHex(asdu);
+    std::cerr << line.str() << std::endl;
+}
+
 Ft12Profile profileOf(const std::string& protocolType) {
     if (protocolType == "iec101") {
         return Ft12Profile::Iec101;
@@ -60,7 +93,8 @@ Ft12LinkOptions ft12LinkOptions(Ft12Profile profile, const IecProtocolConfig& co
 Ft12PollSession::Ft12PollSession(Ft12Profile profile, IecProtocolConfig config, Ft12UnbalancedMaster& master)
     : profile_(profile),
       config_(std::move(config)),
-      master_(master) {
+      master_(master),
+      debugChangeFrames_(profile == Ft12Profile::Iec103 && iec103DebugEnabled()) {
 }
 
 Ft12Profile Ft12PollSession::profile() const {
@@ -161,6 +195,9 @@ void Ft12PollSession::absorb(const std::vector<std::uint8_t>& asdu, std::vector<
                 return;
             }
             const auto values = IecCodec::decodeIec103Data(asdu, config_);
+            if (debugChangeFrames_ && (asdu[0] == 1 || asdu[0] == 2)) {
+                logIec103ChangeFrame(asdu, values);
+            }
             out.insert(out.end(), values.begin(), values.end());
             return;
         }

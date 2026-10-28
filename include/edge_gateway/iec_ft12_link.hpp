@@ -142,7 +142,8 @@ public:
     // SEND/CONFIRM user data (FC 3, FCV=1, FCB toggled). Returns ACK or NACK.
     Ft12Reply sendConfirm(const std::vector<std::uint8_t>& asdu);
     // REQUEST/RESPOND class 1 (FC 10) or class 2 (FC 11) data. Returns user data (FC 8) or
-    // "no data" (FC 9 or E5).
+    // "no data" (FC 9 or E5; a fixed ACK FC 0 is also accepted as a temporary compatibility
+    // branch for the field AM5 relay, see Ft12UnbalancedMaster::acceptable).
     Ft12Reply requestClassData(int dataClass);
     // ACD / DFC of the last accepted reply.
     bool accessDemand() const;

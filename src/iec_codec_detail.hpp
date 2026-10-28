@@ -68,31 +68,86 @@ inline std::int64_t systemNowMs() {
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-inline std::tm localTime(std::int64_t unixMs) {
+// Time tags (CP56Time2a, CP24Time2a, IEC 103 CP32Time2a) are wall-clock times of the zone set by
+// protocol.iec.timestampZone: "local" = the gateway's own time zone (default), "utc" = UTC.
+struct TimeTagContext {
+    std::int64_t nowMs = 0;  // resolves tags without a date (CP24, CP32)
+    bool utc = false;
+};
+
+inline bool timeTagsUtc(const IecProtocolConfig& config) {
+    return config.timestampZone == "utc";
+}
+
+inline TimeTagContext timeTagContext(const IecProtocolConfig& config, std::int64_t nowMs) {
+    TimeTagContext context;
+    context.nowMs = nowMs > 0 ? nowMs : systemNowMs();
+    context.utc = timeTagsUtc(config);
+    return context;
+}
+
+inline std::tm brokenDownTime(std::int64_t unixMs, bool utc) {
     const auto seconds = static_cast<std::time_t>(unixMs / 1000);
     std::tm value{};
 #ifdef _WIN32
-    localtime_s(&value, &seconds);
+    if (utc) gmtime_s(&value, &seconds); else localtime_s(&value, &seconds);
 #else
-    localtime_r(&seconds, &value);
+    if (utc) gmtime_r(&seconds, &value); else localtime_r(&seconds, &value);
 #endif
     return value;
 }
 
-// IEC time tags carry local time (IEC 60870-5-4 / -101 7.2.6.18); the gateway clock zone is used.
-inline void appendCp56Time2a(std::vector<std::uint8_t>& bytes, std::int64_t unixTimeMs) {
-    const auto tm = localTime(unixTimeMs);
+// Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant's days_from_civil).
+inline std::int64_t daysFromCivil(int year, int month, int day) {
+    year -= month <= 2 ? 1 : 0;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const int yearOfEra = year - era * 400;
+    const int dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const int dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    return static_cast<std::int64_t>(era) * 146097 + dayOfEra - 719468;
+}
+
+// Wall time of the time-tag zone -> Unix seconds; -1 when it cannot be represented.
+// local: summerTime (SU of IEC 60870-5-4, 1/0) selects daylight-saving or standard time, which
+// decides the repeated hour at the end of DST. When that combination does not exist for the
+// gateway zone (zone without DST, or SU contradicting the date) the zone's own rule applies.
+// utc: there is no summer time; SU is ignored.
+inline std::int64_t wallTimeToUnixSeconds(std::tm value, bool utc, int summerTime) {
+    if (utc) {
+        return daysFromCivil(value.tm_year + 1900, value.tm_mon + 1, value.tm_mday) * 86400 +
+            value.tm_hour * 3600 + value.tm_min * 60 + value.tm_sec;
+    }
+    if (summerTime >= 0) {
+        std::tm attempt = value;
+        attempt.tm_isdst = summerTime;
+        const auto seconds = std::mktime(&attempt);
+        if (seconds != static_cast<std::time_t>(-1)) {
+            const auto check = brokenDownTime(static_cast<std::int64_t>(seconds) * 1000, false);
+            if ((check.tm_isdst > 0) == (summerTime > 0) && check.tm_hour == value.tm_hour &&
+                check.tm_min == value.tm_min && check.tm_mday == value.tm_mday) {
+                return static_cast<std::int64_t>(seconds);
+            }
+        }
+    }
+    value.tm_isdst = -1;
+    const auto seconds = std::mktime(&value);
+    return seconds == static_cast<std::time_t>(-1) ? -1 : static_cast<std::int64_t>(seconds);
+}
+
+// SU is set when the local zone is in daylight-saving time; never for UTC.
+inline void appendCp56Time2a(std::vector<std::uint8_t>& bytes, std::int64_t unixTimeMs, bool utc) {
+    const auto tm = brokenDownTime(unixTimeMs, utc);
     const auto msOfMinute = static_cast<std::uint32_t>(tm.tm_sec * 1000 + static_cast<int>(((unixTimeMs % 1000) + 1000) % 1000));
     appendLe(bytes, msOfMinute, 2);
     bytes.push_back(static_cast<std::uint8_t>(tm.tm_min & 0x3F));
-    bytes.push_back(static_cast<std::uint8_t>(tm.tm_hour & 0x1F));
+    bytes.push_back(static_cast<std::uint8_t>((tm.tm_hour & 0x1F) | (!utc && tm.tm_isdst > 0 ? 0x80 : 0x00)));
     bytes.push_back(static_cast<std::uint8_t>(((tm.tm_wday == 0 ? 7 : tm.tm_wday) << 5) | (tm.tm_mday & 0x1F)));
     bytes.push_back(static_cast<std::uint8_t>((tm.tm_mon + 1) & 0x0F));
     bytes.push_back(static_cast<std::uint8_t>((tm.tm_year % 100) & 0x7F));
 }
 
 // Returns 0 when the tag is flagged invalid (IV) or out of range.
-inline std::int64_t decodeCp56Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
+inline std::int64_t decodeCp56Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset, bool utc) {
     if (offset + 7 > bytes.size()) {
         throw std::runtime_error("IEC CP56Time2a is truncated");
     }
@@ -112,16 +167,16 @@ inline std::int64_t decodeCp56Time2a(const std::vector<std::uint8_t>& bytes, std
     tmValue.tm_mday = day;
     tmValue.tm_mon = month - 1;
     tmValue.tm_year = (bytes[offset + 6] & 0x7F) + 100;
-    tmValue.tm_isdst = -1;
-    const auto seconds = std::mktime(&tmValue);
+    const int summerTime = (bytes[offset + 3] & 0x80U) != 0 ? 1 : 0;
+    const auto seconds = wallTimeToUnixSeconds(tmValue, utc, summerTime);
     if (seconds < 0) {
         return 0;
     }
-    return static_cast<std::int64_t>(seconds) * 1000 + (msOfMinute % 1000);
+    return seconds * 1000 + (msOfMinute % 1000);
 }
 
 // CP24Time2a (ms + minute): the most recent instant not later than now (+1 min skew).
-inline std::int64_t decodeCp24Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset, std::int64_t nowMs) {
+inline std::int64_t decodeCp24Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset, const TimeTagContext& context) {
     if (offset + 3 > bytes.size()) {
         throw std::runtime_error("IEC CP24Time2a is truncated");
     }
@@ -130,9 +185,10 @@ inline std::int64_t decodeCp24Time2a(const std::vector<std::uint8_t>& bytes, std
     if ((bytes[offset + 2] & 0x80U) != 0 || msOfMinute > 59999 || minute > 59) {
         return 0;
     }
-    const auto local = localTime(nowMs);
-    const auto startOfHour = nowMs - (static_cast<std::int64_t>(local.tm_min) * 60000 +
-        static_cast<std::int64_t>(local.tm_sec) * 1000 + nowMs % 1000);
+    const auto nowMs = context.nowMs;
+    const auto wall = brokenDownTime(nowMs, context.utc);
+    const auto startOfHour = nowMs - (static_cast<std::int64_t>(wall.tm_min) * 60000 +
+        static_cast<std::int64_t>(wall.tm_sec) * 1000 + nowMs % 1000);
     auto candidate = startOfHour + static_cast<std::int64_t>(minute) * 60000 + msOfMinute;
     if (candidate > nowMs + 60000) {
         candidate -= 3600000;
@@ -140,8 +196,10 @@ inline std::int64_t decodeCp24Time2a(const std::vector<std::uint8_t>& bytes, std
     return candidate;
 }
 
-// IEC 103 CP32Time2a (ms + minute + hour): resolved to the day closest to now.
-inline std::int64_t decodeCp32Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset, std::int64_t nowMs) {
+// IEC 103 CP32Time2a (ms + minute + hour): resolved to the day, in the time-tag zone, closest to
+// now. Its SU bit is not used: the day is taken from the current time, so only the repeated
+// hour at the end of DST could be ambiguous.
+inline std::int64_t decodeCp32Time2a(const std::vector<std::uint8_t>& bytes, std::size_t offset, const TimeTagContext& context) {
     if (offset + 4 > bytes.size()) {
         throw std::runtime_error("IEC CP32Time2a is truncated");
     }
@@ -151,9 +209,10 @@ inline std::int64_t decodeCp32Time2a(const std::vector<std::uint8_t>& bytes, std
     if ((bytes[offset + 2] & 0x80U) != 0 || msOfMinute > 59999 || minute > 59 || hour > 23) {
         return 0;
     }
-    const auto local = localTime(nowMs);
-    const auto startOfDay = nowMs - (static_cast<std::int64_t>(local.tm_hour) * 3600000 +
-        static_cast<std::int64_t>(local.tm_min) * 60000 + static_cast<std::int64_t>(local.tm_sec) * 1000 +
+    const auto nowMs = context.nowMs;
+    const auto wall = brokenDownTime(nowMs, context.utc);
+    const auto startOfDay = nowMs - (static_cast<std::int64_t>(wall.tm_hour) * 3600000 +
+        static_cast<std::int64_t>(wall.tm_min) * 60000 + static_cast<std::int64_t>(wall.tm_sec) * 1000 +
         nowMs % 1000);
     auto candidate = startOfDay + static_cast<std::int64_t>(hour) * 3600000 +
         static_cast<std::int64_t>(minute) * 60000 + msOfMinute;

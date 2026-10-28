@@ -53,6 +53,8 @@ private:
     bool counterInProgress_ = false;
     std::int64_t counterSentMs_ = 0;
     std::int64_t nextCounterMs_ = 0;
+    // GATEWAY_IEC103_DEBUG: log raw IEC 103 change frames (ASDU 1/2).
+    bool debugChangeFrames_ = false;
 };
 
 // IEC 101 (serial) and generic IEC 103 (serial or TCP) unbalanced master.

@@ -246,7 +246,7 @@ void decodeInformationObject(
     int cause,
     int commonAddress,
     int ioa,
-    std::int64_t nowMs
+    const iec_detail::TimeTagContext& time
 ) {
     const auto payloadSize = typePayloadSize(typeId);
     if (payloadSize == 0 || offset + payloadSize > bytes.size()) {
@@ -255,9 +255,9 @@ void decodeInformationObject(
     auto value = baseValue(bytes, typeId, cause, commonAddress, ioa);
     const int tagSize = timeTagSize(typeId);
     if (tagSize == 7 && !(typeId >= 58 && typeId <= 64)) {
-        value.timestampMs = decodeCp56Time2a(bytes, offset + payloadSize - 7);
+        value.timestampMs = decodeCp56Time2a(bytes, offset + payloadSize - 7, time.utc);
     } else if (tagSize == 3) {
-        value.timestampMs = decodeCp24Time2a(bytes, offset + payloadSize - 3, nowMs);
+        value.timestampMs = decodeCp24Time2a(bytes, offset + payloadSize - 3, time);
     }
 
     switch (untimedCommandType(typeId)) {
@@ -402,7 +402,7 @@ IecProtectionEvent decodeProtectionEvent(
     int cause,
     int commonAddress,
     int ioa,
-    std::int64_t nowMs
+    const iec_detail::TimeTagContext& time
 ) {
     IecProtectionEvent event;
     event.commonAddress = commonAddress;
@@ -436,9 +436,9 @@ IecProtectionEvent decodeProtectionEvent(
         event.qualityMsg += (event.qualityMsg.empty() ? "" : "; ") + std::string("IEC quality ") + names;
     }
     if (typeId >= 38) {
-        event.timestampMs = decodeCp56Time2a(bytes, offset + payloadSize - 7);
+        event.timestampMs = decodeCp56Time2a(bytes, offset + payloadSize - 7, time.utc);
     } else {
-        event.timestampMs = decodeCp24Time2a(bytes, offset + payloadSize - 3, nowMs);
+        event.timestampMs = decodeCp24Time2a(bytes, offset + payloadSize - 3, time);
     }
     return event;
 }
@@ -667,7 +667,7 @@ std::vector<std::uint8_t> IecCodec::buildIec104ClockSyncCommand(
     std::vector<std::uint8_t> asdu;
     appendAsduHeader(asdu, 103, kIecCauseActivation, config.commonAddress, config);
     appendLe(asdu, 0, config.ioaSize);
-    appendCp56Time2a(asdu, unixTimeMs);
+    appendCp56Time2a(asdu, unixTimeMs, iec_detail::timeTagsUtc(config));
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
 }
 
@@ -783,7 +783,7 @@ std::vector<std::uint8_t> IecCodec::buildIec104ControlCommand(
             throw std::invalid_argument("unsupported IEC104 write typeId: " + std::to_string(typeId));
     }
     if (typeId != untimed) {
-        appendCp56Time2a(asdu, unixTimeMs > 0 ? unixTimeMs : iec_detail::systemNowMs());
+        appendCp56Time2a(asdu, unixTimeMs > 0 ? unixTimeMs : iec_detail::systemNowMs(), iec_detail::timeTagsUtc(config));
     }
     return buildIec104IFrame(asdu, sendSequence, receiveSequence);
 }
@@ -958,9 +958,7 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     if (asdu.size() < static_cast<std::size_t>(2 + config.cotSize + config.caSize)) {
         throw std::runtime_error("IEC ASDU too short");
     }
-    if (nowMs <= 0) {
-        nowMs = iec_detail::systemNowMs();
-    }
+    const auto time = iec_detail::timeTagContext(config, nowMs);
     IecAsdu result;
     result.typeId = asdu[0];
     const auto vsq = asdu[1];
@@ -1033,10 +1031,10 @@ IecAsdu IecCodec::decodeAsdu(const std::vector<std::uint8_t>& asdu, const IecPro
     const auto decodeObject = [&](std::size_t objectOffset, int ioa) {
         if (isProtectionType(result.typeId)) {
             result.protectionEvents.push_back(decodeProtectionEvent(
-                asdu, objectOffset, result.typeId, result.cause, result.commonAddress, ioa, nowMs));
+                asdu, objectOffset, result.typeId, result.cause, result.commonAddress, ioa, time));
         } else {
             decodeInformationObject(
-                result.values, asdu, objectOffset, result.typeId, result.cause, result.commonAddress, ioa, nowMs);
+                result.values, asdu, objectOffset, result.typeId, result.cause, result.commonAddress, ioa, time);
         }
     };
     if (sequential) {
@@ -1131,10 +1129,12 @@ DecodedValue IecCodec::decodePointValue(const PointDefinition& point, const IecD
     std::string text = value.text;
     if (isBooleanDataType(dataType)) {
         if (value.doublePoint) {
-            // DPI 1 = OFF -> 0, 2 = ON -> 1. DPI 0/3 is held by the collector (holdsPreviousValue).
+            // Mapping adopted by the code: DPI 1 -> 0 (off), 2 -> 1 (on); DPI 0/3 is held by the
+            // collector (holdsPreviousValue). IEC 101/104 define these meanings; for IEC 103 /
+            // AM5SE change frames the firmware meaning is unverified (see decodeIec103Data).
             const int dpi = static_cast<int>(value.value) & 0x03;
             raw = dpi == 2 ? 1.0 : 0.0;
-            text = dpi == 2 ? "on" : dpi == 1 ? "off" : "indeterminate";
+            text = dpi == 2 ? "on" : dpi == 1 ? "off" : "no on/off mapping";
         } else {
             raw = value.value > 0.0 ? value.value : 0.0;
         }

@@ -215,7 +215,8 @@ void verifyActiveMode() {
     removeTestOutput(output);
 }
 
-// Finding 3: ASDU 1 DPI 1/2 must become 0/1 on a boolean point, 0/3 bad quality.
+// Finding 3: the code's adopted mapping of ASDU 1 DPI on a boolean point (1 -> 0, 2 -> 1, 0/3 bad
+// quality). It tests the code, not the AM5SE firmware semantics, which are still unverified.
 void verifyDoublePointChanges() {
     ActiveFixture fixture{Am5seBehaviour()};
     (void)fixture.client->poll();

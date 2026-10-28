@@ -597,9 +597,13 @@ bool Ft12UnbalancedMaster::acceptable(const Ft12Frame& frame, Expect expect) {
         case Expect::Status:
             return !frame.variable && function == 11;
         case Expect::Respond:
-            // FC 9 (or E5) is the standard "no data"; a fixed ACK (FC 0) is tolerated the same way
-            // because some IEC 103 relays answer an empty class poll with it. Stale ACKs of earlier
-            // exchanges are removed by the pre-send flush and the duplicate filter.
+            // IEC 60870-5-2 "no data" reply is FC 9 (or E5).
+            // COMPATIBILITY BRANCH (FC 0 accepted as "no data"): kept only because the reply code
+            // the field-verified AM5 relay sends to an empty class 1/2 request was never recorded,
+            // and the previous AM5SE driver accepted any frame there. Rejecting FC 0 could make
+            // that relay's link reset every cycle. Remove the `|| function == 0` once its no-data
+            // reply code has been confirmed on site (channel trace) to be FC 9 or E5. Stale ACKs
+            // of earlier exchanges are already removed by the pre-send flush and duplicate filter.
             return frame.variable ? function == 8 && !frame.asdu.empty() : (function == 9 || function == 0);
     }
     return false;

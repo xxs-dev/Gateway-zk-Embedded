@@ -346,10 +346,10 @@ void verifyIec103(IecProtocolConfig config) {
     breaker.read.iec.informationNumber = 100;
     breaker.read.iec.typeId = 44;
     requireTrue(IecCodec::pointMatches(breaker, on), "ASDU44 point accepts ASDU1 changes");
-    requireNear(IecCodec::decodePointValue(breaker, on).value, 1.0, "DPI 2 (ON) -> 1");
+    requireNear(IecCodec::decodePointValue(breaker, on).value, 1.0, "adopted mapping (firmware unverified): DPI 2 -> 1");
     asdu1[6] = 0x01;
     const auto off = IecCodec::decodeIec103Data(asdu1, config, now).at(0);
-    requireNear(IecCodec::decodePointValue(breaker, off).value, 0.0, "DPI 1 (OFF) -> 0");
+    requireNear(IecCodec::decodePointValue(breaker, off).value, 0.0, "adopted mapping (firmware unverified): DPI 1 -> 0");
     requireTrue(!IecCodec::holdsPreviousValue(breaker, off), "DPI 1 is a regular value");
     asdu1[6] = 0x03;
     const auto indeterminate = IecCodec::decodeIec103Data(asdu1, config, now).at(0);
@@ -371,6 +371,99 @@ void verifyIec103(IecProtocolConfig config) {
         std::vector<std::uint8_t>({7, 0x81, 9, 1, 0xFF, 0x00, 0xE9}), "IEC 103 GI is ASDU 7 with COT 9");
 }
 
+// Round 2: protocol.iec.timestampZone. Fixed POSIX zone strings (no tzdata needed).
+class ScopedTimeZone {
+public:
+    explicit ScopedTimeZone(const char* zone) {
+        const char* previous = std::getenv("TZ");
+        hadPrevious_ = previous != nullptr;
+        if (hadPrevious_) previous_ = previous;
+        setenv("TZ", zone, 1);
+        tzset();
+    }
+    ~ScopedTimeZone() {
+        if (hadPrevious_) setenv("TZ", previous_.c_str(), 1); else unsetenv("TZ");
+        tzset();
+    }
+
+private:
+    bool hadPrevious_ = false;
+    std::string previous_;
+};
+
+std::int64_t utcMs(int year, int month, int day, int hour, int minute, int second, int ms) {
+    std::tm tmValue{};
+    tmValue.tm_year = year - 1900;
+    tmValue.tm_mon = month - 1;
+    tmValue.tm_mday = day;
+    tmValue.tm_hour = hour;
+    tmValue.tm_min = minute;
+    tmValue.tm_sec = second;
+    return static_cast<std::int64_t>(timegm(&tmValue)) * 1000 + ms;
+}
+
+std::vector<std::uint8_t> type30With(std::uint8_t hourOctet, int day, int month, int minute, int msOfMinute) {
+    return {30, 1, 3, 0, 1, 0, 0xE9, 0x03, 0x00, 0x01,
+        static_cast<std::uint8_t>(msOfMinute & 0xFF), static_cast<std::uint8_t>(msOfMinute >> 8),
+        static_cast<std::uint8_t>(minute), hourOctet, static_cast<std::uint8_t>(day), static_cast<std::uint8_t>(month), 26};
+}
+
+void verifyTimestampZones(IecProtocolConfig local) {
+    auto utc = local;
+    utc.timestampZone = "utc";
+    {
+        ScopedTimeZone zone("CST-8");  // UTC+8, no DST (gateway zone of the AM5 site)
+        // The same CP56Time2a (2026-10-28 10:05:10.250) yields different point times.
+        const auto frame = type30With(10, 28, 10, 5, 10250);
+        requireTrue(IecCodec::decodeAsdu(frame, local).values.at(0).timestampMs == utcMs(2026, 10, 28, 2, 5, 10, 250),
+            "timestampZone=local reads CP56Time2a as gateway local time");
+        requireTrue(IecCodec::decodeAsdu(frame, utc).values.at(0).timestampMs == utcMs(2026, 10, 28, 10, 5, 10, 250),
+            "timestampZone=utc reads CP56Time2a as UTC");
+        // SU set by a station although the zone has no DST: the zone's own rule applies.
+        const auto summerFlag = type30With(0x80 | 10, 28, 10, 5, 10250);
+        requireTrue(IecCodec::decodeAsdu(summerFlag, local).values.at(0).timestampMs == utcMs(2026, 10, 28, 2, 5, 10, 250),
+            "SU in a zone without DST is ignored");
+        requireTrue(IecCodec::decodeAsdu(summerFlag, utc).values.at(0).timestampMs == utcMs(2026, 10, 28, 10, 5, 10, 250),
+            "SU is ignored for UTC");
+
+        // IEC 103 CP32Time2a (10:00:00.000), now = 2026-10-28 02:30Z (10:30 local).
+        const auto now = utcMs(2026, 10, 28, 2, 30, 0, 0);
+        const std::vector<std::uint8_t> asdu1 = {1, 0x81, 1, 1, 1, 100, 0x02, 0x00, 0x00, 0, 10, 0x00};
+        requireTrue(IecCodec::decodeIec103Data(asdu1, local, now).at(0).timestampMs == utcMs(2026, 10, 28, 2, 0, 0, 0),
+            "IEC103 CP32Time2a in local time");
+        requireTrue(IecCodec::decodeIec103Data(asdu1, utc, now).at(0).timestampMs == utcMs(2026, 10, 28, 10, 0, 0, 0),
+            "IEC103 CP32Time2a in UTC");
+
+        // C_CS_NA_1 carries the configured zone.
+        const auto localSync = IecCodec::iec104AsduPayload(IecCodec::buildIec104ClockSyncCommand(local, 0, 0, now));
+        const auto utcSync = IecCodec::iec104AsduPayload(IecCodec::buildIec104ClockSyncCommand(utc, 0, 0, now));
+        requireTrue(localSync[12] == 10 && utcSync[12] == 2, "clock sync hour follows timestampZone");
+    }
+    {
+        ScopedTimeZone zone("IST-5:30");  // half-hour offset: CP24 hour boundaries differ
+        const auto now = utcMs(2026, 10, 28, 2, 30, 0, 0);  // 08:00 IST
+        const std::vector<std::uint8_t> type2 = {2, 1, 3, 0, 1, 0, 0xE9, 0x03, 0x00, 0x01, 0x00, 0x00, 20};
+        requireTrue(IecCodec::decodeAsdu(type2, local, now).values.at(0).timestampMs == utcMs(2026, 10, 28, 1, 50, 0, 0),
+            "CP24Time2a minute 20 of the previous local hour (07:20 IST)");
+        requireTrue(IecCodec::decodeAsdu(type2, utc, now).values.at(0).timestampMs == utcMs(2026, 10, 28, 2, 20, 0, 0),
+            "CP24Time2a minute 20 of the current UTC hour");
+    }
+    {
+        // Central European time: DST ends 2026-10-25 03:00 CEST -> 02:00 CET, so 02:30 occurs twice.
+        ScopedTimeZone zone("CET-1CEST,M3.5.0,M10.5.0/3");
+        const auto summer = type30With(0x80 | 2, 25, 10, 30, 0);
+        const auto winter = type30With(2, 25, 10, 30, 0);
+        requireTrue(IecCodec::decodeAsdu(summer, local).values.at(0).timestampMs == utcMs(2026, 10, 25, 0, 30, 0, 0),
+            "SU=1 selects the CEST occurrence of the repeated hour");
+        requireTrue(IecCodec::decodeAsdu(winter, local).values.at(0).timestampMs == utcMs(2026, 10, 25, 1, 30, 0, 0),
+            "SU=0 selects the CET occurrence of the repeated hour");
+        const auto july = utcMs(2026, 7, 1, 10, 0, 0, 0);
+        const auto localSync = IecCodec::iec104AsduPayload(IecCodec::buildIec104ClockSyncCommand(local, 0, 0, july));
+        const auto utcSync = IecCodec::iec104AsduPayload(IecCodec::buildIec104ClockSyncCommand(utc, 0, 0, july));
+        requireTrue(localSync[12] == (0x80 | 12) && utcSync[12] == 10, "SU is sent for local summer time only");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -388,6 +481,7 @@ int main() {
     verifyProtectionEvents(config);
     verifyCommandBuilders(config);
     verifyIec103(config);
+    verifyTimestampZones(config);
 
     const std::vector<std::uint8_t> asdu = {
         13, 1,
