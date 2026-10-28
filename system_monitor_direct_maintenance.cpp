@@ -747,6 +747,11 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(
 
     std::vector<std::string> requiredStoreNames;
     std::unordered_set<std::string> seen;
+    if (!failOnRequiredStoreError) {
+        for (const auto& name : runtimeDependencies.sharedMemoryNames) {
+            if (!name.empty() && seen.insert(name).second) requiredStoreNames.push_back(name);
+        }
+    }
     for (const auto& entry : context->router.routes()) {
         const auto& name = entry.second.sharedMemoryName;
         if (!name.empty() && seen.insert(name).second) {
