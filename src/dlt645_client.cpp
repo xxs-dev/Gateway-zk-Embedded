@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -32,12 +33,6 @@ std::string bytesToHex(const std::vector<std::uint8_t>& bytes) {
     return out.str();
 }
 
-std::string hexByte(std::uint8_t value) {
-    std::ostringstream out;
-    out << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(value);
-    return out.str();
-}
-
 void drainStaleInput(edge_gateway::ISerialPort& serialPort) {
     for (int i = 0; i < 16; ++i) {
         if (serialPort.read(256, 0).empty()) {
@@ -54,7 +49,7 @@ int remainingMs(std::chrono::steady_clock::time_point deadline) {
 
 // Data identifier echoed at the start of a normal reply's data field (33H removed).
 bool dataIdMatches(const std::vector<std::uint8_t>& frame, const std::vector<std::uint8_t>& dataId) {
-    if (frame.size() < 14U || frame[9] < 4U) {
+    if (frame.size() < 10U + dataId.size() + 2U || frame[9] < dataId.size()) {
         return false;
     }
     for (std::size_t i = 0; i < dataId.size(); ++i) {
@@ -69,13 +64,19 @@ std::uint8_t errorCodeOf(const std::vector<std::uint8_t>& frame) {
     return frame.size() >= 13U && frame[9] >= 1U ? static_cast<std::uint8_t>(frame[10] - 0x33U) : 0U;
 }
 
+std::uint8_t normalReply(std::uint8_t control) { return static_cast<std::uint8_t>(control | 0x80U); }
+std::uint8_t followUpReply(std::uint8_t control) { return static_cast<std::uint8_t>(control | 0xA0U); }
+std::uint8_t exceptionReply(std::uint8_t control) { return static_cast<std::uint8_t>(control | 0xC0U); }
+
 }  // namespace
 
 Dlt645Client::Dlt645Client(
     std::shared_ptr<ISerialPort> serialPort,
-    SerialPortOptions options
+    SerialPortOptions options,
+    Dlt645Version version
 ) : serialPort_(std::move(serialPort)),
-    options_(std::move(options)) {
+    options_(std::move(options)),
+    version_(version) {
     if (!serialPort_) {
         throw std::invalid_argument("serialPort is required");
     }
@@ -88,51 +89,59 @@ std::vector<std::uint8_t> Dlt645Client::readData(const std::string& meterAddress
     std::lock_guard<std::mutex> lock(transactionMutex_);
     const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
     const auto dataId = Dlt645Codec::parseDataId(dataIdHex);
+    const auto read = Dlt645Codec::readControl(version_);
     bool sent = false;
     const auto response = exchange(
         normalizedAddress,
         dataIdHex,
-        Dlt645Codec::buildReadFrame(normalizedAddress, dataIdHex),
+        Dlt645Codec::buildReadFrame(normalizedAddress, dataIdHex, version_),
         false,
-        [&dataId](const std::vector<std::uint8_t>& frame) {
-            // D1H carries no DI; a 91H/B1H reply must echo the requested one.
-            return frame[8] == 0xD1 || ((frame[8] == 0x91 || frame[8] == 0xB1) && dataIdMatches(frame, dataId));
+        [&dataId, read](const std::vector<std::uint8_t>& frame) {
+            // The exception reply carries no DI; a normal reply must echo the requested one.
+            return frame[8] == exceptionReply(read) ||
+                ((frame[8] == normalReply(read) || frame[8] == followUpReply(read)) && dataIdMatches(frame, dataId));
         },
         sent
     );
-    if (response[8] == 0xD1) {
+    if (response[8] == exceptionReply(read)) {
         const auto code = errorCodeOf(response);
-        throw Dlt645ErrorResponse(code, "DLT645 exception response code=0x" + hexByte(code));
+        throw Dlt645ErrorResponse(code, "DLT645 exception response " + Dlt645Codec::describeError(code, version_));
     }
-    auto data = Dlt645Codec::decodeFrameData(response, dataId);
-    if (response[8] != 0xB1) {
+    auto data = Dlt645Codec::decodeFrameData(response, dataId, version_);
+    if (response[8] != followUpReply(read)) {
         return data;
     }
 
-    // B1H: more data follows; fetch it frame by frame with C=12H and a sequence number.
+    // More data follows: fetch it frame by frame (2007 with a sequence number).
+    const auto followUpRequest = Dlt645Codec::followUpControl(version_);
     for (int sequence = 1; sequence <= kMaxFollowUpFrames; ++sequence) {
         const auto seq = static_cast<std::uint8_t>(sequence);
         const auto followUp = exchange(
             normalizedAddress,
             dataIdHex,
-            Dlt645Codec::buildReadFollowUpFrame(normalizedAddress, dataIdHex, seq),
+            Dlt645Codec::buildReadFollowUpFrame(normalizedAddress, dataIdHex, seq, version_),
             false,
-            [&dataId](const std::vector<std::uint8_t>& frame) {
-                return frame[8] == 0xD2 || ((frame[8] == 0x92 || frame[8] == 0xB2) && dataIdMatches(frame, dataId));
+            [&dataId, followUpRequest](const std::vector<std::uint8_t>& frame) {
+                return frame[8] == exceptionReply(followUpRequest) ||
+                    ((frame[8] == normalReply(followUpRequest) || frame[8] == followUpReply(followUpRequest)) &&
+                     dataIdMatches(frame, dataId));
             },
             sent
         );
-        if (followUp[8] == 0xD2) {
+        if (followUp[8] == exceptionReply(followUpRequest)) {
             const auto code = errorCodeOf(followUp);
-            throw Dlt645ErrorResponse(code, "DLT645 follow-up exception response code=0x" + hexByte(code));
+            throw Dlt645ErrorResponse(code, "DLT645 follow-up exception response " +
+                Dlt645Codec::describeError(code, version_));
         }
-        auto part = Dlt645Codec::decodeFrameData(followUp, dataId);
-        if (part.empty() || part.back() != seq) {
-            throw std::runtime_error("DLT645 follow-up frame sequence mismatch");
+        auto part = Dlt645Codec::decodeFrameData(followUp, dataId, version_);
+        if (version_ == Dlt645Version::V2007) {
+            if (part.empty() || part.back() != seq) {
+                throw std::runtime_error("DLT645 follow-up frame sequence mismatch");
+            }
+            part.pop_back();
         }
-        part.pop_back();
         data.insert(data.end(), part.begin(), part.end());
-        if (followUp[8] == 0x92) {
+        if (followUp[8] == normalReply(followUpRequest)) {
             return data;
         }
     }
@@ -149,21 +158,46 @@ void Dlt645Client::writeData(
     std::lock_guard<std::mutex> lock(transactionMutex_);
     const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
     const auto frame = Dlt645Codec::buildWriteFrame(
-        normalizedAddress,
-        dataIdHex,
-        passwordHex,
-        operatorCodeHex,
-        payload
+        normalizedAddress, dataIdHex, passwordHex, operatorCodeHex, payload, version_
     );
+    sendCommand(normalizedAddress, dataIdHex, frame, Dlt645Codec::writeControl(version_));
+}
+
+void Dlt645Client::remoteControl(
+    const std::string& meterAddress,
+    const std::string& passwordHex,
+    const std::string& operatorCodeHex,
+    std::uint8_t controlTypeCode,
+    const std::tm& validUntil
+) {
+    if (version_ != Dlt645Version::V2007) {
+        throw std::invalid_argument("DLT645 remote control (C=1CH) is DL/T 645-2007 only");
+    }
+    std::lock_guard<std::mutex> lock(transactionMutex_);
+    const auto normalizedAddress = Dlt645Codec::normalizeAddress(meterAddress);
+    const auto frame = Dlt645Codec::buildRemoteControlFrame(
+        normalizedAddress, passwordHex, operatorCodeHex, controlTypeCode, validUntil
+    );
+    sendCommand(normalizedAddress, "remote-control", frame, Dlt645Codec::kRemoteControl);
+}
+
+void Dlt645Client::sendCommand(
+    const std::string& normalizedAddress,
+    const std::string& label,
+    const std::vector<std::uint8_t>& frame,
+    std::uint8_t requestControl
+) {
     bool sent = false;
     std::vector<std::uint8_t> response;
     try {
         response = exchange(
             normalizedAddress,
-            dataIdHex,
+            label,
             frame,
             true,
-            [](const std::vector<std::uint8_t>& reply) { return reply[8] == 0x94 || reply[8] == 0xD4; },
+            [requestControl](const std::vector<std::uint8_t>& reply) {
+                return reply[8] == normalReply(requestControl) || reply[8] == exceptionReply(requestControl);
+            },
             sent
         );
     } catch (const std::exception& ex) {
@@ -171,16 +205,121 @@ void Dlt645Client::writeData(
             throw;
         }
         throw Dlt645OutcomeUnknownError(
-            std::string("DLT645 write outcome unknown (request sent, no conclusive reply): ") + ex.what()
+            std::string("DLT645 command outcome unknown (request sent, no conclusive reply): ") + ex.what()
         );
     }
-    if (response[8] == 0xD4) {
-        Dlt645Codec::validateWriteResponse(response, normalizedAddress);  // throws "write rejected ERR="
+    if (response[8] == exceptionReply(requestControl)) {
+        // Definite refusal ("... rejected ERR=0xNN (meaning)").
+        Dlt645Codec::validateCommandResponse(response, normalizedAddress, requestControl, version_);
     }
     try {
-        Dlt645Codec::validateWriteResponse(response, normalizedAddress);
+        Dlt645Codec::validateCommandResponse(response, normalizedAddress, requestControl, version_);
     } catch (const std::exception& ex) {
-        throw Dlt645OutcomeUnknownError(std::string("DLT645 write outcome unknown (malformed reply): ") + ex.what());
+        throw Dlt645OutcomeUnknownError(std::string("DLT645 command outcome unknown (malformed reply): ") + ex.what());
+    }
+}
+
+void Dlt645Client::broadcastTime(const std::function<std::int64_t()>& wallClockMs) {
+    std::lock_guard<std::mutex> lock(transactionMutex_);
+    std::vector<std::uint8_t> received;
+    bool sent = false;
+    try {
+        waitForBusQuietTime();
+        const auto frame = Dlt645Codec::buildBroadcastTimeFrame(Dlt645Codec::localTime(wallClockMs()));
+        sendFrame(frame, "broadcast-time", false, received, sent);
+    } catch (...) {
+        markBusQuiet();
+        throw;
+    }
+    markBusQuiet();  // no reply: the quiet time starts right after sending
+}
+
+std::string Dlt645Client::queryAddress(const std::string& pattern) {
+    std::lock_guard<std::mutex> lock(transactionMutex_);
+    const auto frame = Dlt645Codec::buildAddressQueryFrame(pattern, version_);
+    const auto request = frame[8];
+    std::vector<std::uint8_t> buffer;
+    bool sent = false;
+    try {
+        sendFrame(frame, "address-query", false, buffer, sent);
+    } catch (...) {
+        markBusQuiet();
+        throw;
+    }
+    // Listen for the whole timeout: a second answer means more than one meter matched.
+    std::set<std::string> addresses;
+    // Bytes that ended up in no valid frame (wake-up FE excluded) mean colliding or corrupt replies.
+    const auto meaningful = [](const std::vector<std::uint8_t>& bytes) {
+        return static_cast<std::size_t>(std::count_if(bytes.begin(), bytes.end(), [](std::uint8_t b) { return b != 0xFE; }));
+    };
+    std::size_t receivedBytes = meaningful(buffer);
+    std::size_t framedBytes = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.timeoutMs);
+    while (true) {
+        std::vector<std::uint8_t> candidate;
+        while (Dlt645Codec::takeFrame(buffer, candidate)) {
+            framedBytes += candidate.size();
+            // Any reply (even an exception reply) names the meter that sent it; requests (echo) do not.
+            if ((candidate[8] & 0x80U) != 0 && (candidate[8] & 0x1FU) == (request & 0x1FU)) {
+                addresses.insert(Dlt645Codec::frameAddress(candidate));
+            }
+        }
+        const auto waitMs = remainingMs(deadline);
+        if (waitMs <= 0) {
+            break;
+        }
+        const auto chunk = serialPort_->read(256, waitMs);
+        receivedBytes += meaningful(chunk);
+        buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+    }
+    markBusQuiet();
+    const bool corrupt = receivedBytes > framedBytes;
+    if (addresses.size() > 1U) {
+        std::string list;
+        for (const auto& address : addresses) list += (list.empty() ? "" : ", ") + address;
+        throw std::runtime_error("DLT645 address query: several meters answered (" + list +
+            "); disconnect the others or use a shortened address pattern");
+    }
+    if (addresses.empty()) {
+        throw std::runtime_error(corrupt
+            ? "DLT645 address query: replies collided or were corrupt (several meters on the bus?)"
+            : "DLT645 address query: no meter answered");
+    }
+    if (corrupt) {
+        throw std::runtime_error("DLT645 address query: one reply (" + *addresses.begin() +
+            ") plus corrupt bytes; several meters may have answered at once");
+    }
+    return *addresses.begin();
+}
+
+void Dlt645Client::sendFrame(
+    const std::vector<std::uint8_t>& frame,
+    const std::string& label,
+    bool sensitive,
+    std::vector<std::uint8_t>& received,
+    bool& requestSent
+) {
+    ensurePortOpen();
+    std::vector<std::uint8_t> wireFrame;
+    wireFrame.reserve(static_cast<std::size_t>(options_.wakeupBytes) + frame.size());
+    wireFrame.insert(wireFrame.end(), static_cast<std::size_t>(options_.wakeupBytes), static_cast<std::uint8_t>(0xFE));
+    wireFrame.insert(wireFrame.end(), frame.begin(), frame.end());
+    if (dlt645DebugEnabled()) {
+        std::cerr << "[dlt645] tx"
+                  << " " << label
+                  << " wakeupBytes=" << options_.wakeupBytes
+                  << " size=" << wireFrame.size()
+                  << " hex=" << (sensitive ? "<redacted>" : bytesToHex(wireFrame))
+                  << std::endl;
+    }
+    waitForBusQuietTime();
+    // Discard late answers to an earlier (timed-out) request so they cannot be
+    // taken as the response to this one.
+    drainStaleInput(*serialPort_);
+    requestSent = true;
+    serialPort_->write(wireFrame);
+    if (options_.localEcho) {
+        consumeLocalEcho(wireFrame, received);
     }
 }
 
@@ -192,45 +331,17 @@ std::vector<std::uint8_t> Dlt645Client::exchange(
     const Accept& accept,
     bool& requestSent
 ) {
-    ensurePortOpen();
-    std::vector<std::uint8_t> wireFrame;
-    wireFrame.reserve(static_cast<std::size_t>(options_.wakeupBytes) + frame.size());
-    wireFrame.insert(
-        wireFrame.end(),
-        static_cast<std::size_t>(options_.wakeupBytes),
-        static_cast<std::uint8_t>(0xFE)
-    );
-    wireFrame.insert(wireFrame.end(), frame.begin(), frame.end());
-    if (dlt645DebugEnabled()) {
-        std::cerr << "[dlt645] tx"
-                  << " address=" << normalizedAddress
-                  << " di=" << dataIdHex
-                  << " wakeupBytes=" << options_.wakeupBytes
-                  << " size=" << wireFrame.size()
-                  << " hex=" << (sensitiveRequest ? "<redacted>" : bytesToHex(wireFrame))
-                  << std::endl;
-    }
-    waitForBusQuietTime();
-    // Discard late answers to an earlier (timed-out) request so they cannot be
-    // taken as the response to this one.
-    drainStaleInput(*serialPort_);
-
     // Whatever happens from here on occupied the bus: the next request waits for the quiet time.
     struct BusRelease {
         Dlt645Client& client;
+        bool& active;
         ~BusRelease() {
-            client.busQuietSince_ = std::chrono::steady_clock::now();
-            client.busUsed_ = true;
+            if (active) client.markBusQuiet();
         }
-    } release{*this};
-
-    requestSent = true;
-    serialPort_->write(wireFrame);
+    } release{*this, requestSent};
 
     std::vector<std::uint8_t> buffer;
-    if (options_.localEcho) {
-        consumeLocalEcho(wireFrame, buffer);
-    }
+    sendFrame(frame, "address=" + normalizedAddress + " di=" + dataIdHex, sensitiveRequest, buffer, requestSent);
 
     bool foreignReply = false;
     bool unexpectedReply = false;
@@ -297,6 +408,11 @@ void Dlt645Client::consumeLocalEcho(
         throw std::runtime_error("DLT645 local echo mismatch (bus collision or adapter without echo)");
     }
     received.erase(received.begin(), received.begin() + static_cast<std::ptrdiff_t>(wireFrame.size()));
+}
+
+void Dlt645Client::markBusQuiet() {
+    busQuietSince_ = std::chrono::steady_clock::now();
+    busUsed_ = true;
 }
 
 void Dlt645Client::waitForBusQuietTime() {

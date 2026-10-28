@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -137,7 +139,67 @@ std::uint64_t scaledInteger(double value, const WriteSpec& spec) {
     return static_cast<std::uint64_t>(std::llround(raw));
 }
 
+
+// Frame with the 33H offset applied to the data field.
+std::vector<std::uint8_t> frameWith(
+    const std::vector<std::uint8_t>& address,
+    std::uint8_t control,
+    const std::vector<std::uint8_t>& data
+) {
+    if (data.size() > 200U) {
+        throw std::invalid_argument("DLT645 data field exceeds 200 bytes");
+    }
+    std::vector<std::uint8_t> frame = {0x68};
+    frame.insert(frame.end(), address.begin(), address.end());
+    frame.push_back(0x68);
+    frame.push_back(control);
+    frame.push_back(static_cast<std::uint8_t>(data.size()));
+    for (const auto byte : data) {
+        frame.push_back(static_cast<std::uint8_t>(byte + 0x33U));
+    }
+    frame.push_back(checksum(frame));
+    frame.push_back(0x16);
+    return frame;
+}
+
+// ss mm hh DD MM YY, BCD (two-digit year).
+std::vector<std::uint8_t> bcdDateTime(const std::tm& time) {
+    return {
+        encodeBcdByte(time.tm_sec > 59 ? 59 : time.tm_sec),
+        encodeBcdByte(time.tm_min),
+        encodeBcdByte(time.tm_hour),
+        encodeBcdByte(time.tm_mday),
+        encodeBcdByte(time.tm_mon + 1),
+        encodeBcdByte((time.tm_year + 1900) % 100)
+    };
+}
+
+void checkDataIdLength(const std::string& dataIdHex, Dlt645Version version) {
+    if (dataIdHex.size() != dlt645DataIdHexLength(version)) {
+        throw std::invalid_argument(std::string("DLT645 data id ") + dataIdHex + " does not fit " +
+            dlt645ProtocolName(version) + " (" + std::to_string(dlt645DataIdHexLength(version)) + " hex digits)");
+    }
+}
+
+std::string hexByte(std::uint8_t value) {
+    std::ostringstream out;
+    out << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(value);
+    return out.str();
+}
+
 }  // namespace
+
+std::uint8_t Dlt645Codec::readControl(Dlt645Version version) {
+    return version == Dlt645Version::V1997 ? 0x01 : 0x11;
+}
+
+std::uint8_t Dlt645Codec::followUpControl(Dlt645Version version) {
+    return version == Dlt645Version::V1997 ? 0x02 : 0x12;
+}
+
+std::uint8_t Dlt645Codec::writeControl(Dlt645Version version) {
+    return version == Dlt645Version::V1997 ? 0x04 : 0x14;
+}
 
 std::string Dlt645Codec::normalizeAddress(const std::string& meterAddress) {
     if (meterAddress.empty() || meterAddress.size() > 12) {
@@ -152,20 +214,12 @@ std::string Dlt645Codec::normalizeAddress(const std::string& meterAddress) {
 }
 
 std::vector<std::uint8_t> Dlt645Codec::parseDataId(const std::string& dataIdHex) {
-    std::string hex;
-    hex.reserve(dataIdHex.size());
-    for (const auto ch : dataIdHex) {
-        if (!std::isspace(static_cast<unsigned char>(ch))) {
-            hex.push_back(ch);
-        }
-    }
-    if (hex.size() != 8) {
-        throw std::invalid_argument("DLT645 data id must be 8 hex chars");
+    if (dataIdHex.size() != 8 && dataIdHex.size() != 4) {
+        throw std::invalid_argument("DLT645 data id must be 8 (2007) or 4 (1997) hex digits");
     }
     std::vector<std::uint8_t> result;
-    result.reserve(4);
-    for (std::size_t i = 0; i < hex.size(); i += 2) {
-        result.push_back(static_cast<std::uint8_t>((hexNibble(hex[i]) << 4) | hexNibble(hex[i + 1])));
+    for (std::size_t i = 0; i < dataIdHex.size(); i += 2) {
+        result.push_back(static_cast<std::uint8_t>((hexNibble(dataIdHex[i]) << 4) | hexNibble(dataIdHex[i + 1])));
     }
     std::reverse(result.begin(), result.end());
     return result;
@@ -173,48 +227,25 @@ std::vector<std::uint8_t> Dlt645Codec::parseDataId(const std::string& dataIdHex)
 
 std::vector<std::uint8_t> Dlt645Codec::buildReadFrame(
     const std::string& meterAddress,
-    const std::string& dataIdHex
+    const std::string& dataIdHex,
+    Dlt645Version version
 ) {
-    const auto normalizedAddress = normalizeAddress(meterAddress);
-    const auto dataId = parseDataId(dataIdHex);
-
-    std::vector<std::uint8_t> frame = {0x68};
-    for (int i = static_cast<int>(normalizedAddress.size()) - 2; i >= 0; i -= 2) {
-        frame.push_back(static_cast<std::uint8_t>(
-            (hexNibble(normalizedAddress[static_cast<std::size_t>(i)]) << 4) |
-            hexNibble(normalizedAddress[static_cast<std::size_t>(i + 1)])
-        ));
-    }
-    frame.push_back(0x68);
-    frame.push_back(0x11);
-    frame.push_back(0x04);
-    for (const auto byte : dataId) {
-        frame.push_back(static_cast<std::uint8_t>(byte + 0x33));
-    }
-    frame.push_back(checksum(frame));
-    frame.push_back(0x16);
-    return frame;
+    checkDataIdLength(dataIdHex, version);
+    return frameWith(encodeAddress(normalizeAddress(meterAddress)), readControl(version), parseDataId(dataIdHex));
 }
 
 std::vector<std::uint8_t> Dlt645Codec::buildReadFollowUpFrame(
     const std::string& meterAddress,
     const std::string& dataIdHex,
-    std::uint8_t sequence
+    std::uint8_t sequence,
+    Dlt645Version version
 ) {
-    const auto dataId = parseDataId(dataIdHex);
-    std::vector<std::uint8_t> frame = {0x68};
-    const auto address = encodeAddress(normalizeAddress(meterAddress));
-    frame.insert(frame.end(), address.begin(), address.end());
-    frame.push_back(0x68);
-    frame.push_back(0x12);
-    frame.push_back(0x05);
-    for (const auto byte : dataId) {
-        frame.push_back(static_cast<std::uint8_t>(byte + 0x33));
+    checkDataIdLength(dataIdHex, version);
+    auto data = parseDataId(dataIdHex);
+    if (version == Dlt645Version::V2007) {
+        data.push_back(sequence);
     }
-    frame.push_back(static_cast<std::uint8_t>(sequence + 0x33));
-    frame.push_back(checksum(frame));
-    frame.push_back(0x16);
-    return frame;
+    return frameWith(encodeAddress(normalizeAddress(meterAddress)), followUpControl(version), data);
 }
 
 std::vector<std::uint8_t> Dlt645Codec::buildWriteFrame(
@@ -222,35 +253,131 @@ std::vector<std::uint8_t> Dlt645Codec::buildWriteFrame(
     const std::string& dataIdHex,
     const std::string& passwordHex,
     const std::string& operatorCodeHex,
-    const std::vector<std::uint8_t>& payload
+    const std::vector<std::uint8_t>& payload,
+    Dlt645Version version
 ) {
-    const auto normalizedAddress = normalizeAddress(meterAddress);
-    const auto dataId = parseDataId(dataIdHex);
+    checkDataIdLength(dataIdHex, version);
+    const auto address = encodeAddress(normalizeAddress(meterAddress));
+    auto data = parseDataId(dataIdHex);
     const auto password = parseHexBytes(passwordHex, 4U, "DLT645 write password");
-    const auto operatorCode = parseHexBytes(operatorCodeHex, 4U, "DLT645 operator code");
-
-    std::vector<std::uint8_t> data;
-    data.reserve(12U + payload.size());
-    data.insert(data.end(), dataId.begin(), dataId.end());
     data.insert(data.end(), password.begin(), password.end());
-    data.insert(data.end(), operatorCode.begin(), operatorCode.end());
+    if (version == Dlt645Version::V2007) {
+        const auto operatorCode = parseHexBytes(operatorCodeHex, 4U, "DLT645 operator code");
+        data.insert(data.end(), operatorCode.begin(), operatorCode.end());
+    }
     data.insert(data.end(), payload.begin(), payload.end());
-    if (data.size() > 200U) {
-        throw std::invalid_argument("DLT645 write data exceeds 200 bytes");
-    }
+    return frameWith(address, writeControl(version), data);
+}
 
-    std::vector<std::uint8_t> frame = {0x68};
-    const auto address = encodeAddress(normalizedAddress);
-    frame.insert(frame.end(), address.begin(), address.end());
-    frame.push_back(0x68);
-    frame.push_back(0x14);
-    frame.push_back(static_cast<std::uint8_t>(data.size()));
-    for (const auto byte : data) {
-        frame.push_back(static_cast<std::uint8_t>(byte + 0x33U));
+std::vector<std::uint8_t> Dlt645Codec::buildRemoteControlFrame(
+    const std::string& meterAddress,
+    const std::string& passwordHex,
+    const std::string& operatorCodeHex,
+    std::uint8_t controlTypeCode,
+    const std::tm& validUntil
+) {
+    const auto address = encodeAddress(normalizeAddress(meterAddress));
+    auto data = parseHexBytes(passwordHex, 4U, "DLT645 control password");
+    const auto operatorCode = parseHexBytes(operatorCodeHex, 4U, "DLT645 operator code");
+    data.insert(data.end(), operatorCode.begin(), operatorCode.end());
+    data.push_back(controlTypeCode);
+    data.push_back(0x00);  // N2 reserved
+    const auto deadline = bcdDateTime(validUntil);
+    data.insert(data.end(), deadline.begin(), deadline.end());
+    return frameWith(address, kRemoteControl, data);
+}
+
+std::tm Dlt645Codec::localTime(std::int64_t epochMs) {
+    const auto seconds = static_cast<std::time_t>(epochMs / 1000);
+    std::tm result{};
+#ifdef _WIN32
+    localtime_s(&result, &seconds);
+#else
+    localtime_r(&seconds, &result);
+#endif
+    return result;
+}
+
+std::vector<std::uint8_t> Dlt645Codec::buildBroadcastTimeFrame(const std::tm& localTime) {
+    return frameWith(std::vector<std::uint8_t>(6, 0x99), kBroadcastTime, bcdDateTime(localTime));
+}
+
+std::vector<std::uint8_t> Dlt645Codec::encodeAddressPattern(const std::string& pattern) {
+    if (pattern.size() != 12) {
+        throw std::invalid_argument("DLT645 address pattern must have 12 characters (A5..A0)");
     }
-    frame.push_back(checksum(frame));
-    frame.push_back(0x16);
-    return frame;
+    std::vector<std::uint8_t> address;
+    bool wildcardAllowed = true;  // AA bytes only at the high end (shortened address)
+    std::vector<std::uint8_t> highFirst;
+    for (std::size_t i = 0; i < 12; i += 2) {
+        const auto pair = pattern.substr(i, 2);
+        if (pair == "AA" || pair == "aa") {
+            if (!wildcardAllowed) {
+                throw std::invalid_argument("DLT645 address pattern: AA may only shorten the high bytes");
+            }
+            highFirst.push_back(0xAA);
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(pair[0])) == 0 || std::isdigit(static_cast<unsigned char>(pair[1])) == 0) {
+            throw std::invalid_argument("DLT645 address pattern: digits or leading AA bytes only");
+        }
+        wildcardAllowed = false;
+        highFirst.push_back(static_cast<std::uint8_t>(((pair[0] - '0') << 4) | (pair[1] - '0')));
+    }
+    address.assign(highFirst.rbegin(), highFirst.rend());
+    return address;
+}
+
+std::vector<std::uint8_t> Dlt645Codec::buildAddressQueryFrame(const std::string& pattern, Dlt645Version version) {
+    const auto address = encodeAddressPattern(pattern);
+    const bool allWildcard = std::all_of(address.begin(), address.end(), [](std::uint8_t byte) { return byte == 0xAA; });
+    if (version == Dlt645Version::V2007 && allWildcard) {
+        return frameWith(address, kReadAddress, {});
+    }
+    const auto dataId = version == Dlt645Version::V1997 ? std::string("C032") : std::string("04000401");
+    return frameWith(address, readControl(version), parseDataId(dataId));
+}
+
+std::string Dlt645Codec::frameAddress(const std::vector<std::uint8_t>& frame) {
+    if (frame.size() < 7U) {
+        throw std::invalid_argument("DLT645 frame too short for an address");
+    }
+    std::string text;
+    for (int i = 6; i >= 1; --i) {
+        text += hexByte(frame[static_cast<std::size_t>(i)]);
+    }
+    return text;
+}
+
+std::uint8_t Dlt645Codec::remoteControlCode(const std::string& controlType) {
+    if (controlType == "trip") return 0x1A;
+    if (controlType == "close_permit") return 0x1B;
+    if (controlType == "close") return 0x1C;
+    if (controlType == "alarm") return 0x2A;
+    if (controlType == "alarm_release") return 0x2B;
+    if (controlType == "keep_power") return 0x3A;
+    if (controlType == "keep_power_release") return 0x3B;
+    throw std::invalid_argument("unknown DLT645 remote control type: " + controlType);
+}
+
+std::string Dlt645Codec::describeError(std::uint8_t error, Dlt645Version version) {
+    static const char* const k2007[] = {
+        "other error", "no requested data", "password error/unauthorized", "baud rate cannot be changed",
+        "too many year time zones", "too many daily periods", "too many tariffs", "reserved"
+    };
+    static const char* const k1997[] = {
+        "illegal data", "wrong data identifier", "password error", "reserved",
+        "too many year time zones", "too many daily periods", "too many tariffs", "reserved"
+    };
+    const auto* names = version == Dlt645Version::V1997 ? k1997 : k2007;
+    std::string text;
+    for (int bit = 0; bit < 8; ++bit) {
+        if ((error >> bit) & 0x01U) {
+            if (!text.empty()) text += ", ";
+            text += names[bit];
+        }
+    }
+    return "ERR=0x" + hexByte(error) + " (" + (text.empty() ? std::string("unspecified") : text) + ")";
 }
 
 std::vector<std::uint8_t> Dlt645Codec::encodeWritePayload(
@@ -259,6 +386,14 @@ std::vector<std::uint8_t> Dlt645Codec::encodeWritePayload(
 ) {
     const auto dataType = spec.dlt645.dataType.empty() ? spec.dataType : spec.dlt645.dataType;
     if (dataType == "dlt645_none") {
+        return {};
+    }
+    if (dataType == "dlt645_remote_control") {
+        // C=1CH carries no DI and no value: the point is a trigger, written with 1.
+        if (std::abs(value - 1.0) > 1e-9) {
+            throw std::invalid_argument("DLT645 remote control command is triggered with value 1");
+        }
+        (void)remoteControlCode(spec.dlt645.controlType);
         return {};
     }
     if (dataType == "dlt645_scheduled_control") {
@@ -306,59 +441,49 @@ std::vector<std::uint8_t> Dlt645Codec::encodeWritePayload(
     return payload;
 }
 
-void Dlt645Codec::validateWriteResponse(
+void Dlt645Codec::validateCommandResponse(
     const std::vector<std::uint8_t>& frame,
-    const std::string& meterAddress
+    const std::string& meterAddress,
+    std::uint8_t requestControl,
+    Dlt645Version version
 ) {
     if (frame.size() < 12U || frame.front() != 0x68 || frame[7] != 0x68 || frame.back() != 0x16) {
-        throw std::runtime_error("DLT645 write response frame marker invalid");
+        throw std::runtime_error("DLT645 command response frame marker invalid");
     }
     const auto length = static_cast<std::size_t>(frame[9]);
     if (frame.size() != length + 12U) {
-        throw std::runtime_error("DLT645 write response length mismatch");
+        throw std::runtime_error("DLT645 command response length mismatch");
     }
     if (checksum(std::vector<std::uint8_t>(frame.begin(), frame.end() - 2)) != frame[frame.size() - 2]) {
-        throw std::runtime_error("DLT645 write response checksum mismatch");
+        throw std::runtime_error("DLT645 command response checksum mismatch");
     }
-
-    const auto expectedAddress = encodeAddress(normalizeAddress(meterAddress));
-    if (!std::equal(expectedAddress.begin(), expectedAddress.end(), frame.begin() + 1)) {
-        throw std::runtime_error("DLT645 write response address mismatch");
+    if (!frameAddressMatches(frame, meterAddress)) {
+        throw std::runtime_error("DLT645 command response address mismatch");
     }
-    if (frame[8] == 0xD4) {
+    const auto what = requestControl == kRemoteControl ? "remote control" : "write";
+    if (frame[8] == static_cast<std::uint8_t>(requestControl | 0xC0U)) {
         if (length != 1U) {
-            throw std::runtime_error("DLT645 write exception response length mismatch");
+            throw std::runtime_error(std::string("DLT645 ") + what + " exception response length mismatch");
         }
-        const auto error = static_cast<std::uint8_t>(frame[10] - 0x33U);
-        std::ostringstream message;
-        message << "DLT645 write rejected ERR=0x"
-                << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-                << static_cast<int>(error);
-        throw std::runtime_error(message.str());
+        throw std::runtime_error(std::string("DLT645 ") + what + " rejected " +
+            describeError(static_cast<std::uint8_t>(frame[10] - 0x33U), version));
     }
-    if (frame[8] != 0x94 || length != 0U) {
-        throw std::runtime_error("DLT645 write response control code invalid");
+    if (frame[8] != static_cast<std::uint8_t>(requestControl | 0x80U) || length != 0U) {
+        throw std::runtime_error(std::string("DLT645 ") + what + " response control code invalid");
     }
 }
 
 std::vector<std::uint8_t> Dlt645Codec::decodeFrameData(
     const std::vector<std::uint8_t>& frame,
-    const std::vector<std::uint8_t>& expectedDataId
+    const std::vector<std::uint8_t>& expectedDataId,
+    Dlt645Version version
 ) {
-    if (frame.size() < 16) {
-        if (frame.size() >= 13 && frame.size() == static_cast<std::size_t>(frame[9]) + 12U &&
-            frame.front() == 0x68 && frame[7] == 0x68 && frame.back() == 0x16 &&
-            (frame[8] & 0x40U) != 0) {
-            std::ostringstream message;
-            message << "DLT645 exception response code=0x"
-                    << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-                    << static_cast<int>(static_cast<std::uint8_t>(frame[10] - 0x33));
-            throw std::runtime_error(message.str());
-        }
-        throw std::runtime_error("DLT645 response too short");
-    }
-    if (frame.front() != 0x68 || frame[7] != 0x68 || frame.back() != 0x16) {
+    if (frame.size() < 12U || frame.front() != 0x68 || frame[7] != 0x68 || frame.back() != 0x16) {
         throw std::runtime_error("DLT645 frame marker invalid");
+    }
+    const auto len = static_cast<std::size_t>(frame[9]);
+    if (frame.size() != len + 12U) {
+        throw std::runtime_error("DLT645 response length mismatch");
     }
     if (checksum(std::vector<std::uint8_t>(frame.begin(), frame.end() - 2)) != frame[frame.size() - 2]) {
         throw std::runtime_error("DLT645 checksum mismatch");
@@ -367,11 +492,11 @@ std::vector<std::uint8_t> Dlt645Codec::decodeFrameData(
     if ((control & 0x80U) == 0) {
         throw std::runtime_error("DLT645 response control code invalid");
     }
-    const auto len = static_cast<std::size_t>(frame[9]);
-    if (frame.size() != len + 12) {
-        throw std::runtime_error("DLT645 response length mismatch");
+    if ((control & 0x40U) != 0) {
+        const auto error = len >= 1U ? static_cast<std::uint8_t>(frame[10] - 0x33U) : static_cast<std::uint8_t>(0);
+        throw std::runtime_error("DLT645 exception response " + describeError(error, version));
     }
-    if (len < 4) {
+    if (len < expectedDataId.size()) {
         throw std::runtime_error("DLT645 response data too short");
     }
     std::vector<std::uint8_t> data(frame.begin() + 10, frame.begin() + 10 + static_cast<std::ptrdiff_t>(len));
@@ -381,14 +506,16 @@ std::vector<std::uint8_t> Dlt645Codec::decodeFrameData(
     if (!std::equal(expectedDataId.begin(), expectedDataId.end(), data.begin())) {
         throw std::runtime_error("DLT645 response data id mismatch");
     }
-    return std::vector<std::uint8_t>(data.begin() + 4, data.end());
+    return std::vector<std::uint8_t>(data.begin() + static_cast<std::ptrdiff_t>(expectedDataId.size()), data.end());
 }
 
 DecodedValue Dlt645Codec::decodeReadResponse(
     const std::vector<std::uint8_t>& frame,
     const PointDefinition& point
 ) {
-    return decodePayload(decodeFrameData(frame, parseDataId(point.read.dlt645Di)), point);
+    const auto dataId = parseDataId(point.read.dlt645Di);
+    const auto version = dataId.size() == 2U ? Dlt645Version::V1997 : Dlt645Version::V2007;
+    return decodePayload(decodeFrameData(frame, dataId, version), point);
 }
 
 DecodedValue Dlt645Codec::decodePayload(

@@ -62,7 +62,7 @@ CATALOG = {
     'gateway-health-watchdog': ('bin/gateway-health-watchdog.sh', '/opt/modbus-gateway/bin/gateway-health-watchdog.sh run', 'none', 32, 120),
 }
 DEVICE_FAMILIES = {'modbus_rtu': 'modbus-rtu', 'modbus_tcp': 'modbus-rtu',
-                   'dlt645_2007': 'dlt645-driver', 'dlt645': 'dlt645-driver',
+                   'dlt645_2007': 'dlt645-driver', 'dlt645_1997': 'dlt645-driver', 'dlt645': 'dlt645-driver',
                    'local_dio': 'dio-driver', 'dio': 'dio-driver', 'dido': 'dio-driver',
                    'can_socketcan': 'can-driver', 'can': 'can-driver',
                    'iec104': 'iec-driver', 'iec101': 'iec-driver',
@@ -285,7 +285,7 @@ def _device_endpoint(stem, value, protocol, bindings):
                 tcp.get('host') in ('127.0.0.1', 'localhost') and
                 endpoint == '{}:{}'.format(tcp.get('host'), tcp.get('port')),
                 'TCP role must bind the reviewed loopback simulator')
-    elif protocol in ('modbus_rtu', 'dlt645_2007', 'dlt645', 'iec101', 'iec103_serial'):
+    elif protocol in ('modbus_rtu', 'dlt645_2007', 'dlt645_1997', 'dlt645', 'iec101', 'iec103_serial'):
         transport = proto.get('transport', {})
         serial = transport.get('serialPort') if isinstance(transport, dict) else None
         require(kind == 'serial-simulator' and isinstance(serial, str) and

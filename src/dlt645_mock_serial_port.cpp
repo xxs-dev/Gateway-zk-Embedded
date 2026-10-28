@@ -68,12 +68,44 @@ std::vector<std::uint8_t> energyItem(int di2, int tariff, int settlement) {
     return bcd(base[di2] < 0 ? -magnitude : magnitude, 4);
 }
 
-std::vector<std::uint8_t> reply(
-    const std::vector<std::uint8_t>& request,
-    std::uint8_t control,
-    const std::vector<std::uint8_t>& data
-) {
-    std::vector<std::uint8_t> frame(request.begin(), request.begin() + 8);
+// DL/T 645-1997 items (no sign bits in 1997): energy XXXXXX.XX, voltage XXX V, current XX.XX A,
+// active power XX.XXXX kW, reactive power XX.XX kvar, power factor X.XXX. index 0 = total.
+std::vector<std::uint8_t> item1997(int group, int item) {
+    static const long long voltage[] = {0, 220, 221, 219};
+    static const long long current[] = {0, 1234, 1134, 1034};
+    static const long long active[] = {15234, 5000, 6000, 4234};
+    static const long long reactive[] = {62, 20, 22, 20};
+    static const long long powerFactor[] = {925, 928, 937, 906};
+    switch (group) {
+        case 0xB61: return item >= 1 && item <= 3 ? bcd(voltage[item], 2) : std::vector<std::uint8_t>();
+        case 0xB62: return item >= 1 && item <= 3 ? bcd(current[item], 2) : std::vector<std::uint8_t>();
+        case 0xB63: return item <= 3 ? bcd(active[item], 3) : std::vector<std::uint8_t>();
+        case 0xB64: return item <= 3 ? bcd(reactive[item], 2) : std::vector<std::uint8_t>();
+        case 0xB65: return item <= 3 ? bcd(powerFactor[item], 2) : std::vector<std::uint8_t>();
+        default: break;
+    }
+    static const long long energy[] = {1234567, 223456, 345678, 44567};  // 901x, 902x, 911x, 912x
+    const int kind = group == 0x901 ? 0 : group == 0x902 ? 1 : group == 0x911 ? 2 : group == 0x912 ? 3 : -1;
+    if (kind >= 0 && item <= 4) {
+        return bcd(energy[kind] + item * 1000LL, 4);
+    }
+    return {};
+}
+
+std::vector<std::uint8_t> addressBytes(const std::string& address) {
+    // 12 digits A5..A0 -> A0..A5
+    std::vector<std::uint8_t> bytes;
+    for (int i = 10; i >= 0; i -= 2) {
+        bytes.push_back(static_cast<std::uint8_t>(((address[static_cast<std::size_t>(i)] - '0') << 4) |
+                                                  (address[static_cast<std::size_t>(i + 1)] - '0')));
+    }
+    return bytes;
+}
+
+std::vector<std::uint8_t> reply(const std::string& address, std::uint8_t control, const std::vector<std::uint8_t>& data) {
+    std::vector<std::uint8_t> frame = {0x68};
+    append(frame, addressBytes(address));
+    frame.push_back(0x68);
     frame.push_back(control);
     frame.push_back(static_cast<std::uint8_t>(data.size()));
     for (const auto byte : data) {
@@ -88,9 +120,39 @@ std::vector<std::uint8_t> reply(
     return frame;
 }
 
+std::string dataIdText(const std::vector<std::uint8_t>& data, std::size_t length) {
+    static const char* hex = "0123456789ABCDEF";
+    std::string text;
+    for (std::size_t i = length; i-- > 0;) {
+        text.push_back(hex[(data[i] >> 4U) & 0x0FU]);
+        text.push_back(hex[data[i] & 0x0FU]);
+    }
+    return text;
+}
+
 }  // namespace
 
+Dlt645MockSerialPort::Dlt645MockSerialPort(bool localEcho, std::vector<std::string> addresses)
+    : localEcho_(localEcho) {
+    for (const auto& address : addresses) {
+        addresses_.push_back(Dlt645Codec::normalizeAddress(address));
+    }
+}
+
 std::vector<std::uint8_t> Dlt645MockSerialPort::dataFor(const std::string& dataIdHex) const {
+    std::vector<std::uint8_t> data;
+    if (dataIdHex.size() == 4) {
+        const auto group = static_cast<int>(std::strtol(dataIdHex.substr(0, 3).c_str(), nullptr, 16));
+        const auto last = dataIdHex[3];
+        if (last == 'F' || last == 'f') {  // block: total (energy/power) or phases, in order
+            const int first = group == 0xB61 || group == 0xB62 ? 1 : 0;
+            for (int item = first; item <= (group >= 0xB61 ? 3 : 4); ++item) append(data, item1997(group, item));
+            return data;
+        }
+        if (dataIdHex == "C010") return {0x03, 0x28, 0x10, 0x26};  // WW DD MM YY
+        if (dataIdHex == "C011") return {0x00, 0x30, 0x10};        // ss mm hh
+        return item1997(group, last - '0');
+    }
     if (dataIdHex.size() != 8) {
         return {};
     }
@@ -98,7 +160,6 @@ std::vector<std::uint8_t> Dlt645MockSerialPort::dataFor(const std::string& dataI
     const auto di2 = hexByteAt(dataIdHex, 1);
     const auto di1 = hexByteAt(dataIdHex, 2);
     const auto di0 = hexByteAt(dataIdHex, 3);
-    std::vector<std::uint8_t> data;
     if (di3 == 0x00) {
         if (di1 == 0xFF) {  // block: total + tariffs 1..4
             for (int tariff = 0; tariff <= 4; ++tariff) append(data, energyItem(di2, tariff, di0));
@@ -133,6 +194,72 @@ std::vector<std::uint8_t> Dlt645MockSerialPort::dataFor(const std::string& dataI
     return {};
 }
 
+std::vector<std::string> Dlt645MockSerialPort::matchingMeters(const std::vector<std::uint8_t>& request) const {
+    const auto requested = Dlt645Codec::frameAddress(request);  // A5..A0, AA = wildcard byte
+    if (addresses_.empty()) {
+        // Every address answers; a wildcard request is answered by meter 000000000001.
+        std::string address;
+        for (std::size_t i = 0; i < 12; i += 2) {
+            address += requested.compare(i, 2, "AA") == 0 ? std::string("00") : requested.substr(i, 2);
+        }
+        if (address == "000000000000") address = "000000000001";
+        return {address};
+    }
+    std::vector<std::string> matches;
+    for (const auto& address : addresses_) {
+        bool match = true;
+        for (std::size_t i = 0; i < 12 && match; i += 2) {
+            match = requested.compare(i, 2, "AA") == 0 || requested.compare(i, 2, address, i, 2) == 0;
+        }
+        if (match) matches.push_back(address);
+    }
+    return matches;
+}
+
+std::vector<std::uint8_t> Dlt645MockSerialPort::answer(const std::vector<std::uint8_t>& request, const std::string& address) {
+    const auto control = request[8];
+    std::vector<std::uint8_t> data(request.begin() + 10, request.end() - 2);
+    for (auto& byte : data) {
+        byte = static_cast<std::uint8_t>(byte - 0x33U);
+    }
+    const bool v1997 = control == 0x01 || control == 0x02 || control == 0x04;
+    const std::size_t diLength = v1997 ? 2U : 4U;
+    const auto exception = static_cast<std::uint8_t>(control | 0xC0U);
+    if (control == 0x13) {  // 2007 read address
+        return reply(address, 0x93, addressBytes(address));
+    }
+    if (control == 0x1C) {  // 2007 remote control: PA..P2 C0..C3 N1 N2 N3..N8
+        if (data.size() != 16U) return reply(address, exception, {0x01});
+        lastRemoteControl_ = data[8];
+        lastRemoteControlDeadline_.assign(data.begin() + 10, data.end());
+        if (data[8] == 0x1A) breakerClosed_ = false;
+        if (data[8] == 0x1C) breakerClosed_ = true;
+        return reply(address, 0x9C, {});
+    }
+    if (data.size() < diLength) {
+        return reply(address, exception, {0x01});
+    }
+    const auto dataId = dataIdText(data, diLength);
+    if (control == 0x11 || control == 0x01) {
+        auto payload = dataId == "04000401" || dataId == "C032" ? addressBytes(address) : dataFor(dataId);
+        if (payload.empty()) {
+            return reply(address, exception, {0x02});  // 2007: no requested data; 1997: wrong DI
+        }
+        std::vector<std::uint8_t> normal(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(diLength));
+        append(normal, payload);
+        return reply(address, static_cast<std::uint8_t>(control | 0x80U), normal);
+    }
+    if (control == 0x14 || control == 0x04) {
+        // 2007: DI(4) PA..P2(4) C0..C3(4) payload; 1997: DI(2) PA..P2(4) payload
+        const std::size_t payloadAt = control == 0x14 ? 12U : 6U;
+        const bool immediate = data.size() >= payloadAt + 2U && data[payloadAt] == 0x00;
+        if (dataId == "06010101" && immediate) breakerClosed_ = false;
+        if (dataId == "06010201" && immediate) breakerClosed_ = true;
+        return reply(address, static_cast<std::uint8_t>(control | 0x80U), {});
+    }
+    return reply(address, exception, {0x02});
+}
+
 void Dlt645MockSerialPort::write(const std::vector<std::uint8_t>& bytes) {
     if (!open_) {
         throw std::runtime_error("serial port is not open");
@@ -146,38 +273,24 @@ void Dlt645MockSerialPort::write(const std::vector<std::uint8_t>& bytes) {
     if (!Dlt645Codec::takeFrame(buffer, request)) {
         return;  // not a DL/T 645 frame: a real meter stays silent
     }
-    const auto control = request[8];
-    std::vector<std::uint8_t> data(request.begin() + 10, request.end() - 2);
-    for (auto& byte : data) {
-        byte = static_cast<std::uint8_t>(byte - 0x33U);
+    if (request[8] == Dlt645Codec::kBroadcastTime) {
+        ++broadcasts_;
+        lastBroadcastTime_.assign(request.begin() + 10, request.end() - 2);
+        for (auto& byte : lastBroadcastTime_) byte = static_cast<std::uint8_t>(byte - 0x33U);
+        return;  // broadcast: no reply
     }
-    if (data.size() < 4U) {
+    const auto meters = matchingMeters(request);
+    if (meters.empty()) {
         return;
     }
-    static const char* hex = "0123456789ABCDEF";
-    std::string dataId;
-    for (int i = 3; i >= 0; --i) {
-        dataId.push_back(hex[(data[static_cast<std::size_t>(i)] >> 4U) & 0x0FU]);
-        dataId.push_back(hex[data[static_cast<std::size_t>(i)] & 0x0FU]);
-    }
-    std::vector<std::uint8_t> response;
-    if (control == 0x11) {
-        const auto payload = dataFor(dataId);
-        if (payload.empty()) {
-            response = reply(request, 0xD1, {0x02});  // ERR bit1: no requested data
-        } else {
-            std::vector<std::uint8_t> answer(data.begin(), data.begin() + 4);
-            append(answer, payload);
-            response = reply(request, 0x91, answer);
+    std::vector<std::uint8_t> response = answer(request, meters.front());
+    for (std::size_t i = 1; i < meters.size(); ++i) {
+        // Several meters answering at once: their bits collide on the bus.
+        const auto other = answer(request, meters[i]);
+        response.resize(std::max(response.size(), other.size()), 0x00);
+        for (std::size_t b = 0; b < other.size(); ++b) {
+            response[b] = static_cast<std::uint8_t>(response[b] | other[b]);
         }
-    } else if (control == 0x14) {
-        // DI(4) + PA P0 P1 P2(4) + C0..C3(4) + payload
-        const bool immediate = data.size() >= 14U && data[12] == 0x00;
-        if (dataId == "06010101" && immediate) breakerClosed_ = false;
-        if (dataId == "06010201" && immediate) breakerClosed_ = true;
-        response = reply(request, 0x94, {});
-    } else {
-        response = reply(request, static_cast<std::uint8_t>(control | 0xC0U), {0x02});
     }
     pending_.insert(pending_.end(), response.begin(), response.end());
 }

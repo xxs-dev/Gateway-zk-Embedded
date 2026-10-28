@@ -1,4 +1,5 @@
 #include "edge_gateway/device_config_validation.hpp"
+#include "edge_gateway/dlt645_version.hpp"
 
 #include <iostream>
 
@@ -37,7 +38,7 @@ void validateDeviceConfig(const DeviceConfig& config) {
     const auto& type = config.protocol.type;
     if (type == "modbus_rtu" || type == "modbus_tcp") {
         validateModbusDeviceConfig(config);
-    } else if (type == "dlt645_2007") {
+    } else if (isDlt645Protocol(type)) {
         validateDlt645DeviceConfig(config);
     } else if (type.compare(0, 3, "iec") == 0) {
         validateIecDeviceConfig(config);

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -13,6 +14,7 @@
 
 #include "dlt645_test_support.hpp"
 #include "edge_gateway/dlt645_client.hpp"
+#include "edge_gateway/dlt645_codec.hpp"
 #include "edge_gateway/dlt645_command_executor.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/serial_port.hpp"
@@ -262,6 +264,136 @@ void readBackFromAnotherDevice() {
             "no contact value collected after the command: outcome unknown: " + frozen.message);
 }
 
+// DL/T 645-2007 C=1CH remote control on a meter whose relay state is status word 3 bit 4.
+PointDefinition remotePoint(std::uint32_t index, const std::string& code, const std::string& type, double expected) {
+    PointDefinition point;
+    point.index = index;
+    point.pointCode = code;
+    point.enabled = true;
+    point.write.enable = true;
+    point.write.allowedValues = {1.0};
+    point.write.dataType = "dlt645_remote_control";
+    point.write.dlt645.dataType = "dlt645_remote_control";
+    point.write.dlt645.controlType = type;
+    point.write.dlt645.validitySeconds = 600;
+    if (type == "trip" || type == "close") {
+        point.write.verifyAfterWrite = true;
+        point.write.verifyByRead = true;
+        point.write.verifyDelayMs = 0;
+        point.write.dlt645.verifyPointCode = "relay_open";
+        point.write.dlt645.verifyValue = expected;
+        point.write.dlt645.verifyTimeoutMs = 300;
+    }
+    return point;
+}
+
+DeviceConfig meterWithRelay() {
+    DeviceConfig config;
+    config.machineCode = "GW";
+    config.meterCode = "METER_7";
+    config.address = "000000000007";
+    config.protocol.type = "dlt645_2007";
+    config.protocol.dlt645.write.enabled = true;
+    config.protocol.dlt645.write.password = dlt645_test::fixturePassword();
+    config.protocol.dlt645.write.operatorCode = "01020304";
+    PointDefinition relay;
+    relay.index = 700000;
+    relay.pointCode = "relay_open";
+    relay.enabled = true;
+    relay.read.enable = true;
+    relay.read.dataType = "dlt645_bitfield_le";
+    relay.read.dlt645Di = "04000503";
+    relay.read.dlt645ByteCount = 2;
+    relay.read.bit = 4;
+    config.points.push_back(relay);
+    config.points.push_back(remotePoint(700001, "remote_trip", "trip", 1.0));
+    config.points.push_back(remotePoint(700002, "remote_close", "close", 0.0));
+    config.points.push_back(remotePoint(700003, "keep_power", "keep_power", 0.0));
+    return config;
+}
+
+void remoteControlUsesC1CAndReadBack() {
+    MemoryPointStore::cleanupOrphanedSegment(kStore);
+    MemoryPointStore store(kStore);
+    auto port = std::make_shared<MeterPort>();
+    auto client = std::make_shared<Dlt645Client>(port, options());
+    Dlt645CommandExecutor executor(meterWithRelay(), store, client);
+
+    const auto before = std::time(nullptr);
+    const auto trip = executor.executeByIndex("rc-trip", 700001, 1, 1000);
+    require(trip.success && trip.verifyAttempted && trip.verifyPassed && !port->meter.breakerClosed(),
+            "remote trip confirmed by the relay bit: " + trip.message);
+    require(port->countControl(0x1C) == 1 && port->meter.lastRemoteControl() == 0x1A, "one C=1CH frame, N1=1AH");
+    // N3..N8: validity deadline ss mm hh DD MM YY = now + validitySeconds (local time).
+    const auto& deadline = port->meter.lastRemoteControlDeadline();
+    const auto bcd = [](int value) { return static_cast<std::uint8_t>(((value / 10) << 4) | (value % 10)); };
+    bool deadlineOk = false;
+    for (int lateSeconds = 0; lateSeconds <= 2 && !deadlineOk; ++lateSeconds) {
+        const auto expected = Dlt645Codec::localTime((static_cast<std::int64_t>(before) + 600 + lateSeconds) * 1000);
+        deadlineOk = deadline.size() == 6 && deadline[0] == bcd(expected.tm_sec) && deadline[1] == bcd(expected.tm_min) &&
+            deadline[2] == bcd(expected.tm_hour) && deadline[3] == bcd(expected.tm_mday) &&
+            deadline[4] == bcd(expected.tm_mon + 1) && deadline[5] == bcd((expected.tm_year + 1900) % 100);
+    }
+    require(deadlineOk, "validity deadline (ss mm hh DD MM YY) must be ten minutes ahead");
+
+    const auto again = executor.executeByIndex("rc-trip-2", 700001, 1, 1001);
+    require(again.success && port->countControl(0x1C) == 1, "already open: nothing sent");
+    const auto close = executor.executeByIndex("rc-close", 700002, 1, 1002);
+    require(close.success && close.verifyPassed && port->meter.breakerClosed() && port->meter.lastRemoteControl() == 0x1C,
+            "remote close (N1=1CH) confirmed: " + close.message);
+    const auto keep = executor.executeByIndex("rc-keep", 700003, 1, 1003);
+    require(keep.success && !keep.verifyAttempted && port->meter.lastRemoteControl() == 0x3A, "keep power (3AH) without read-back");
+    require(!executor.executeByIndex("rc-bad", 700003, 0, 1004).success, "remote control is triggered with 1 only");
+
+    port->acknowledgeWrites = false;
+    const auto lost = executor.executeByIndex("rc-lost", 700001, 1, 1005);
+    require(!lost.success && lost.outcomeUnknown, "lost 9CH: outcome unknown: " + lost.message);
+}
+
+void remoteControlRejectionIsReported() {
+    MemoryPointStore::cleanupOrphanedSegment(kStore);
+    MemoryPointStore store(kStore);
+    auto port = std::make_shared<dlt645_test::ScriptPort>();
+    port->onWrite = [](const std::vector<std::uint8_t>& request) {
+        if (dlt645_test::requestControl(request) == 0x11) {
+            return std::vector<std::vector<std::uint8_t>>{dlt645_test::readReply("7", "04000503", {0x00, 0x00})};
+        }
+        return std::vector<std::vector<std::uint8_t>>{dlt645_test::replyFrame("7", 0xDC, {0x04})};
+    };
+    auto client = std::make_shared<Dlt645Client>(port, options());
+    Dlt645CommandExecutor executor(meterWithRelay(), store, client);
+    const auto result = executor.executeByIndex("rc-denied", 700001, 1, 1000);
+    require(!result.success && !result.outcomeUnknown &&
+            result.message.find("remote control rejected ERR=0x04 (password error/unauthorized)") != std::string::npos,
+            "DCH must be a definite rejection with the decoded error word: " + result.message);
+}
+
+void dlt1997WriteHasNoOperatorCode() {
+    MemoryPointStore::cleanupOrphanedSegment(kStore);
+    MemoryPointStore store(kStore);
+    auto port = std::make_shared<MeterPort>();
+    auto client = std::make_shared<Dlt645Client>(port, options(), Dlt645Version::V1997);
+    DeviceConfig config;
+    config.meterCode = "OLD_METER";
+    config.address = "000000000003";
+    config.protocol.type = "dlt645_1997";
+    config.protocol.dlt645.write.enabled = true;
+    config.protocol.dlt645.write.password = dlt645_test::fixturePassword();
+    PointDefinition setting;
+    setting.index = 300001;
+    setting.pointCode = "setting";
+    setting.enabled = true;
+    setting.write.enable = true;
+    setting.write.dlt645.di = "C117";
+    setting.write.dlt645.dataType = "dlt645_bcd";
+    setting.write.dlt645.byteCount = 1;
+    config.points.push_back(setting);
+    Dlt645CommandExecutor executor(config, store, client);
+    const auto result = executor.executeByIndex("w97", 300001, 15, 1000);
+    require(result.success, "1997 write answered with 84H: " + result.message);
+    require(port->count("C117", 0x04) == 1, "C=04H with the 2-byte DI");
+}
+
 }  // namespace
 
 int main() {
@@ -271,6 +403,9 @@ int main() {
         lostReplyIsOutcomeUnknown();
         readBackMismatchFails();
         readBackFromAnotherDevice();
+        remoteControlUsesC1CAndReadBack();
+        remoteControlRejectionIsReported();
+        dlt1997WriteHasNoOperatorCode();
         MemoryPointStore::cleanupOrphanedSegment(kStore);
         std::cout << "dlt645_command_executor_test passed" << std::endl;
         return 0;

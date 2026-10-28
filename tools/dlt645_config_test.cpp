@@ -55,7 +55,7 @@ bool throwsWith(const std::function<void()>& action, const std::string& text) {
 
 void standardTemplate() {
     const auto points = loadTemplate(kStandard);
-    require(points.size() == 279, "standard template: 276 points + 3 appended phase angles");
+    require(points.size() == 282, "standard template: 276 points + phase angles + relay state + remote trip/close");
     for (const auto& code : {"KY02100110", "KY02100107", "KY02100108", "KY02100109"}) {
         const auto& p = byCode(points, code);
         require(p.read.dlt645Di.compare(0, 4, "0205") == 0 && p.read.unit == "kVA" &&
@@ -74,6 +74,23 @@ void standardTemplate() {
         require(points[i].read.dlt645Di.compare(0, 4, "0207") == 0 && std::abs(points[i].read.scale - 0.1) < 1e-12 &&
                 !points[i].enabled, "phase angle XXX.X appended, disabled by default");
     }
+    // C=1CH remote trip/close ship disabled with the relay bit (04000503 bit 4) as read-back.
+    const auto& relay = byCode(points, "dlt645_relay_open");
+    require(!relay.enabled && relay.read.dlt645Di == "04000503" && relay.read.bit == 4, "relay state point");
+    for (const auto* code : {"dlt645_remote_trip", "dlt645_remote_close"}) {
+        const auto& p = byCode(points, code);
+        require(!p.enabled && !p.write.enable && p.write.dlt645.dataType == "dlt645_remote_control" &&
+                p.write.dlt645.verifyPointCode == "dlt645_relay_open", std::string(code) + " ships disabled with read-back");
+    }
+    auto enabled = points;
+    for (auto& p : enabled) {
+        if (p.pointCode == "dlt645_relay_open" || p.pointCode == "dlt645_remote_trip" || p.pointCode == "dlt645_remote_close") {
+            p.enabled = true;
+            p.read.enable = p.write.dlt645.dataType != "dlt645_remote_control";
+            p.write.enable = p.write.dlt645.dataType == "dlt645_remote_control";
+        }
+    }
+    validateDlt645PointList(enabled, "standard template", Dlt645Version::V2007);
     for (const auto& p : points) {
         const auto& di = p.read.dlt645Di;
         if (di.compare(0, 4, "0202") == 0) require(p.read.dataType == "dlt645_bcd_signed", "current is signed: " + di);
@@ -114,7 +131,7 @@ void breakerTemplates() {
             p.write.enable = true;
         }
     }
-    validateDlt645PointList(points, "breaker template");
+    validateDlt645PointList(points, "breaker template", Dlt645Version::V2007);
     require(byCode(points, "breaker_remote_trip").write.dlt645.verifyPointCode == "breaker_switch_state" &&
             *byCode(points, "breaker_remote_close").write.dlt645.verifyValue == 1.0, "read-back targets");
     // The COMM202600104 firmware has no position DI: the read-back target is the meter's DIO
@@ -126,15 +143,19 @@ void breakerTemplates() {
             p.write.enable = true;
         }
     }
-    validateDlt645PointList(comm104, "comm104 template", true);
+    validateDlt645PointList(comm104, "comm104 template", Dlt645Version::V2007, true);
     // ...but a meter without positionReadBackIndex cannot run an enabled trip point.
-    LogicalDeviceConfig meter;
+    DeviceConfig bus;
+    bus.protocol.type = "dlt645_2007";
+    bus.meters.resize(3);
+    auto& meter = bus.meters[2];
     meter.meterCode = "LOAD_BREAKER";
-    require(throwsWith([&] { validateDlt645PointList(expandDlt645MeterPoints(meter, 2, comm104), "meter"); },
-                       "position read-back"), "trip without read-back must not run");
+    require(throwsWith([&] {
+                validateDlt645PointList(expandDlt645MeterPoints(bus, 2, comm104), "meter", Dlt645Version::V2007);
+            }, "position read-back"), "trip without read-back must not run");
     meter.positionReadBackIndex = 999;
-    const auto expanded = expandDlt645MeterPoints(meter, 2, comm104);
-    validateDlt645PointList(expanded, "meter");
+    const auto expanded = expandDlt645MeterPoints(bus, 2, comm104);
+    validateDlt645PointList(expanded, "meter", Dlt645Version::V2007);
     require(byCode(expanded, "breaker_remote_trip").write.dlt645.verifyIndex == 999 &&
             byCode(expanded, "breaker_remote_close").write.dlt645.verifyIndex == 999 &&
             *byCode(expanded, "breaker_remote_close").write.dlt645.verifyValue == 1.0 &&
@@ -143,11 +164,114 @@ void breakerTemplates() {
     require(byCode(expanded, "breaker_cancel_trip").write.dlt645.verifyIndex == 0, "cancel commands have no read-back");
 }
 
+void template1997() {
+    const auto points = loadTemplate("config/templates/dlt645_1997_standard_points.json");
+    require(points.size() == 31, "1997 template: energy, voltage, current, power, reactive, PF, online");
+    const auto check = [&points](const char* code, const char* di, int bytes, double scale) {
+        const auto& p = byCode(points, code);
+        require(p.read.dlt645Di == di && p.read.dlt645ByteCount == bytes && std::abs(p.read.scale - scale) < 1e-12 &&
+                p.read.dataType == "dlt645_bcd", std::string("1997 format of ") + code);
+    };
+    check("KY02100891", "9010", 4, 0.01);    // XXXXXX.XX kWh
+    check("KY02100018", "B611", 2, 1.0);     // XXX V
+    check("KY02100024", "B621", 2, 0.01);    // XX.XX A
+    check("KY02100029", "B630", 3, 0.0001);  // XX.XXXX kW
+    check("KY02100030", "B640", 2, 0.01);    // XX.XX kvar
+    check("KY02100710", "B650", 2, 0.001);   // X.XXX
+    // A 1997 template under a 2007 config (or the other way round) is refused when expanding.
+    DeviceConfig config;
+    config.protocol.type = "dlt645_2007";
+    config.meters.resize(1);
+    require(throwsWith([&] { expandDlt645MeterPoints(config, 0, points); }, "does not match protocol.type"),
+            "1997 template under dlt645_2007 must be refused");
+    config.protocol.type = "dlt645_1997";
+    require(throwsWith([&] { expandDlt645MeterPoints(config, 0, loadTemplate(kStandard)); }, "does not match protocol.type"),
+            "2007 template under dlt645_1997 must be refused");
+    require(expandDlt645MeterPoints(config, 0, points).size() == 31, "matching edition expands");
+}
+
+void autoIndexBase() {
+    const auto load = [](const std::string& text) { return ConfigLoader::loadFromText(text); };
+    const auto config = load(R"({"protocol":{"type":"dlt645_2007"},"dlt645":{"autoIndexBase":300000},)"
+                             R"("meters":[{"meterCode":"A","address":"1"},{"meterCode":"B","address":"2"}]})");
+    require(config.protocol.dlt645.autoIndexBase == 300000, "autoIndexBase parsed");
+    const auto points = loadTemplate(kStandard);
+    require(expandDlt645MeterPoints(config, 0, points).front().index == 300000 &&
+            expandDlt645MeterPoints(config, 1, points).back().index == 310000 + points.size() - 1,
+            "auto indexes start at autoIndexBase, one 10000 block per meter");
+    require(load(R"({"protocol":{"type":"dlt645_2007"},"meters":[{"meterCode":"A","address":"1"}]})")
+                .protocol.dlt645.autoIndexBase == 200000, "default 200000");
+    // An explicit index inside an auto-expanded meter's block is refused.
+    require(throwsWith([&] {
+                load(R"({"protocol":{"type":"dlt645_2007"},"dlt645":{"autoIndexBase":300000},"meters":[)"
+                     R"({"meterCode":"A","address":"1"},)"
+                     R"({"meterCode":"B","address":"2","points":[{"index":300005,"pointCode":"ua","enabled":true,)"
+                     R"("read":{"enable":true,"dataType":"dlt645_bcd","dlt645":{"di":"02010100","byteCount":2}}}]}]})");
+            }, "auto-index block of meter A"), "explicit index overlapping an auto block");
+    require(throwsWith([&] {
+                load(R"({"protocol":{"type":"dlt645_2007"},"dlt645":{"autoIndexBase":4294960000},)"
+                     R"("meters":[{"meterCode":"A","address":"1"}]})");
+            }, "beyond 4294967295"), "auto block must fit uint32");
+    require(throwsWith([&] { load(R"({"protocol":{"type":"dlt645_2007"},"dlt645":{"autoIndexBase":0},"meters":[]})"); },
+                       "autoIndexBase"), "autoIndexBase must be positive");
+}
+
+void editionAndCommandValidation() {
+    const auto load = [](const std::string& text) { (void)ConfigLoader::loadFromText(text); };
+    const auto meter = [](const std::string& type, const std::string& points, const std::string& extra = "") {
+        return R"({"protocol":{"type":")" + type + R"("},)" + extra +
+               R"("meters":[{"meterCode":"M1","address":"000000000001","points":[)" + points + "]}]}";
+    };
+    const auto read = [](const std::string& di) {
+        return R"({"index":1,"pointCode":"p","enabled":true,"read":{"enable":true,"dataType":"dlt645_bcd",)"
+               R"("dlt645":{"di":")" + di + R"(","byteCount":2}}})";
+    };
+    load(meter("dlt645_1997", read("B611")));
+    require(throwsWith([&] { load(meter("dlt645_1997", read("02010100"))); }, "4 hex digits (DI1 DI0)"),
+            "2007 DI in a 1997 config");
+    require(throwsWith([&] { load(meter("dlt645_2007", read("B611"))); }, "8 hex digits"), "1997 DI in a 2007 config");
+    require(throwsWith([&] {
+                load(meter("dlt645_1997", R"({"index":1,"pointCode":"u","enabled":true,"read":{"enable":true,)"
+                                          R"("dataType":"dlt645_bcd","dlt645":{"di":"B61F"}}})"));
+            }, "block DI"), "1997 block DI (trailing F) needs byteCount/offset");
+
+    const auto password = dlt645_test::fixturePassword();
+    const auto write = R"("dlt645":{"write":{"enabled":true,"password":")" + password + R"(","operatorCode":"01020304"}},)";
+    // 1997 writes carry no operator code.
+    load(meter("dlt645_1997", "", R"("dlt645":{"write":{"enabled":true,"password":")" + password + R"("}},)"));
+    const auto remote = [](const std::string& type, const std::string& extra) {
+        return R"({"index":5,"pointCode":"rc","enabled":true,"write":{"enable":true,"allowedValues":[1],)" + extra +
+               R"("dlt645":{"dataType":"dlt645_remote_control","controlType":")" + type + R"("}}})";
+    };
+    load(meter("dlt645_2007", remote("keep_power", ""), write));
+    require(throwsWith([&] { load(meter("dlt645_1997", remote("keep_power", ""), write)); }, "DL/T 645-2007 only"),
+            "C=1CH in a 1997 config must not load");
+    require(throwsWith([&] { load(meter("dlt645_2007", remote("open", ""), write)); }, "controlType"),
+            "unknown remote control type");
+    require(throwsWith([&] { load(meter("dlt645_2007", remote("trip", ""), write)); }, "position read-back"),
+            "remote trip needs a position read-back");
+    const auto relay = R"({"index":4,"pointCode":"relay","enabled":true,"read":{"enable":true,"dataType":"dlt645_bitfield_le",)"
+                       R"("bit":4,"dlt645":{"di":"04000503","byteCount":2}}})";
+    load(meter("dlt645_2007", std::string(relay) + "," + R"({"index":5,"pointCode":"rc","enabled":true,"write":{"enable":true,)"
+               R"("verifyAfterWrite":true,"verifyByRead":true,"dlt645":{"dataType":"dlt645_remote_control","controlType":"trip",)"
+               R"("verifyPointCode":"relay","verifyValue":1}}})", write));
+    require(throwsWith([&] { load(meter("dlt645_2007", R"({"index":5,"pointCode":"rc","enabled":true,"write":{"enable":true,)"
+               R"("dlt645":{"di":"06010101","dataType":"dlt645_remote_control","controlType":"alarm"}}})", write)); },
+                       "uses no write.dlt645.di"), "C=1CH has no DI");
+
+    // Broadcast time sync: off by default, interval bounded.
+    const auto sync = [](const std::string& body) { return R"("dlt645":{"timeSync":)" + body + "},"; };
+    require(!ConfigLoader::loadFromText(meter("dlt645_2007", "")).protocol.dlt645.timeSync.enabled, "time sync off by default");
+    load(meter("dlt645_1997", "", sync(R"({"enabled":true,"intervalMs":86400000})")));
+    require(throwsWith([&] { load(meter("dlt645_2007", "", sync(R"({"enabled":true,"intervalMs":60000})"))); }, "timeSync.intervalMs"),
+            "time sync more often than hourly refused");
+}
+
 void templateValidation() {
     const auto path = "/tmp/dlt645_config_test_" + std::to_string(static_cast<long long>(::getpid())) + ".json";
     {
         std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
-        output << R"({"points":[{"pointCode":"word","name":"w","desc":"","unit":"","di":"04000501",)"
+        output << R"({"protocol":"dlt645_2007","points":[{"pointCode":"word","name":"w","desc":"","unit":"","di":"04000501",)"
                   R"("dataType":"dlt645_uint32","byteCount":2}]})";
     }
     const bool rejected = throwsWith([&] { ConfigLoader::loadDlt645StandardPointsFromFile(path); }, "point word");
@@ -255,13 +379,16 @@ void mockAcceptance(const std::string& relativeConfig) {
     auto templatePath = config.protocol.standardPointsFile;
     const std::string installRoot = "/opt/modbus-gateway/";
     if (templatePath.compare(0, installRoot.size(), installRoot) == 0) templatePath = templatePath.substr(installRoot.size());
-    const auto points = ConfigLoader::loadDlt645StandardPointsFromFile(g_root + "/" + templatePath);
-    auto port = std::make_shared<Dlt645MockSerialPort>();
+    const auto points = ConfigLoader::loadDlt645StandardPointsFromFile(
+        templatePath.compare(0, 1, "/") == 0 ? templatePath : g_root + "/" + templatePath);
+    std::vector<std::string> addresses;
+    for (const auto& meter : config.meters) addresses.push_back(meter.address);
+    auto port = std::make_shared<Dlt645MockSerialPort>(false, addresses);
     SerialPortOptions options;
     options.device = "mock";
     options.timeoutMs = 20;
     options.wakeupBytes = config.protocol.transport.wakeupBytes;
-    auto client = std::make_shared<Dlt645Client>(port, options);
+    auto client = std::make_shared<Dlt645Client>(port, options, dlt645VersionOf(config.protocol.type));
     const std::string storeName = "dlt645_config_mock_acceptance_test";
     MemoryPointStore::cleanupOrphanedSegment(storeName);
     {
@@ -272,10 +399,9 @@ void mockAcceptance(const std::string& relativeConfig) {
             item.meterCode = meter.meterCode;
             item.address = meter.address;
             item.memoryStore.sharedMemoryName = storeName;
-            item.points = points;
-            for (std::size_t i = 0; i < item.points.size(); ++i) {
-                item.points[i].index = 200000U + static_cast<std::uint32_t>(meterIndex * 10000U + i);
-            }
+            item.points = expandDlt645MeterPoints(config, meterIndex, points);
+            require(item.points.front().index == config.protocol.dlt645.autoIndexBase + meterIndex * 10000U,
+                    relativeConfig + ": auto index block");
             item.meters.clear();
             item.collect.maxTasksPerMeterPerCycle = 1000;
             Dlt645Collector collector(item, store, client);
@@ -305,11 +431,15 @@ int main(int argc, char** argv) {
     try {
         standardTemplate();
         breakerTemplates();
+        template1997();
+        autoIndexBase();
+        editionAndCommandValidation();
         templateValidation();
         shippedConfigs();
         validation();
         mockAcceptance("config/runtime/devices/device_dlt645_multi_meter_1_2.json");
         mockAcceptance("config/runtime/devices/device_dlt645_breakers_20_22.json");
+        mockAcceptance("config/examples/device_dlt645_1997_meters.json");
         std::cout << "dlt645_config_test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

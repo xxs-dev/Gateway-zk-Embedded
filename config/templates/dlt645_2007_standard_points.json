@@ -1,9 +1,9 @@
 {
   "protocol": "dlt645_2007",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "source": "national_standard_reference",
   "generatedAt": "2026-04-20T11:38:09+08:00",
-  "pointCount": 279,
+  "pointCount": 282,
   "points": [
     {
       "templateKey": "forward_active_energy_total",
@@ -6395,6 +6395,115 @@
       "standardSource": "national_standard",
       "standardLevel": "confirmed",
       "verificationRequired": false
+    },
+    {
+      "templateKey": "relay_open",
+      "pointCode": "dlt645_relay_open",
+      "name": "继电器断开状态",
+      "category": "status",
+      "di": "04000503",
+      "dataType": "dlt645_bitfield_le",
+      "byteCount": 2,
+      "bit": 4,
+      "scale": 1,
+      "unit": "",
+      "defaultIntervalMs": 5000,
+      "storeLatest": true,
+      "storeHistory": true,
+      "reportOnChange": true,
+      "enabledByDefault": false,
+      "desc": "运行状态字3 bit4 继电器状态：0 通，1 断",
+      "phase": "",
+      "notes": "远程拉闸/合闸的闸位读回点；启用控制时一并启用",
+      "standardSource": "national_standard",
+      "standardLevel": "confirmed",
+      "verificationRequired": true,
+      "valueMap": {
+        "0": "通",
+        "1": "断"
+      }
+    },
+    {
+      "templateKey": "remote_trip",
+      "pointCode": "dlt645_remote_trip",
+      "name": "远程拉闸",
+      "access": "write",
+      "category": "command",
+      "di": "",
+      "dataType": "dlt645_remote_control",
+      "byteCount": 0,
+      "scale": 1,
+      "unit": "",
+      "storeLatest": false,
+      "storeHistory": false,
+      "fullUpload": false,
+      "reportOnChange": false,
+      "enabledByDefault": false,
+      "desc": "DL/T 645-2007 C=1CH 明文口令（不适用 ESAM 密文表）；写 1 触发；默认关闭，启用需打开本点、dlt645_relay_open 与设备级写开关",
+      "phase": "",
+      "notes": "",
+      "standardSource": "national_standard",
+      "standardLevel": "confirmed",
+      "verificationRequired": true,
+      "write": {
+        "enable": false,
+        "dataType": "dlt645_remote_control",
+        "allowedValues": [
+          1
+        ],
+        "verifyAfterWrite": true,
+        "verifyByRead": true,
+        "verifyDelayMs": 500,
+        "dlt645": {
+          "dataType": "dlt645_remote_control",
+          "controlType": "trip",
+          "validitySeconds": 300,
+          "verifyPointCode": "dlt645_relay_open",
+          "verifyValue": 1,
+          "verifyTimeoutMs": 5000
+        }
+      }
+    },
+    {
+      "templateKey": "remote_close",
+      "pointCode": "dlt645_remote_close",
+      "name": "远程直接合闸",
+      "access": "write",
+      "category": "command",
+      "di": "",
+      "dataType": "dlt645_remote_control",
+      "byteCount": 0,
+      "scale": 1,
+      "unit": "",
+      "storeLatest": false,
+      "storeHistory": false,
+      "fullUpload": false,
+      "reportOnChange": false,
+      "enabledByDefault": false,
+      "desc": "DL/T 645-2007 C=1CH 明文口令（不适用 ESAM 密文表）；写 1 触发；默认关闭，启用需打开本点、dlt645_relay_open 与设备级写开关",
+      "phase": "",
+      "notes": "",
+      "standardSource": "national_standard",
+      "standardLevel": "confirmed",
+      "verificationRequired": true,
+      "write": {
+        "enable": false,
+        "dataType": "dlt645_remote_control",
+        "allowedValues": [
+          1
+        ],
+        "verifyAfterWrite": true,
+        "verifyByRead": true,
+        "verifyDelayMs": 500,
+        "dlt645": {
+          "dataType": "dlt645_remote_control",
+          "controlType": "close",
+          "validitySeconds": 300,
+          "verifyPointCode": "dlt645_relay_open",
+          "verifyValue": 0,
+          "verifyTimeoutMs": 5000
+        }
+      }
     }
   ]
 }

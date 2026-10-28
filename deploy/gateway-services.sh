@@ -167,7 +167,7 @@ def emit_device_unit(path):
     stem = os.path.splitext(os.path.basename(path))[0]
     if protocol in ("modbus_rtu", "modbus_tcp"):
         emit_unit(f"modbus-rtu@{stem}.service")
-    elif protocol in ("dlt645_2007", "dlt645"):
+    elif protocol in ("dlt645_2007", "dlt645_1997", "dlt645"):
         emit_unit(f"dlt645-driver@{stem}.service")
     elif protocol in ("local_dio", "dio", "dido"):
         emit_unit(f"dio-driver@{stem}.service")

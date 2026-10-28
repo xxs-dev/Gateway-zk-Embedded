@@ -604,6 +604,8 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
             if (!verifyValue->isNull()) spec.dlt645.verifyValue = verifyValue->asNumber();
         }
         spec.dlt645.verifyTimeoutMs = requireInt(dlt645Object, "verifyTimeoutMs", spec.dlt645.verifyTimeoutMs);
+        spec.dlt645.controlType = requireString(dlt645Object, "controlType", spec.dlt645.controlType);
+        spec.dlt645.validitySeconds = requireInt(dlt645Object, "validitySeconds", spec.dlt645.validitySeconds);
     }
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
@@ -1274,9 +1276,23 @@ void parseDlt645Config(const JsonValue* value, ProtocolConfig& protocol) {
             !validHex32(protocol.dlt645.write.operatorCode)) {
             throw std::invalid_argument("dlt645.write.operatorCode must be exactly 8 hex characters");
         }
-        if (protocol.dlt645.write.enabled && protocol.dlt645.write.operatorCode.empty()) {
+        // DL/T 645-1997 writes carry no operator code.
+        if (protocol.dlt645.write.enabled && protocol.dlt645.write.operatorCode.empty() &&
+            protocol.type != "dlt645_1997") {
             throw std::invalid_argument("dlt645.write.operatorCode is required when write is enabled");
         }
+    }
+    {
+        const auto base = requireInt64(object, "autoIndexBase", protocol.dlt645.autoIndexBase);
+        if (base < 1 || base > 0xFFFFFFFFLL) {
+            throw std::invalid_argument("dlt645.autoIndexBase must be a point index (1..4294967295)");
+        }
+        protocol.dlt645.autoIndexBase = static_cast<std::uint32_t>(base);
+    }
+    if (const auto* timeSync = value->find("timeSync")) {
+        const auto& timeSyncObject = timeSync->asObject();
+        protocol.dlt645.timeSync.enabled = requireBool(timeSyncObject, "enabled", protocol.dlt645.timeSync.enabled);
+        protocol.dlt645.timeSync.intervalMs = requireInt(timeSyncObject, "intervalMs", protocol.dlt645.timeSync.intervalMs);
     }
 }
 
@@ -4386,6 +4402,12 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
         throw std::invalid_argument("DLT645 standard points missing required points array");
     }
 
+    const auto* protocolName = root.find("protocol");
+    if (protocolName == nullptr || !protocolName->isString() || !isDlt645Protocol(protocolName->asString())) {
+        throw std::invalid_argument("DLT645 standard points need \"protocol\": \"dlt645_2007\" or \"dlt645_1997\"");
+    }
+    const auto version = dlt645VersionOf(protocolName->asString());
+
     std::vector<PointDefinition> result;
     result.reserve(points->asArray().values.size());
     std::uint32_t generatedIndex = 1;
@@ -4429,7 +4451,7 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
     }
     // The read-back target of trip/close points is per meter (meters[].positionReadBackIndex), so the
     // template itself is checked without it; the expanded meters are checked when the driver starts.
-    validateDlt645PointList(result, "DLT645 standard points", true);
+    validateDlt645PointList(result, "DLT645 standard points", version, true);
     return result;
 }
 

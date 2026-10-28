@@ -85,11 +85,15 @@ inline std::uint8_t requestControl(const std::vector<std::uint8_t>& wire) {
     return *(frameStart(wire) + 8);
 }
 
+// DI of a read/write request (2007: 4 bytes, 1997: 2 bytes); empty for other commands.
 inline std::string requestDataId(const std::vector<std::uint8_t>& wire) {
     const auto start = frameStart(wire);
+    const auto control = *(start + 8);
+    const int length = control == 0x11 || control == 0x12 || control == 0x14 ? 4
+        : control == 0x01 || control == 0x02 || control == 0x04 ? 2 : 0;
     static const char* hex = "0123456789ABCDEF";
     std::string text;
-    for (int i = 13; i >= 10; --i) {
+    for (int i = 9 + length; i >= 10; --i) {
         const auto byte = static_cast<std::uint8_t>(*(start + i) - 0x33U);
         text.push_back(hex[byte >> 4U]);
         text.push_back(hex[byte & 0x0FU]);
@@ -162,11 +166,22 @@ public:
         const auto control = requestControl(bytes);
         requests.push_back(requestAddress(bytes) + ":" + requestDataId(bytes) + ":" + std::to_string(control));
         requestTimes.push_back(clock != nullptr ? *clock : 0);
-        if (!alive || (control == 0x14 && !acknowledgeWrites)) return;
+        if (!alive || ((control == 0x14 || control == 0x04 || control == 0x1C) && !acknowledgeWrites)) return;
         meter.write(bytes);
     }
     std::vector<std::uint8_t> read(std::size_t maxBytes, int timeoutMs) override {
         return meter.read(maxBytes, timeoutMs);
+    }
+    std::size_t countControl(int control) const {
+        std::size_t total = 0;
+        const auto suffix = ":" + std::to_string(control);
+        for (const auto& request : requests) {
+            if (request.size() > suffix.size() &&
+                request.compare(request.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                ++total;
+            }
+        }
+        return total;
     }
     std::size_t count(const std::string& dataId, int control = 0x11) const {
         std::size_t total = 0;

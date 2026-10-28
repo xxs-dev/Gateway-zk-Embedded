@@ -1,4 +1,5 @@
 #include "edge_gateway/command_executor.hpp"
+#include "edge_gateway/dlt645_version.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -97,7 +98,7 @@ CommandExecutor::CommandExecutor(
         if (!gpioPort_) {
             throw std::invalid_argument("gpioPort is required");
         }
-    } else if (config_.protocol.type != "dlt645_2007" && !modbusClient_) {
+    } else if (!isDlt645Protocol(config_.protocol.type) && !modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
     }
     store_.registerPoints(config_.machineCode, config_.meterCode, config_.points);
@@ -160,8 +161,8 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
             }
             return result;
         }
-        if (config_.protocol.type == "dlt645_2007") {
-            throw std::invalid_argument("unsupported write for dlt645_2007");
+        if (isDlt645Protocol(config_.protocol.type)) {
+            throw std::invalid_argument("unsupported write for " + config_.protocol.type);
         }
         const auto& point = findPoint(request.pointCode);
         result.index = point.index;

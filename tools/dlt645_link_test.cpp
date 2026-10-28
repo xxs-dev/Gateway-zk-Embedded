@@ -157,7 +157,7 @@ void errorReply() {
     try {
         client.readData("1", "02070000");
     } catch (const Dlt645ErrorResponse& ex) {
-        reported = ex.errorCode() == 0x02 && std::string(ex.what()).find("code=0x02") != std::string::npos;
+        reported = ex.errorCode() == 0x02 && std::string(ex.what()).find("ERR=0x02 (no requested data)") != std::string::npos;
     }
     require(reported, "D1H must be reported with its error code");
 }

@@ -77,6 +77,10 @@ struct Dlt645WriteSpec {
     std::uint32_t verifyIndex = 0;
     Optional<double> verifyValue;
     int verifyTimeoutMs = 3000;
+    // dlt645_remote_control (DL/T 645-2007 C=1CH, no DI): trip, close_permit, close, alarm,
+    // alarm_release, keep_power, keep_power_release; the command stays valid for validitySeconds.
+    std::string controlType;
+    int validitySeconds = 300;
 };
 
 struct ReadSpec {
@@ -585,8 +589,18 @@ struct Dlt645WriteSecurityConfig {
     std::string operatorCode;
 };
 
+// Broadcast time sync (C=08H to 999999999999, no reply). Off unless enabled; sent only while the
+// gateway clock is synchronized and never around midnight.
+struct Dlt645TimeSyncConfig {
+    bool enabled = false;
+    int intervalMs = 86400000;
+};
+
 struct Dlt645ProtocolConfig {
     Dlt645WriteSecurityConfig write;
+    // Meters without points[] expand the standard template to autoIndexBase + meter*10000 + position.
+    std::uint32_t autoIndexBase = 200000;
+    Dlt645TimeSyncConfig timeSync;
 };
 
 struct ProtocolConfig {

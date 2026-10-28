@@ -10,14 +10,15 @@
 
 namespace edge_gateway {
 
-// C=14H writes. Writes are off unless dlt645.write.enabled and the point's write.enable are set.
+// Writes (2007 C=14H, 1997 C=04H) and DL/T 645-2007 remote control (C=1CH, dlt645_remote_control).
+// Off unless dlt645.write.enabled and the point's write.enable are set.
 // Points with a read-back (write.verifyAfterWrite + verifyByRead; mandatory for trip/close) are
 // checked before and confirmed after execution. The read-back is either a DL/T 645 point of the same
 // meter (write.dlt645.verifyPointCode, read from the meter) or a point of another device on this
 // gateway (write.dlt645.verifyIndex, e.g. a DIO auxiliary contact, read from the shared point store):
 //  - before: unreadable (store: missing, stale or bad quality) -> rejected, nothing sent; already at
 //    the target value -> success without sending;
-//  - after the 94H acknowledgement: polled until it shows the target value (verifyPassed) or
+//  - after the acknowledgement (94H/84H/9CH): polled until it shows the target value (verifyPassed) or
 //    write.dlt645.verifyTimeoutMs passes (failure; outcomeUnknown when nothing could be read; for
 //    the store only values collected after the command count).
 // A sent request without a conclusive reply reports outcomeUnknown. Nothing is retried.

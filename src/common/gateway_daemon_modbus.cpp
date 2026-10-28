@@ -8,6 +8,7 @@
 
 #include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/dlt645_collector.hpp"
+#include "edge_gateway/dlt645_version.hpp"
 #include "edge_gateway/modbus_northbound_server.hpp"
 #include "edge_gateway/modbus_collector.hpp"
 
@@ -26,7 +27,7 @@ GatewayDaemon::GatewayDaemon(
         store,
         [modbusClient, dlt645Client, lineSchedule = std::make_shared<ModbusLineSchedule>()](
             const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
-            if (runtimeConfig.protocol.type == "dlt645_2007") {
+            if (isDlt645Protocol(runtimeConfig.protocol.type)) {
                 return std::unique_ptr<ICollector>(
                     new Dlt645Collector(runtimeConfig, runtimeStore, dlt645Client)
                 );
