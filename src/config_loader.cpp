@@ -1399,6 +1399,7 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.sqlitePath = requireString(object, "sqlitePath", config.sqlitePath);
     config.sqliteLibraryPath = requireString(object, "sqliteLibraryPath", config.sqliteLibraryPath);
     config.controlDedupPath = requireString(object, "controlDedupPath", config.controlDedupPath);
+    config.emsControlModeFile = requireString(object, "emsControlModeFile", config.emsControlModeFile);
     config.persistFlushIntervalMs = requireInt(object, "persistFlushIntervalMs", config.persistFlushIntervalMs);
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
@@ -1842,7 +1843,9 @@ MqttForwardControlConfig parseMqttForwardControlConfig(const JsonValue* value) {
         throw std::invalid_argument("mqttForward.control must be an object");
     }
     const auto& object = value->asObject();
+    config.emsControlModeFile = requireString(object, "emsControlModeFile", config.emsControlModeFile);
     static const char* allowedKeys[] = {
+        "emsControlModeFile",
         "enabled",
         "commandTopic",
         "replyTopic",
@@ -2488,6 +2491,7 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         return config;
     }
     const auto& object = value->asObject();
+    config.emsControlModeFile = requireString(object, "emsControlModeFile", config.emsControlModeFile);
     config.enabled = requireBool(object, "enabled", config.enabled);
     config.sharedMemoryName = requireString(object, "sharedMemoryName", config.sharedMemoryName);
     if (const auto* names = value->find("sharedMemoryNames")) {

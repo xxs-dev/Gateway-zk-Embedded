@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
@@ -564,6 +565,46 @@ void verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void verifyEmsLocalModeAtPhysicalDispatch() {
+    const auto storeName = uniqueStoreName("ems_mode_dispatch_test");
+    const std::string modePath = "/tmp/" + storeName + ".json";
+    auto deviceConfig = config(storeName);
+    deviceConfig.memoryStore.pendingWriteMaxAgeMs = 0;
+    deviceConfig.memoryStore.emsControlModeFile = modePath;
+    deviceConfig.mqttDriver.powerControlOwnershipFile = modePath + ".owner";
+    deviceConfig.mqttDriver.priorityControlLeaseFile = modePath + ".priority";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        edge_gateway::GatewayDaemon daemon(deviceConfig, store, client);
+        edge_gateway::EmsControlMode mode(modePath);
+        edge_gateway::PendingWriteCommand command;
+        command.index=1001;command.value=7;command.ts=100;command.acceptedAt=100;
+        command.source="local-display-scada";command.platformControl=true;command.highPriority=true;
+        command.cmdId="OLD_PLATFORM";
+        store.submitWriteCommand(command);
+        mode.setRemote(false,200);
+        daemon.processWritebackOnce(300);
+        auto result=store.getWritebackResult(command.cmdId);
+        require(result && !result->success && client->writeCount(1)==0,"local mode allowed queued platform write");
+        mode.setRemote(true,400);
+        command.cmdId="OLD_PLATFORM_AFTER_REMOTE";
+        store.submitWriteCommand(command);daemon.processWritebackOnce(500);
+        require(client->writeCount(1)==0,"reopening remote replayed revoked command");
+        mode.setRemote(false,600);
+        command.cmdId="LOCAL_ALLOWED";command.platformControl=false;
+        store.submitWriteCommand(command);daemon.processWritebackOnce(700);
+        require(client->writeCount(1)==1,"local operation blocked by EMS mode gate");
+        mode.setRemote(true,800);
+        command.cmdId="NEW_PLATFORM";command.platformControl=true;command.acceptedAt=900;
+        store.submitWriteCommand(command);daemon.processWritebackOnce(900);
+        require(client->writeCount(1)==2,"new platform operation blocked in remote mode");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    std::remove(modePath.c_str());std::remove((modePath+".lock").c_str());
+}
+
 }  // namespace
 
 int main() {
@@ -579,6 +620,7 @@ int main() {
         verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop();
         verifyStaleControlGenerationIsRejectedBeforeDeviceWrite();
         verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite();
+        verifyEmsLocalModeAtPhysicalDispatch();
         auto deviceConfig = config(storeName);
         {
             writeFile(

@@ -1,4 +1,5 @@
 #include "edge_gateway/mqtt_forwarder_service.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1487,11 +1488,12 @@ void MqttForwarderService::handleCommandMessage(
     ParsedControlCommand command;
     try {
         command = parseControlCommand(message.payload);
+        EmsControlMode(forwardConfig_.control.emsControlModeFile).admitPlatform(nowMs);
     } catch (const std::exception& ex) {
         const auto active = ownership_->active(nowMs);
         publishControlReply(
-            {},
-            -1,
+            command.id,
+            command.type,
             false,
             false,
             active ? "remote" : "local",
@@ -1702,6 +1704,7 @@ void MqttForwarderService::handleCommandMessage(
             return;
         }
         pending.source = kMqttForwarderOwner;
+        pending.platformControl = true;
         pending.ts = nowMs;
         pending.acceptedAt = nowMs;
         pending.highPriority = false;

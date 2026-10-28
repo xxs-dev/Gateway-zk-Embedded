@@ -15362,7 +15362,7 @@
     "displayName": "自动上传周期",
     "unit": "s",
     "dataType": "uint8",
-    "access": "readWrite",
+    "access": "read",
     "indexFallback": 310106
   },
   {

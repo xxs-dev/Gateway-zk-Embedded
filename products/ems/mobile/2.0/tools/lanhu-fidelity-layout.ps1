@@ -22,6 +22,27 @@ function Ref-Value($Widgets,$Id,$Index,$X,$Y,$W,$H,$Unit='',$Size=16) {
     $Widgets[$Widgets.Count-1].properties | Add-Member qtVerticalAlignment 'Center' -Force
     $Widgets[$Widgets.Count-1].properties | Add-Member qtAutoFit 'true' -Force
 }
+function Ref-EnumValue($Widgets,$Id,$Index,$Labels,$X,$Y,$W,$H,$Size=16) {
+    $available=$null-ne$Index-and(Has-Index $Index)
+    if($available-and$script:runtimePointByIndex.ContainsKey([uint32]$Index)){
+        $point=$script:runtimePointByIndex[[uint32]$Index].point
+        $available=$null-ne$point.PSObject.Properties['read']-and[bool]$point.read.enable
+        if($null-ne$point.PSObject.Properties['valueMap']-and$null-ne$point.valueMap){
+            $mapped=[ordered]@{}
+            foreach($property in $point.valueMap.PSObject.Properties){$mapped[$property.Name]=[string]$property.Value}
+            if($mapped.Count-gt0){$Labels=$mapped}
+        }
+    }
+    if(-not$available){$Widgets.Add((Ref-Text $Id '未配置反馈' $X $Y $W $H $Size '#90979F' $false 'Center'));return}
+    $rules=@();$priority=0
+    foreach($key in $Labels.Keys){$priority++;$rules+=New-StateRule "$Id-$priority" $Labels[$key] '#303438' $Index 'eq' ([string]$key) $priority}
+    # State rules keep unknown codes and invalid quality out of numeric fallback.
+    $Widgets.Add((New-Widget $Id 'statusCard' '' $X $Y $W $H 5 @((New-Binding $Index)) $rules $null ([ordered]@{
+        qtBackgroundColor='transparent';qtFontSize=$Size;qtTheme='light';qtTextColor='#303438';
+        qtBorderless='true';qtHideStatusLamp='true';qtVerticalAlignment='Center';qtTextAlignment='Center';qtAutoFit='true';
+        defaultStateLabel='未知状态';unavailableStateLabel='反馈不可用';stateColorMode='indicator'
+    })))
+}
 function Ref-Chrome($Widgets,$Id,$Active) {
     $Widgets.Add((New-Frame 'lanhu-background' 0 0 1440 810 '#E5E9EC' -100))
     $clock=Ref-Text 'lanhu-clock' '' 140 23 300 30 16
@@ -55,7 +76,14 @@ function Ref-Tabs($Widgets,$Tabs,$Active,$X,$Y,$W) {
     }
 }
 function Ref-MeterTabs($Widgets,$Active) {
-    Ref-Tabs $Widgets @(@{Id='Output';T='位置1';Target='Meters-Overview'},@{Id='Input';T='位置2';Target='Meters-Electrical-Input'},@{Id='Pcs';T='位置3';Target='Meters-Electrical-Pcs'},@{Id='Through';T='位置4';Target='Meters-Power-Through'},@{Id='Energy';T='位置5';Target='Meters-Energy'}) $Active 376 80 690
+    $tabs=@($lanhuMeters|ForEach-Object {@{Id=$_.Source;T=$_.Name;Target=$_.Target}})
+    if(Has-Index 1220){$tabs+=@{Id='Pcs';T='PCS交流侧';Target='Meters-Electrical-Pcs'}}
+    if($tabs.Count-gt0-and$tabs.Count-le6){Ref-Tabs $Widgets $tabs $Active 300 80 930}
+    elseif($tabs.Count-gt6){
+        $current=@($tabs|Where-Object Id -eq $Active)[0]
+        $select=Ref-Button 'meter-device-selector' $current.T $current.Target 563 80 360 40
+        $select.properties|Add-Member qtMenuScreensJson (ConvertTo-Json -InputObject @($tabs|ForEach-Object {@{text=$_.T;screen=$_.Target}}) -Compress);$Widgets.Add($select)
+    }
 }
 function Ref-Chart($Widgets,$Id,$Indexes,$Names,$Units,$X,$Y,$W,$H) {
     $palette=@('#D99B14','#18CC70','#F42B59','#129AF5')
@@ -70,7 +98,11 @@ function Ref-Chart($Widgets,$Id,$Indexes,$Names,$Units,$X,$Y,$W,$H) {
     $Widgets.Add($chart)
 }
 function Build-RefMeter($Id,$Source) {
+    if($Id-eq'Meters-Overview'-and$Source-notin@($lanhuMeters|ForEach-Object {$_.Source})-and$lanhuMeters.Count){$Source=$lanhuMeters[0].Source}
     $w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w $Id 'Meters';Ref-MeterTabs $w $Source
+    if($Source-ne'Pcs'-and$Source-notin@($lanhuMeters|ForEach-Object {$_.Source})){
+        $w.Add((Ref-Text 'meter-empty' '未配置电表' 162 260 1000 50 22));return New-RefScreen $Id $w
+    }
     $w.Add((New-LanhuImage 'meter-heading-icon' 'meter-heading.png' 132 150 26 26))
     $w.Add((Ref-Text 'meter-heading' '实时监测值' 170 147 420 32 18 '#303438' $true))
     $w.Add((Ref-Panel 'meter-table' 132 190 617 239));$w.Add((Ref-Panel 'meter-summary' 772 190 631 239))
@@ -104,11 +136,28 @@ function Build-RefMeter($Id,$Source) {
     $w[$w.Count-1].properties.chartDefaultWindowMinutes=120
     return New-RefScreen $Id $w
 }
+function Set-RefFeedback($Button,$Index,$Value='') {
+    if($null-ne$Index-and(Has-Index $Index)){
+        $Button.properties|Add-Member controlFeedbackTag ([string]$script:mappingByIndex[[uint32]$Index].tagId) -Force
+        if($Value-ne''){$Button.properties|Add-Member controlFeedbackValue ([string]$Value) -Force}
+    }
+}
+function Test-RefProtocolPoint($Index,$Address,$Function,$DevicePattern) {
+    if(-not(Is-WritableIndex $Index)-or-not$script:runtimePointByIndex.ContainsKey([uint32]$Index)){return $false}
+    $entry=$script:runtimePointByIndex[[uint32]$Index];$p=$entry.point
+    return $p.enabled-and$p.address-eq$Address-and$p.write.function-eq$Function-and$entry.meterCode-match$DevicePattern
+}
 function Ref-ControlChrome($Widgets,$Kind) {
     Ref-Chrome $Widgets "Control-$Kind" 'Control'
     Ref-Tabs $Widgets @(@{Id='Device';T='设备控制';Target='Control-Pcs'},@{Id='Strategy';T='策略控制';Target='Strategy-Overview'}) 'Device' 562 80 308
     $Widgets.Add((Ref-Panel 'control-body' 132 155 1271 614))
     $Widgets.Add((New-Frame 'control-tabs-band' 132 155 1271 51 '#F7F7F7' 1))
+    $Widgets.Add((Ref-Text 'ems-control-mode-title' 'EMS控制权限' 1000 168 130 30 16 '#777E85'))
+    foreach($m in @(@{Id='remote';T='远程';X=1140},@{Id='local';T='就地';X=1250})){
+        $b=Ref-Button "ems-control-mode-$($m.Id)" $m.T '' $m.X 163 100 36
+        $b.properties|Add-Member emsControlModeTarget $m.Id
+        $Widgets.Add($b)
+    }
     $tabs=@(@{Id='Pcs';T='PCS';X=154},@{Id='Bms';T='BMS';X=272},@{Id='Thermal';T='TMS';X=382},@{Id='Mccb';T='MCCB';X=494},@{Id='Diesel';T='柴油发电机';X=608})
     foreach($t in $tabs){
         $b=Ref-Button "control-tab-$($t.Id)" $t.T "Control-$($t.Id)" $t.X 160 $(if($t.Id-eq'Diesel'){126}else{66}) 42
@@ -117,14 +166,30 @@ function Ref-ControlChrome($Widgets,$Kind) {
         if($t.Id-eq$Kind){$Widgets.Add((New-Frame 'control-active-line' $t.X 203 $(if($t.Id-eq'Diesel'){86}else{66}) 3 '#129AF5' 21))}
     }
     $Widgets.Add((New-LanhuImage 'control-mode-icon' 'control-mode.png' 162 250 66 66))
-    $Widgets.Add((Ref-Text 'control-mode-heading' '模式控制' 252 248 420 32 20 '#303438' $true))
-    $Widgets.Add((Ref-Text 'control-mode-title' '当前模式：' 252 289 94 26 18 '#777E85'))
-    $modeIndex=if($Kind-eq'Pcs'){1310}elseif($Kind-eq'Thermal'){164}else{$null}
-    Ref-Value $Widgets 'control-mode-value' $modeIndex 346 289 200 26 '' 18
+    $Widgets.Add((Ref-Text 'control-mode-heading' $(if($Kind-eq'Bms'-and$null-ne$script:lanhuBau){'BAU控制'}else{'模式控制'}) 252 248 420 32 20 '#303438' $true))
+    $Widgets.Add((Ref-Text 'control-mode-title' $(if($Kind-eq'Bms'){'充放电状态：'}else{'当前模式：'}) 252 289 120 26 18 '#777E85'))
+    switch($Kind){
+        # Yingbo V3.3.24, holding register 301. This is a mode, not a running indication.
+        'Pcs' {Ref-EnumValue $Widgets 'control-mode-value' 1310 ([ordered]@{'0'='无';'1'='恒流充电';'2'='恒压充电';'3'='恒功率充电';'4'='直流恒压模式'}) 376 289 220 26 18}
+        'Bms' {Ref-EnumValue $Widgets 'control-mode-value' $(if($null-ne$script:lanhuBau){Get-LanhuBauPoint 8205}else{1454}) ([ordered]@{'0'='静置';'1'='放电';'2'='充电'}) 376 289 220 26 18}
+        # Xinmiao readback 128 uses 1..4; write-only 164 uses different 0..3 codes.
+        'Thermal' {Ref-EnumValue $Widgets 'control-mode-value' 128 ([ordered]@{'1'='水泵循环';'2'='制冷模式';'3'='制热模式';'4'='自动控制'}) 376 289 220 26 18}
+        default {$Widgets.Add((Ref-Text 'control-mode-value' $(if($Kind-eq'Mccb'){'无统一模式反馈'}else{'未配置模式反馈'}) 376 289 220 26 18 '#90979F'))}
+    }
+    if($Kind-eq'Bms'){return}
     $b=Ref-Button 'control-switch-mode' $(if($Kind-eq'Diesel'){'停机'}else{'切换模式'}) '' 1222 242 150 48 $true 24
     $b.properties | Add-Member qtIconFile $(if($Kind-eq'Diesel'){'assets/lanhu-assets/command-stop.png'}else{'assets/lanhu-assets/command-mode.png'})
     if($Kind-eq'Diesel'){$b.properties.qtBackgroundColor='#F52D59'}
-    # Mode enum commands remain reserved until the vendor's allowed values are confirmed.
+    if($Kind-eq'Pcs'-and(Test-RefProtocolPoint 1310 301 6 '^MTR20250600657$')){
+        $b.action=New-Action 'writeSetpoint' '' 1310
+        $b.properties|Add-Member controlOptionsJson (ConvertTo-Json -Compress @(@{label='无';value=0},@{label='恒流充电';value=1},@{label='恒压充电';value=2},@{label='恒功率充电';value=3},@{label='直流恒压模式';value=4}))
+        Set-RefFeedback $b 1310
+    }
+    if($Kind-eq'Thermal'-and(Test-RefProtocolPoint 164 200 6 '_LIQUID_COOLING$')){
+        $b.action=New-Action 'writeSetpoint' '' 164
+        $b.properties|Add-Member controlOptionsJson (ConvertTo-Json -Compress @(@{label='自动控制';value=0;feedbackValue=4},@{label='制冷模式';value=1;feedbackValue=2},@{label='制热模式';value=2;feedbackValue=3},@{label='水泵循环';value=3;feedbackValue=1}))
+        Set-RefFeedback $b 128
+    }
     $Widgets.Add($b)
 }
 function Ref-Command($Widgets,$Id,$Title,$Index,$Value,$X,$Y,$Color='#2599D6') {
@@ -151,14 +216,21 @@ function Build-RefPcs {
         $w.Add((New-Widget 'pcs-run-current' 'statusCard' '' 258 422 46 24 5 @((New-Binding 1209),(New-Binding 1210),(New-Binding 1211)) @((New-StateRule 'stopped' '停机' '#F52D59' 1209 'eq' '1' 10),(New-StateRule 'standby' '待机' '#FFA21C' 1210 'eq' '1' 20),(New-StateRule 'running' '运行' '#18C773' 1211 'eq' '1' 30)) $null ([ordered]@{qtBackgroundColor='transparent';qtFontSize=16;qtTextColor='#FFFFFF';qtTheme='light';qtBorderless='true';qtVerticalAlignment='Center';qtTextAlignment='Center';qtHideStatusLamp='true';unavailableStateLabel='--'})))
     }else{Ref-Value $w 'pcs-run-current' $null 258 419 46 32}
     Ref-Command $w 'control-pcs-stop' '停机' 1202 '1' 438 417 '#EE5078'
+    Set-RefFeedback $w[$w.Count-1] 1209 '1'
     Ref-Command $w 'control-pcs-start' '运行' 1201 '1' 542 417
+    Set-RefFeedback $w[$w.Count-1] 1211 '1'
     Ref-Command $w 'control-pcs-reset' '复位' 1200 '1' 645 417
     $w.Add((Ref-Text 'pcs-grid-current-title' '当前状态：' 800 419 76 32 14 '#777E85'))
     if((Has-Index 1216)-and(Has-Index 1217)){
         $w.Add((New-Widget 'pcs-grid-current' 'statusCard' '' 876 422 46 24 5 @((New-Binding 1216),(New-Binding 1217)) @((New-StateRule 'grid' '并网' '#18C773' 1216 'eq' '1' 10),(New-StateRule 'offgrid' '离网' '#F52D59' 1217 'eq' '1' 20)) $null ([ordered]@{qtBackgroundColor='transparent';qtFontSize=16;qtTextColor='#FFFFFF';qtTheme='light';qtBorderless='true';qtVerticalAlignment='Center';qtTextAlignment='Center';qtHideStatusLamp='true';unavailableStateLabel='--'})))
     }else{Ref-Value $w 'pcs-grid-current' $null 876 419 46 32}
-    Ref-Command $w 'pcs-grid-connect-reserved' '并网' $null '' 1158 417
-    Ref-Command $w 'pcs-grid-disconnect-reserved' '离网' $null '' 1264 417 '#EE5078'
+    $gridIndex=if(Test-RefProtocolPoint 1315 306 6 '^MTR20250600657$'){1315}else{$null}
+    Ref-Command $w 'pcs-grid-connect' '并网' $gridIndex '0' 1158 417
+    Set-RefFeedback $w[$w.Count-1] 1315 '0'
+    $w[$w.Count-1].properties|Add-Member controlWarning '此操作修改并离网设定；实际运行状态以并离网遥信为准。'
+    Ref-Command $w 'pcs-grid-disconnect' '离网' $gridIndex '1' 1264 417 '#EE5078'
+    Set-RefFeedback $w[$w.Count-1] 1315 '1'
+    $w[$w.Count-1].properties|Add-Member controlWarning '此操作修改并离网设定；实际运行状态以并离网遥信为准。'
     $bindings=@();foreach($e in @(@{I=1318;S='activeA'},@{I=1319;S='activeB'},@{I=1320;S='activeC'},@{I=1321;S='reactiveA'},@{I=1322;S='reactiveB'},@{I=1323;S='reactiveC'})){if(Is-WritableIndex $e.I){$bindings+=New-Binding $e.I $e.S}}
     if($bindings.Count-gt0){$w.Add((New-Widget 'control-pcs-phase-power' 'pcsPhasePowerControl' '' 162 497 1210 226 5 $bindings @() $null ([ordered]@{qtTheme='light';qtPresentation='lanhu'})))}
     else {foreach($i in 0..1){Ref-ControlPanel $w "pcs-power-$i" @('有功功率控制','无功功率控制')[$i] (162+$i*618) 497 592 226}}
@@ -175,44 +247,95 @@ function Ref-SettingRow($Widgets,$Id,$Title,$Index,$X,$Y,$Width=560,$Icon='contr
     if($null-ne$Index -and (Is-WritableIndex ([uint32]$Index))){$b.action=New-Action 'writeSetpoint' '' $Index}
     $Widgets.Add($b)
 }
-function Ref-DeviceTile($Widgets,$Id,$Title,$Icon,$Command,$X,$Y,$Color='#2599D6') {
+function Ref-DeviceTile($Widgets,$Id,$Title,$Icon,$Command,$X,$Y,$Color='#2599D6',$Feedback=$null) {
     $panel=Ref-Panel "$Id-panel" $X $Y 385 84
     $panel.properties|Add-Member qtBorderColor '#E6E6E6';$Widgets.Add($panel)
     $Widgets.Add((New-LanhuImage "$Id-icon" $Icon ($X+14) ($Y+18) 42 42))
     $Widgets.Add((Ref-Text "$Id-title" $Title ($X+74) ($Y+10) 178 28 16 '#303438' $true))
     $Widgets.Add((Ref-Text "$Id-status-title" '当前状态：' ($X+74) ($Y+40) 76 28 14 '#777E85'))
-    Ref-Value $Widgets "$Id-feedback" $null ($X+150) ($Y+40) 46 28
+    if($null-ne$Feedback){Ref-EnumValue $Widgets "$Id-feedback" $Feedback ([ordered]@{'0'='分闸';'1'='合闸'}) ($X+150) ($Y+40) 118 28 14}
+    else{Ref-Value $Widgets "$Id-feedback" $null ($X+150) ($Y+40) 46 28}
     Ref-Command $Widgets "$Id-reserved" $Command $null '' ($X+280) ($Y+24) $Color
     if($Command-eq'快速停机'){$Widgets[$Widgets.Count-1].geometry.width=112;$Widgets[$Widgets.Count-1].geometry.x=$X+258}
 }
-function Build-RefDeviceControl($Kind) {
+function Build-RefDeviceControl($Kind,$Page=1) {
     $w=[System.Collections.Generic.List[object]]::new();Ref-ControlChrome $w $Kind
     switch($Kind){
         'Bms' {
             Ref-ControlPanel $w 'bms-control' '运行状态' 162 350 592 123
-            $w.Add((Ref-Text 'bms-status-title' '当前状态：' 182 419 76 32 14 '#777E85'));Ref-Value $w 'bms-status' (Find-PointIndex -Names @('BMS工作状态','BMS 工作状态')) 258 419 124 32
-            # The vendor's power-command enum has not been confirmed; reserve named actions.
-            Ref-Command $w 'bms-reset-reserved' '复位' $null '' 438 417
-            Ref-Command $w 'bms-power-on-reserved' '上电' $null '' 542 417
-            Ref-Command $w 'bms-power-off-reserved' '下电' $null '' 645 417
+            $w.Add((Ref-Text 'bms-status-title' '当前状态：' 182 419 76 32 14 '#777E85'))
+            Ref-EnumValue $w 'bms-status' $(if($null-ne$script:lanhuBau){Get-LanhuBauPoint 8193}else{1550}) ([ordered]@{'0'='正常';'1'='禁充';'2'='禁放';'3'='待机';'4'='停机'}) 258 419 124 32
+            if($null-ne$script:lanhuBau){
+                $bau=$script:lanhuBau
+                $scope="BAU · $($bau.sourceCom) · 地址$($bau.slave)"
+                $w.Add((Ref-Text 'bms-control-target' $scope 780 248 570 40 18 '#303438' $true 'Right'))
+                $power=Get-LanhuBauPoint 16385 $true
+                $reboot=Get-LanhuBauPoint 16386 $true
+                Ref-Command $w 'bau-power-on' '上电' $power '2' 438 417
+                $w[$w.Count-1].properties|Add-Member controlWarning ($scope+'：执行上电流程。驱动回执不代表接触器已闭合。')
+                Ref-Command $w 'bau-power-off' '下电' $power '1' 542 417 '#EE5078'
+                $w[$w.Count-1].properties|Add-Member controlWarning ($scope+'：执行下电流程，按协议在电流小于5A后断开总正、总负接触器。')
+                Ref-Command $w 'bau-reboot' '重启' $reboot '1' 645 417 '#EE5078'
+                $w[$w.Count-1].properties|Add-Member controlWarning ($scope+'：先执行下电流程再重启，不是故障复位。')
+                Ref-ControlPanel $w 'bau-contactors' '接触器反馈' 780 350 592 123
+                $w.Add((Ref-Text 'bau-positive-label' '总正：' 800 419 76 32 16 '#777E85'))
+                Ref-EnumValue $w 'bau-positive' (Get-LanhuBauPoint 8195 $false '总正接触器状态') ([ordered]@{'0'='断开';'1'='闭合'}) 876 419 120 32
+                $w.Add((Ref-Text 'bau-negative-label' '总负：' 1090 419 76 32 16 '#777E85'))
+                Ref-EnumValue $w 'bau-negative' (Get-LanhuBauPoint 8195 $false '主负接触器状态') ([ordered]@{'0'='断开';'1'='闭合'}) 1166 419 120 32
+                $w.Add((Ref-Text 'bms-monitor-only' '下属Pack级BMU / BCU：仅监测' 182 492 1000 36 16 '#90979F'))
+            }else{
+                $w.Add((Ref-Text 'bms-monitor-only' 'BMU / BCU：仅监测' 438 417 290 32 16 '#90979F'))
+            }
         }
         'Thermal' {
-            foreach($i in 0..1){$x=162+$i*618;Ref-ControlPanel $w "tms-control-$i" '液冷控制' $x 350 592 123;$w.Add((Ref-Text "tms-status-title-$i" '当前状态：' ($x+20) 419 76 32 14 '#777E85'));Ref-Value $w "tms-status-$i" $(if($i-eq0){163}else{$null}) ($x+96) 419 124 32;Ref-Command $w "tms-stop-$i" '停止' $null '0' ($x+276) 417 '#EE5078';Ref-Command $w "tms-reset-$i" '复位' $null '' ($x+380) 417;Ref-Command $w "tms-enable-$i" '启用' $null '1' ($x+484) 417}
-            Ref-ControlPanel $w 'tms-temperature' '液冷温度控制' 162 497 1210 172
-            Ref-SettingRow $w 'tms-cool-start-reserved' '制冷启动温度(℃)' $null 180 560 540
-            Ref-SettingRow $w 'tms-heat-start-reserved' '制热启动温度(℃)' $null 180 612 540
-            Ref-SettingRow $w 'tms-cool-return-reserved' '制冷回差温度(℃)' $null 792 560 540
-            Ref-SettingRow $w 'tms-heat-return-reserved' '制热回差温度(℃)' $null 792 612 540
+            Ref-ControlPanel $w 'tms-control-0' '液冷控制' 162 350 592 123
+            $w.Add((Ref-Text 'tms-status-title-0' '开关机使能：' 182 419 100 32 14 '#777E85'))
+            Ref-EnumValue $w 'tms-status-0' 163 ([ordered]@{'0'='关机';'1'='开机'}) 282 419 142 32
+            $enableIndex=if(Test-RefProtocolPoint 163 201 6 '_LIQUID_COOLING$'){163}else{$null}
+            Ref-Command $w 'tms-stop-0' '停止' $enableIndex '0' 542 417 '#EE5078'
+            Set-RefFeedback $w[$w.Count-1] 163 '0'
+            Ref-Command $w 'tms-enable-0' '启用' $enableIndex '1' 645 417
+            Set-RefFeedback $w[$w.Count-1] 163 '1'
+            Ref-ControlPanel $w 'tms-temperature' '液冷设定温度' 780 350 592 123
+            Ref-Value $w 'tms-set-temperature' 166 802 410 150 40 '℃' 20
+            $w.Add((Ref-Text 'tms-temperature-unavailable' '修改范围待厂家确认' 982 410 360 40 16 '#90979F'))
+            Ref-ControlPanel $w 'dehumidifier-settings' '除湿器参数' 162 497 1210 246
+            $settings=@(@{I=220;T='加热启动温度(℃)'},@{I=221;T='加热回差温度(℃)'},@{I=222;T='除湿启动湿度(%)'},@{I=223;T='除湿回差湿度(%)'},@{I=224;T='排风启动温度(℃)'},@{I=225;T='排风回差温度(℃)'})
+            for($i=0;$i-lt$settings.Count;$i++){
+                $s=$settings[$i];$index=if(Test-RefProtocolPoint $s.I ($s.I-210) 16 '_DEHUMIDIFIER$'){$s.I}else{$null}
+                Ref-SettingRow $w "tms-setting-$($s.I)" $s.T $index (180+($i%2)*612) (558+[math]::Floor($i/2)*54) 540
+                $button=$w[$w.Count-1]
+                if($null-ne$index){
+                    $write=$script:runtimePointByIndex[[uint32]$index].point.write
+                    if($null-ne$write.PSObject.Properties['minValue']-and$null-ne$write.PSObject.Properties['maxValue']){
+                        $button.properties|Add-Member controlMin ([string]$write.minValue)
+                        $button.properties|Add-Member controlMax ([string]$write.maxValue)
+                        $button.properties|Add-Member controlDecimals '0'
+                        Set-RefFeedback $button $index
+                    }else{$button.action=$null}
+                }
+            }
         }
         'Mccb' {
-            foreach($i in 0..8){$x=162+($i%3)*412;$y=348+[math]::Floor($i/3)*102;Ref-DeviceTile $w "mccb-$i" ('断路器{0:00}'-f($i+1)) 'control-breaker.png' '合闸' $x $y}
+            $items=@($lanhuBreakers|Select-Object -Skip (($Page-1)*9) -First 9)
+            for($i=0;$i-lt$items.Count;$i++){
+                $item=$items[$i];$x=162+($i%3)*412;$y=348+[math]::Floor($i/3)*102
+                Ref-DeviceTile $w "mccb-$i" $item.Name 'control-breaker.png' '合闸' $x $y '#2599D6' $item.Position
+                $w.RemoveAt($w.Count-1)
+                foreach($op in @(@{Id='open';T='分闸';I=$item.Trip;F='0';Y=$y+4;C='#EE5078'},@{Id='close';T='合闸';I=$item.Close;F='1';Y=$y+44;C='#2599D6'})){
+                    Ref-Command $w "mccb-$i-$($op.Id)" $op.T $op.I '0' ($x+288) $op.Y $op.C
+                    $button=$w[$w.Count-1];Set-RefFeedback $button $item.Position $op.F
+                    $button.properties|Add-Member controlWarning ($item.Name+'：立即'+$op.T+'，请确认现场允许操作。')
+                }
+            }
+            if(-not$items.Count){$w.Add((Ref-Text 'mccb-empty' '未配置断路器' 162 350 1000 50 22))}
+            if($lanhuBreakers.Count-gt9){Monitor-Pager $w 'mccb' $(if($Page-gt1){Get-LanhuPageId 'Control-Mccb' ($Page-1)}else{''}) $(if($Page*9-lt$lanhuBreakers.Count){Get-LanhuPageId 'Control-Mccb' ($Page+1)}else{''})}
         }
         'Diesel' {
-            $items=@(@{Id='diesel-start';T='遥控快速停机';Icon='control-diesel-start.png';Command='快速停机';Color='#EE5078'},@{Id='diesel-breaker';T='遥控市电合分闸';Icon='control-grid-breaker.png';Command='合闸';Color='#2599D6'},@{Id='diesel-mode';T='遥控发电合分闸';Icon='control-mode-small.png';Command='合闸';Color='#2599D6'},@{Id='diesel-reset';T='遥控手/自动';Icon='control-reset.png';Command='自动';Color='#2599D6'})
-            for($i=0;$i-lt4;$i++){$s=$items[$i];$x=162+($i%3)*412;$y=350+[math]::Floor($i/3)*100;Ref-DeviceTile $w $s.Id $s.T $s.Icon $s.Command $x $y $s.Color}
+            $w.Add((Ref-Text 'diesel-empty' '未配置柴油发电机控制点' 162 350 1000 50 22 '#90979F'))
         }
     }
-    return New-RefScreen "Control-$Kind" $w
+    return New-RefScreen (Get-LanhuPageId "Control-$Kind" $Page) $w
 }
 function Build-RefStrategy {
     $w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w 'Strategy-Overview' 'Control'
@@ -427,8 +550,13 @@ function Build-RefTopology($Single=$false) {
     Ref-TopologyCard $w 'topology-transformer' '变压器 - 防逆流表' 'Output' 'meter.png' 120 141
     Ref-TopologyCard $w 'topology-grid' '并网点' 'Input' 'meter.png' 540 141
     Ref-TopologyCard $w 'topology-diesel' '柴油发电机' $null 'diesel.png' 120 497
-    foreach($flow in @((New-EnergyFlow 'topology-flow-grid' 1039 'positive' 412 176 220 52))){$flow.properties.flowColor='#A2BED6';$flow.properties.flowIdleColor='#A2BED6';$flow.properties|Add-Member qtTextColor '#2599D6';$flow.properties|Add-Member flowSolidLine 'true';$flow.properties|Add-Member qtHideFlowValue 'true';$w.Add($flow)}
-    $w.Add((New-Widget 'topology-vehicles' 'qtParallelTopology' '' 120 141 1230 653 4 @() @() $null ([ordered]@{qtBackgroundColor='transparent'})))
+    if(Has-Index 1039){foreach($flow in @((New-EnergyFlow 'topology-flow-grid' 1039 'positive' 412 176 220 52))){$flow.properties.flowColor='#A2BED6';$flow.properties.flowIdleColor='#A2BED6';$flow.properties|Add-Member qtTextColor '#2599D6';$flow.properties|Add-Member flowSolidLine 'true';$flow.properties|Add-Member qtHideFlowValue 'true';$w.Add($flow)}}
+    $localTags=[ordered]@{}
+    $pcs=Get-LanhuMeterIndexes 'Pcs'
+    $breaker=@($lanhuBreakers|Where-Object Name -eq '储能断路器'|Select-Object -First 1)
+    $localIndexes=[ordered]@{p=$pcs.TotalP;q=$pcs.TotalQ;pa=$pcs.P[0];pb=$pcs.P[1];pc=$pcs.P[2];ua=$pcs.V[0];ub=$pcs.V[1];uc=$pcs.V[2];factor=$pcs.Factor;frequency=$pcs.Frequency;soc=1569;online=1399;bmsOnline=3999;breaker=$(if($breaker.Count){$breaker[0].Position}else{$null})}
+    foreach($key in $localIndexes.Keys){if($null-ne$localIndexes[$key]-and(Has-Index $localIndexes[$key])){$localTags[$key]=(Tag-At $localIndexes[$key]).tagId}}
+    $w.Add((New-Widget 'topology-vehicles' 'qtParallelTopology' '' 120 141 1230 653 4 @() @() $null ([ordered]@{qtBackgroundColor='transparent';localTelemetryTagsJson=(ConvertTo-Json -InputObject $localTags -Compress)})))
     return New-RefScreen $id $w
 }
 function Build-RefBlank($Id,$Section) {
@@ -437,7 +565,8 @@ function Build-RefBlank($Id,$Section) {
 }
 
 function Get-LanhuScreens {
-    foreach($screen in @(Get-XMindV2Screens)){
+    foreach($screenId in $XMindV2ExpectedScreens){
+        $screen=@{screenId=$screenId}
         switch -Regex ($screen.screenId){
             '^Guide-(Setup|Deploy)$' { Build-RefGuide $Matches[1];break }
             '^Topology$' { Build-RefTopology;break }
@@ -459,5 +588,7 @@ function Get-LanhuScreens {
     }
     Build-RefTopology $true
     foreach($kind in @('Bms','Thermal','Mccb','Diesel')){Build-RefDeviceControl $kind}
+    for($page=2;$page-le[math]::Ceiling($lanhuBreakers.Count/9);$page++){Build-RefDeviceControl 'Mccb' $page}
+    foreach($meter in $lanhuMeters){if($meter.Target-notin$XMindV2ExpectedScreens){Build-RefMeter $meter.Target $meter.Source}}
     Get-MonitorScreens
 }

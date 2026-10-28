@@ -10,6 +10,7 @@ param(
     [ValidateSet("XMindV2", "Lanhu")]
     [string]$LayoutProfile = "Lanhu",
     [string]$NodeId = "edge-1",
+    [string]$BauMeterCode = "",
     [string]$LocalOperatorUsername = "operator",
     [Security.SecureString]$LocalOperatorPassword,
     [ValidateRange(60, 86400)]
@@ -133,6 +134,7 @@ if ($tags.Count -eq 0 -or $tags.Count -ne $runtimeMappings.Count) {
 }
 
 $runtimePointByIndex = @{}
+$runtimeDeviceByCode = @{}
 if (-not [string]::IsNullOrWhiteSpace($RuntimeConfigDirectory)) {
     $runtimeRoot = (Resolve-Path -LiteralPath $RuntimeConfigDirectory).Path
     $runtimeDevicesDirectory = Join-Path $runtimeRoot "devices"
@@ -163,6 +165,7 @@ if (-not [string]::IsNullOrWhiteSpace($RuntimeConfigDirectory)) {
             if ([string]::IsNullOrWhiteSpace($meterCode)) {
                 throw "runtime meter has no meterCode: $($configFile.Name)"
             }
+            $runtimeDeviceByCode[$meterCode] = $meter
             foreach ($point in @($meter.points)) {
                 if ($null -eq $point -or $null -eq $point.PSObject.Properties["index"]) { continue }
                 $index = [uint32]$point.index
@@ -180,6 +183,11 @@ if (-not [string]::IsNullOrWhiteSpace($RuntimeConfigDirectory)) {
                     $null -ne $point.read.PSObject.Properties["enable"] -and [bool]$point.read.enable
                 $writeEnabled = $null -ne $point.PSObject.Properties["write"] -and
                     $null -ne $point.write.PSObject.Properties["enable"] -and [bool]$point.write.enable
+                foreach($scope in @($config,$meter,$point)){
+                    if($null-ne$scope.PSObject.Properties['enabled']-and-not[bool]$scope.enabled){$writeEnabled=$false}
+                }
+                if($null-ne$config.PSObject.Properties['dlt645']-and$null-ne$config.dlt645.PSObject.Properties['write']-and
+                    $null-ne$config.dlt645.write.PSObject.Properties['enabled']-and-not[bool]$config.dlt645.write.enabled){$writeEnabled=$false}
                 $dataType = if ($readEnabled -and
                     $null -ne $point.read.PSObject.Properties["dataType"] -and
                     -not [string]::IsNullOrWhiteSpace([string]$point.read.dataType)) {
@@ -2012,6 +2020,8 @@ if ($LayoutProfile -eq "Lanhu") {
     . (Join-Path $PSScriptRoot "lanhu-layout.ps1")
     . (Join-Path $PSScriptRoot "lanhu-fidelity-layout.ps1")
     . (Join-Path $PSScriptRoot "lanhu-monitor-layout.ps1")
+    . (Join-Path $PSScriptRoot "lanhu-inventory.ps1")
+    Initialize-LanhuInventory
 }
 
 $alarmSpecs = [System.Collections.Generic.List[object]]::new()
@@ -2117,6 +2127,10 @@ $nodes = @([pscustomobject][ordered]@{
     roles = @("acquisition", "control", "safety")
 })
 
+if($LayoutProfile-eq'Lanhu'){$manifest|Add-Member screenInventory @(Get-LanhuExpectedScreens)}
+if($LayoutProfile-eq'Lanhu'-and$null-ne$script:lanhuBau){
+    $manifest|Add-Member bauControlTarget ([ordered]@{meterCode=$BauMeterCode;slave=$script:lanhuBau.slave;sourceCom=$script:lanhuBau.sourceCom;subordinateControls=$false})
+}
 Write-Json (Join-Path $outputRoot "manifest.json") $manifest
 Write-Json (Join-Path $outputRoot "topology.json") $topology
 Write-Json (Join-Path $outputRoot "nodes.json") $nodes
@@ -2142,7 +2156,7 @@ if ($LayoutProfile -eq "Lanhu") {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "..\scada\lanhu-assets") -Destination (Join-Path $outputRoot "assets") -Recurse -Force
 }
 
-$expectedScreens = if ($LayoutProfile -eq "Lanhu") { @($LanhuExpectedScreens) } else { @($XMindV2ExpectedScreens) }
+$expectedScreens = if ($LayoutProfile -eq "Lanhu") { @(Get-LanhuExpectedScreens) } else { @($XMindV2ExpectedScreens) }
 $actualScreens = @(Get-ChildItem -LiteralPath $screensDirectory -Filter "*.json" -File | ForEach-Object BaseName | Sort-Object)
 if (@(Compare-Object ($expectedScreens | Sort-Object) $actualScreens).Count -ne 0) {
     throw "EMS 2.0 XMind V2 output does not contain the required $($expectedScreens.Count) screens"
@@ -2188,11 +2202,12 @@ if ($overviewStatusValues.Count -lt 4 -or @($overviewStatusValues | Where-Object
 $strategyScreens = @($screens | Where-Object screenId -like "Strategy-*")
 if ($strategyScreens.Count -ne 4) { throw "compact strategy area must contain four focused pages" }
 $controlScreens = @($screens | Where-Object screenId -like "Control-*")
-$expectedControls = if ($LayoutProfile -eq "Lanhu") { 6 } else { 2 }
+$expectedControls = if ($LayoutProfile -eq "Lanhu") { 5+[math]::Max(1,[math]::Ceiling($lanhuBreakers.Count/9)) } else { 2 }
 if ($controlScreens.Count -ne $expectedControls) { throw "control area is incomplete" }
 $pcsControl = @($screens | Where-Object screenId -eq "Control-Pcs")
-$hasWritablePcsPoint = @([uint32[]]@(1200,1201,1202,1207,1318,1319,1320,1321,1322,1323) | Where-Object { Is-WritableIndex $_ }).Count -gt 0
-if ($hasWritablePcsPoint -and @($pcsControl[0].widgets | Where-Object type -eq "pcsPhasePowerControl").Count -ne 1) {
+$hasWritablePcsPoint = @([uint32[]]@(1200,1201,1202,1207,1310,1315,1318,1319,1320,1321,1322,1323) | Where-Object { Is-WritableIndex $_ }).Count -gt 0
+$hasWritablePhasePoint = @([uint32[]]@(1318,1319,1320,1321,1322,1323) | Where-Object { Is-WritableIndex $_ }).Count -gt 0
+if ($hasWritablePhasePoint -and @($pcsControl[0].widgets | Where-Object type -eq "pcsPhasePowerControl").Count -ne 1) {
     throw "writable compact PCS control page is missing the phase power controller"
 }
 if (-not $hasWritablePcsPoint -and @($pcsControl[0].widgets | Where-Object {

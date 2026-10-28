@@ -1,4 +1,5 @@
 #include "edge_gateway/can_driver_service.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/cluster_write_authorization.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 
@@ -688,7 +689,10 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             continue;
         }
         bool expiredBeforeSend = false;
-        const BeforePhysicalWrite beforeWrite = maxAgeMs > 0 ? BeforePhysicalWrite([&] {
+        std::shared_ptr<void> modePermit;
+        const BeforePhysicalWrite beforeWrite = (command.platformControl || maxAgeMs > 0) ? BeforePhysicalWrite([&] {
+            if (command.platformControl && !modePermit)
+                modePermit = EmsControlMode(config_.memoryStore.emsControlModeFile).dispatchPermit(command);
             if (isPendingWriteExpired(command, currentTime(), maxAgeMs)) {
                 expiredBeforeSend = true;
                 throw std::runtime_error("pending write expired before physical send");

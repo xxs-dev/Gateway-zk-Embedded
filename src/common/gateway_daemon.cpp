@@ -1,4 +1,5 @@
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
@@ -537,6 +538,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
         bool expiredBeforeSend = false;
         const auto executePending = [&] {
             BeforePhysicalWrite beforeWrite;
+            const auto modePermit = EmsControlMode(config_.memoryStore.emsControlModeFile).dispatchPermit(command);
             const bool clusterGuard = clusterAuthorizationRequired(config_.emsCluster, command);
             if (clusterGuard || (maxAgeMs > 0 &&
                 (config_.protocol.type == "modbus_rtu" || config_.protocol.type == "modbus_tcp"))) {

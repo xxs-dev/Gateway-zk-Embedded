@@ -9,6 +9,10 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 option(GATEWAY_ENABLE_SIZE_OPTIMIZATIONS "Enable function/data section GC for smaller edge binaries" ON)
 include(CTest)
 
+add_executable(ems_control_mode_test EXCLUDE_FROM_ALL tools/ems_control_mode_test.cpp)
+target_link_libraries(ems_control_mode_test PRIVATE edge_gateway)
+add_test(NAME ems_control_mode_test COMMAND ems_control_mode_test)
+
 add_library(edge_gateway
     src/agc_avc_controller.cpp
     src/agc_avc_command_mailbox.cpp
@@ -35,6 +39,7 @@ add_library(edge_gateway
     src/event_commit_status.cpp
     src/event_store_stats.cpp
     src/ems_cluster.cpp
+    src/ems_control_mode.cpp
     src/ems_cluster_dispatch.cpp
     src/ems_cluster_network.cpp
     src/ems_cluster_points.cpp

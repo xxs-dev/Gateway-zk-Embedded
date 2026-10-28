@@ -43,6 +43,10 @@ function Add-LanhuValue($Widgets, $Id, $Index, $X, $Y, $Width, $Height, $Unit = 
 }
 
 function Get-LanhuMeterIndexes($Source) {
+    if($null-ne(Get-Variable lanhuMeters -Scope Script -ErrorAction SilentlyContinue)){
+        $configured=@($script:lanhuMeters|Where-Object Source -eq $Source)
+        if($configured.Count-eq1){return $configured[0].Indexes}
+    }
     switch ($Source) {
         'Input' { return @{V=@(1130,1131,1132);I=@(1133,1134,1135);P=@(1136,1137,1138);Q=@(1140,1141,1142);S=@(1144,1145,1146);AvgV=1162;AvgI=1164;TotalP=1139;TotalQ=1143;TotalS=1147;Factor=1151;Frequency=1152} }
         'Pcs' { return @{V=@(1220,1221,1222);I=@(1223,1224,1225);P=@(1227,1228,1229);Q=@(1231,1232,1233);S=@(1235,1236,1237);AvgV=0;AvgI=0;TotalP=1230;TotalQ=1234;TotalS=1238;Factor=1242;Frequency=1226} }

@@ -91,6 +91,14 @@ try {
 
     $screensDirectory = Join-Path $tempRoot "screens"
     $screens = @(Get-ChildItem -LiteralPath $screensDirectory -Filter "*.json" -File)
+    if($Product-eq'mobile'-and$null-ne$manifest.PSObject.Properties['layoutProfile']-and$manifest.layoutProfile-eq'Lanhu'-and$null-ne$manifest.PSObject.Properties['screenInventory']){
+        $inventory=@($manifest.screenInventory)
+        if(-not$inventory.Count-or@($inventory|Sort-Object -Unique).Count-ne$inventory.Count-or
+            @(Compare-Object ($inventory|Sort-Object) ($screens.BaseName|Sort-Object)).Count){
+            throw 'Package screens differ from the configured screen inventory'
+        }
+        $expectedScreenCount=$inventory.Count
+    }
     if ($screens.Count -ne $expectedScreenCount) {
         throw "package screen count mismatch: expected $expectedScreenCount, got $($screens.Count)"
     }

@@ -14,15 +14,15 @@
 #include <QStyle>
 #include <QWidget>
 
-// The cluster process owns membership. An empty roster displays the configured
-// local vehicle only, without asserting membership, online state or telemetry.
+// Membership and local acquisition are independent. Peer data still requires
+// fresh cluster evidence; local data uses only explicitly bound read-only tags.
 class ParallelTopology final : public QWidget {
 public:
-    ParallelTopology(ScadaSceneRuntimeSource& runtime, const std::string& root)
-        : runtime_(runtime) {
+    ParallelTopology(ScadaSceneRuntimeSource& runtime, const std::string& root, QJsonObject localTags = {})
+        : runtime_(runtime), localTags_(std::move(localTags)) {
         setObjectName("parallelTopology");
         setAttribute(Qt::WA_TranslucentBackground);
-        localMember_.insert("nodeId", QString::fromStdString(runtime_.nodeId()));
+        localMember_.insert("nodeId", QString::fromStdString(runtime_.machineCode()));
         const QDir assets(QString::fromStdString(root) + "/assets/lanhu-assets");
         storage_.load(assets.filePath("storage.png"));
         idle_.load(assets.filePath("storage-idle.png"));
@@ -46,6 +46,16 @@ public:
     }
 
     void refresh(std::int64_t now) {
+        localValues_ = {};
+        for (auto it = localTags_.begin(); it != localTags_.end(); ++it) {
+            if (!it.value().isString()) continue;
+            const auto tag = it.value().toString().toStdString();
+            const auto resolved = runtime_.resolveTag(tag);
+            if (!resolved || resolved->tag.nodeId != runtime_.nodeId()) continue;
+            const auto point = runtime_.readTag(tag, now);
+            if (point && point->quality == 1 && !point->stale && std::isfinite(point->value))
+                localValues_.insert(it.key(), point->value);
+        }
         const auto json = runtime_.clusterStatusJson();
         QJsonParseError error;
         const auto doc = json.size() <= 1024 * 1024
@@ -95,6 +105,17 @@ public:
     QString vehicleId(int i) const { return memberAt(i).value("nodeId").toString(); }
     QString valueText(int i, const QString& key) const {
         const auto& member = memberAt(i);
+        if (isLocal(member)) {
+            const auto onlineKey = key == "soc" ? "bmsOnline" : "online";
+            if (key != "breaker" && localValues_.value(onlineKey).toDouble(-1) != 1) return "--";
+            const auto value = localValues_.value(key);
+            if (!value.isDouble()) return "--";
+            const auto number = value.toDouble();
+            if (key == "soc" && (number < 0 || number > 100)) return "--";
+            if (key == "breaker") return number == 1 ? QString::fromUtf8("合闸")
+                : number == 0 ? QString::fromUtf8("分闸") : QStringLiteral("--");
+            return QString::number(number, 'f', key == "factor" ? 3 : key == "frequency" ? 2 : 1);
+        }
         const auto capability = member.value("capability").toObject();
         if (!online(member) || !member.value("capabilityFresh").toBool() ||
             !capability.value("ready").toBool()) return "--";
@@ -149,6 +170,9 @@ protected:
     }
 
 private:
+    bool isLocal(const QJsonObject& member) const {
+        return &member == &localMember_ || member.value("nodeId").toString() == QString::fromStdString(runtime_.machineCode());
+    }
     const QJsonObject& memberAt(int index) const {
         if (usingLocalFallback() && index == 0) return localMember_;
         return members_.at(index);
@@ -182,21 +206,23 @@ private:
         p.save();
         p.translate(origin);
         const auto& member = memberAt(i);
-        const bool connected = online(member);
+        const bool local = isLocal(member);
+        const bool connected = local ? localValues_.value("online").toDouble(-1) == 1 : online(member);
         const bool lower = origin.y() > 0;
-        p.drawPixmap(QRect(109, 0, 158, 124), connected ? storage_ : idle_);
+        p.drawPixmap(QRect(122, 0, 132, 104), connected ? storage_ : idle_);
         p.fillRect(QRect(0, 134, 376, lower ? 160 : 184), connected ? QColor("#FFFFFF") : QColor("#EEF1F5"));
         p.fillRect(QRect(0, 134, 376, 42), QColor("#F7F7F7"));
         const int cabinet = member.value("cabinetNo").toInt();
-        const QString title = usingLocalFallback() ? QString::fromUtf8("本机储能车")
+        const QString title = local ? QString::fromUtf8("本机储能车")
             : cabinet > 0 ? QString::fromUtf8("%1#储能车").arg(cabinet) : QString::fromUtf8("储能车");
         text(p, QRect(8, 137, 180, 36), title, 18, QColor("#303438"), true);
-        text(p, QRect(194, 137, 172, 36), QString::fromUtf8("PCS断路器  --"), 14);
+        text(p, QRect(194, 137, 172, 36), QString::fromUtf8("PCS断路器  ") + valueText(i, "breaker"), 14);
         QString state = usingLocalFallback() || !fresh_ ? QString::fromUtf8("状态未知") : member.value("duplicateIdentity").toBool()
             ? QString::fromUtf8("身份冲突") : !member.value("compatible").toBool()
             ? QString::fromUtf8("配置不兼容") : connected ? QString::fromUtf8("在线") : QString::fromUtf8("离线");
-        text(p, QRect(0, 7, 105, 22), member.value("nodeId").toString(), 12, QColor("#777E85"));
-        text(p, QRect(0, 31, 105, 22), state, 12, QColor("#777E85"));
+        if (local) state = connected ? QString::fromUtf8("本机采集在线") : QString::fromUtf8("本机采集不可用");
+        text(p, QRect(0, 108, 376, 22), member.value("nodeId").toString(), 12, QColor("#777E85"));
+        text(p, QRect(0, 31, 109, 42), state, 12, QColor("#777E85"));
         const QString labels[] = {QString::fromUtf8("P总"), QString::fromUtf8("Q总"), QString::fromUtf8("功率因数"), QString::fromUtf8("频率")};
         const QString keys[] = {"p", "q", "factor", "frequency"};
         const QString units[] = {" kW", " kvar", "", " Hz"};
@@ -210,13 +236,14 @@ private:
         if (soc != "--") p.fillRect(QRectF(16, 251, 210 * soc.toDouble() / 100, 2), QColor("#18CC70"));
         const QString phases[] = {"a", "b", "c"};
         for (int phase = 0; phase < 3; ++phase) {
-            if (!lower) text(p, QRect(16 + phase * 122, 259, 112, 25), "U" + phases[phase] + "  -- V", 13);
+            if (!lower) text(p, QRect(16 + phase * 122, 259, 112, 25), "U" + phases[phase] + "  " + valueText(i, "u" + phases[phase]) + " V", 13);
             text(p, QRect(16 + phase * 122, lower ? 259 : 285, 112, 25), "P" + phases[phase] + "  " + valueText(i, "p" + phases[phase]) + " kW", 13);
         }
         p.restore();
     }
     ScadaSceneRuntimeSource& runtime_;
     QJsonObject localMember_;
+    QJsonObject localTags_, localValues_;
     std::vector<QJsonObject> members_;
     bool known_ = false;
     bool fresh_ = false;

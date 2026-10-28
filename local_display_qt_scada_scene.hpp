@@ -105,6 +105,8 @@ private:
     struct RuntimeWidget {
         std::string type;
         std::string clockFormat;
+        std::string localSystemField;
+        std::string emsControlModeTarget;
         std::string textColor;
         std::string unavailableStateLabel;
         bool lightTheme = false;
@@ -198,7 +200,9 @@ private:
     void handleAction(const edge_gateway::ScadaWidgetAction& action,
                       const std::string& pauseModeTag = "",
                       const std::string& pauseAppliedTag = "",
-                      bool pauseGuardRequired = false);
+                      bool pauseGuardRequired = false,
+                      const edge_gateway::ScadaWidget& control = {});
+    bool controlInFlight_ = false;
     bool pauseGuardSatisfied(const std::string& modeTag, const std::string& appliedTag,
                              std::int64_t now) const;
     bool requirePausedControl(const std::string& modeTag, const std::string& appliedTag);

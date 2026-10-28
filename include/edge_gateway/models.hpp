@@ -294,6 +294,7 @@ struct PendingWriteCommand {
     std::uint32_t controlGeneration = 0;
     bool durableControl = false; // Set by trusted external ingress, never parsed from user JSON.
     Optional<ClusterWriteAuthorization> clusterAuthorization;
+    bool platformControl = false; // Trusted ingress flag; persisted in the v11 reserved byte.
 };
 
 struct WritebackResultRecord {
@@ -623,6 +624,7 @@ struct CollectConfig {
 };
 
 struct MemoryStoreConfig {
+    std::string emsControlModeFile = "/opt/modbus-gateway/data/ems-control-mode.json";
     bool enabled = true;
     std::string backend = "memory";
     std::size_t keepHistory = 100;
@@ -802,6 +804,7 @@ struct MqttForwardControlTargetConfig {
 };
 
 struct MqttForwardControlConfig {
+    std::string emsControlModeFile = "/opt/modbus-gateway/data/ems-control-mode.json";
     bool enabled = false;
     std::string commandTopic;
     std::string replyTopic;
@@ -882,6 +885,7 @@ struct MqttAlarmRule {
 };
 
 struct MqttDriverConfig {
+    std::string emsControlModeFile = "/opt/modbus-gateway/data/ems-control-mode.json";
     bool enabled = false;
     std::string sharedMemoryName = "gateway_point_store";
     std::vector<std::string> sharedMemoryNames;
