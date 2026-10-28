@@ -486,6 +486,7 @@ void pushPendingWrite(
     slot.highPriority = command.highPriority ? 1 : 0;
     slot.controlGeneration = command.controlGeneration;
     slot.reserved[0] = command.durableControl ? 1 : 0;
+    slot.reserved[1] = command.platformControl ? 1 : 0;
     slot.clusterAuthorization = authorization;
 
     layout->header.pendingWriteTail =
@@ -535,7 +536,8 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     slot.highPriority != 0,
                     slot.controlGeneration,
                     layout->header.version >= 10 && slot.reserved[0] == 1,
-                    authorization
+                    authorization,
+                    slot.reserved[1] != 0
                 });
             } else {
                 retained.push_back(slot);
@@ -601,7 +603,8 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 slot.highPriority != 0,
                 slot.controlGeneration,
                 layout->header.version >= 10 && slot.reserved[0] == 1,
-                authorization
+                authorization,
+                slot.reserved[1] != 0
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;

@@ -1,0 +1,20 @@
+{
+  "laboratoryOnly": true,
+  "storeId": "integrated-lab",
+  "configGeneration": "lab-v1",
+  "databasePath": "/tmp/gateway-integrated-lab/events.db",
+  "historyPath": "/tmp/gateway-integrated-lab/history.db",
+  "historyBatchSize": 32,
+  "historyPollIntervalMs": 200,
+  "socketPath": "/tmp/gateway-integrated-lab/events.sock",
+  "sqliteLibraryPath": "",
+  "storageProfile": "wal-full",
+  "minFreeBytes": 268435456,
+  "maxStoreBytes": 1073741824,
+  "producers": ["event-engine", "mqtt-management"],
+  "senders": [
+    {"senderId": "main-events", "targetId": "main", "eventTypes": ["alarm", "change"]},
+    {"senderId": "management-events", "targetId": "main", "eventTypes": ["ota_status"]},
+    {"senderId": "third-party-events", "targetId": "third-party", "eventTypes": ["alarm", "change"]}
+  ]
+}

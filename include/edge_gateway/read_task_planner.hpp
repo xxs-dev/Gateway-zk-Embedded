@@ -13,6 +13,12 @@ public:
         int maxBatchRegisters,
         bool batchOptimize = true
     );
+    // Readable points sorted by function/address; definitions are copied only into output tasks.
+    static std::vector<ReadTask> buildSorted(
+        const std::vector<const PointDefinition*>& points,
+        int maxBatchRegisters,
+        bool batchOptimize = true
+    );
 };
 
 }  // namespace edge_gateway

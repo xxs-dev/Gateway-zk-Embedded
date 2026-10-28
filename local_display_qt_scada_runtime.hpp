@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,6 +53,13 @@ public:
     }
 
     virtual const std::string& nodeId() const = 0;
+    virtual std::string machineCode() const { return nodeId(); }
+    virtual std::map<std::string, std::string> localSystemInfo() const { return {}; }
+    ScadaSceneWriteResult setOperatorEmsControlMode(bool remote) {
+        if (!operatorAuthorization_ || !operatorAuthorization_())
+            return {false, "Local operator login is required"};
+        return setEmsControlMode(remote);
+    }
     // Optional read-only EMS membership snapshot; unsupported transports stay unknown.
     virtual std::string clusterStatusJson() const { return {}; }
     virtual std::int64_t clusterStatusTtlMs() const { return 5000; }
@@ -77,6 +85,10 @@ public:
         const std::string& cmdId
     ) const = 0;
 
+protected:
+    virtual ScadaSceneWriteResult setEmsControlMode(bool) {
+        return {false, "EMS control mode is not supported by this transport"};
+    }
 private:
     std::function<bool()> operatorAuthorization_;
 };

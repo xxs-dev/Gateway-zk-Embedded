@@ -194,7 +194,9 @@ DecodedValue ModbusCodec::decodeReadValue(
 
     double rawValue = 0.0;
     std::vector<std::uint8_t> rawBytes;
-    if (point.read.dataType == "bit") {
+    if (point.read.dataType == "bit" ||
+        (point.read.dataType == "bool" && (point.read.bit != -1 ||
+         point.read.function == 1 || point.read.function == 2))) {
         if (point.read.function == 1 || point.read.function == 2) {
             rawValue = registers.empty() || registers.front() == 0 ? 0.0 : 1.0;
             rawBytes.push_back(static_cast<std::uint8_t>(rawValue > 0.0 ? 1 : 0));

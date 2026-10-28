@@ -27,6 +27,15 @@ void require(bool condition, const std::string& message) {
     }
 }
 
+template <typename Function>
+void runStage(const char* name, Function function) {
+    try {
+        function();
+    } catch (const std::exception& ex) {
+        throw std::runtime_error(std::string(name) + ": " + ex.what());
+    }
+}
+
 edge_gateway::PointDefinition buildPoint() {
     edge_gateway::PointDefinition point;
     point.index = 610001;
@@ -501,6 +510,14 @@ void verifyRobustMutexRecoversAfterOwnerDeath() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--robust-owner-death-only") {
+#ifndef _WIN32
+            runStage("robust owner death", verifyRobustMutexRecoversAfterOwnerDeath);
+#else
+            throw std::runtime_error("robust owner-death test requires POSIX");
+#endif
+            return 0;
+        }
         verifyPersistentRingBoundaries();
         if (argc == 2 && std::string(argv[1]) == "--persistent-ring-only") return 0;
         verifyReaderDoesNotUnlinkNamedSegment();

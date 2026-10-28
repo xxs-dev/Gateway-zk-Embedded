@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate EMS V2 graph bindings against app-referenced point routes."""
+"""Validate EMS V2 graph bindings against selected point routes."""
 
 import argparse
 import json
@@ -353,6 +353,7 @@ def collect_routes(
     app_path: Path,
     runtime_root: Path,
     report: AuditReport,
+    additional_device_files: Iterable[Path] = (),
 ) -> Dict[int, List[Route]]:
     routes: Dict[int, List[Route]] = {}
     configured_files = app.get("deviceConfigFiles") or []
@@ -364,14 +365,19 @@ def collect_routes(
         )
         return routes
 
-    for configured_file in configured_files:
-        path = resolve_reference(str(configured_file), runtime_root, app_path)
+    selected_paths = [
+        resolve_reference(str(configured_file), runtime_root, app_path)
+        for configured_file in configured_files
+    ]
+    selected_paths.extend(Path(path).resolve() for path in additional_device_files)
+
+    for path in sorted(set(selected_paths)):
         report.device_files.append(str(path))
         if not path.is_file():
             report.add_issue(
                 "missing_device_config",
                 "structural",
-                "app-referenced device config does not exist: {}".format(path),
+                "selected device config does not exist: {}".format(path),
             )
             continue
         try:
@@ -418,7 +424,7 @@ def collect_routes(
             report.add_issue(
                 "duplicate_global_index",
                 "structural",
-                "global point index is defined by multiple app-referenced routes",
+                "global point index is defined by multiple selected routes",
                 index=index,
                 contexts=(route.context for route in candidates),
             )
@@ -922,7 +928,11 @@ def validate_route_closure(
             )
 
 
-def audit_app(app_path: Path, runtime_root: Optional[Path] = None) -> AuditReport:
+def audit_app(
+    app_path: Path,
+    runtime_root: Optional[Path] = None,
+    include_all_runtime_devices: bool = False,
+) -> AuditReport:
     app_path = app_path.resolve()
     report = AuditReport(app_path=str(app_path))
     if not app_path.is_file():
@@ -951,7 +961,18 @@ def audit_app(app_path: Path, runtime_root: Optional[Path] = None) -> AuditRepor
     effective_runtime_root = (
         runtime_root.resolve() if runtime_root is not None else infer_runtime_root(app_path)
     )
-    routes = collect_routes(app, app_path, effective_runtime_root, report)
+    additional_device_files: Iterable[Path] = ()
+    if include_all_runtime_devices:
+        additional_device_files = sorted(
+            effective_runtime_root.joinpath("devices").glob("*.json")
+        )
+    routes = collect_routes(
+        app,
+        app_path,
+        effective_runtime_root,
+        report,
+        additional_device_files,
+    )
     references = collect_enabled_graphs(
         app,
         app_path,
@@ -1036,6 +1057,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="local directory corresponding to /opt/modbus-gateway/config/runtime",
     )
     parser.add_argument(
+        "--all-runtime-devices",
+        action="store_true",
+        help="include every runtime/devices/*.json file in the global index audit",
+    )
+    parser.add_argument(
         "--strict-project-routes",
         action="store_true",
         help="fail when active external inputs or control targets are unresolved",
@@ -1051,7 +1077,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     runtime_root = Path(args.runtime_root) if args.runtime_root else None
-    report = audit_app(Path(args.app), runtime_root)
+    report = audit_app(
+        Path(args.app),
+        runtime_root,
+        include_all_runtime_devices=args.all_runtime_devices,
+    )
     if args.json:
         json.dump(
             report.to_dict(args.strict_project_routes),

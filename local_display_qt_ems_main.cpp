@@ -50,6 +50,8 @@
 #include "edge_gateway/scada_runtime_map.hpp"
 #include "edge_gateway/system_monitor_points.hpp"
 #include "local_display_qt_scada_scene.hpp"
+#include "local_display_qt_system_info.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 
 namespace {
 
@@ -286,12 +288,13 @@ public:
         edge_gateway::PointStoreRouter& router,
         std::string priorityControlLeaseFile,
         int priorityControlLeaseTtlMs,
-        edge_gateway::EmsClusterConfig clusterConfig
+        edge_gateway::EmsClusterConfig clusterConfig,
+        std::string modeFile
     ) : router_(router),
         runtime_(project, machineCode, router),
         priorityControlLease_(std::move(priorityControlLeaseFile), "local-display-scada"),
         priorityControlLeaseTtlMs_(std::max(1000, priorityControlLeaseTtlMs)),
-        clusterConfig_(std::move(clusterConfig)), clusterNodeId_(std::move(machineCode)) {}
+        clusterConfig_(std::move(clusterConfig)), clusterNodeId_(std::move(machineCode)), modeFile_(std::move(modeFile)) {}
 
     std::string clusterStatusJson() const override {
         if (!clusterConfig_.enabled) return {};
@@ -309,6 +312,25 @@ public:
 
     const std::string& nodeId() const override {
         return runtime_.resolver().nodeId();
+    }
+    std::string machineCode() const override { return clusterNodeId_; }
+    std::map<std::string, std::string> localSystemInfo() const override {
+        auto values = systemInfo_.read(clusterNodeId_);
+        try {
+            const auto state = edge_gateway::EmsControlMode(modeFile_).read();
+            values["controlMode"] = QString::fromUtf8(state.remote ? "远程" : "就地").toStdString();
+            values["controlModeCode"] = state.remote ? "remote" : "local";
+        } catch (...) {
+            values["controlMode"] = QString::fromUtf8("状态异常").toStdString();
+            values["controlModeCode"] = "unknown";
+        }
+        return values;
+    }
+    ScadaSceneWriteResult setEmsControlMode(bool remote) override {
+        try {
+            edge_gateway::EmsControlMode(modeFile_).setRemote(remote, QDateTime::currentMSecsSinceEpoch());
+            return {true, "EMS control mode saved"};
+        } catch (const std::exception& ex) { return {false, ex.what()}; }
     }
 
     edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
@@ -411,6 +433,8 @@ private:
     int priorityControlLeaseTtlMs_ = 30000;
     edge_gateway::EmsClusterConfig clusterConfig_;
     std::string clusterNodeId_;
+    std::string modeFile_;
+    mutable LocalSystemInfo systemInfo_;
 };
 
 class EmsQtWindow : public QWidget {
@@ -905,7 +929,8 @@ int main(int argc, char* argv[]) {
                             router,
                             appConfig.mqttDriver.priorityControlLeaseFile,
                             appConfig.mqttDriver.priorityControlLeaseTtlMs,
-                            appConfig.emsCluster
+                            appConfig.emsCluster,
+                            appConfig.mqttDriver.emsControlModeFile
                         )
                     );
                 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -19,7 +20,8 @@ public:
         DeviceConfig config,
         MemoryPointStore& store,
         std::shared_ptr<IModbusClient> modbusClient,
-        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr
+        std::shared_ptr<IMqttPublisher> mqttPublisher = nullptr,
+        std::function<std::int64_t()> monotonicClockMs = {}
     );
 
     CollectCycleResult collectOnce(std::int64_t nowMs, bool realtimeFocused = false) override;
@@ -56,10 +58,9 @@ private:
         std::int64_t nowMs,
         bool realtimeFocused
     ) const;
-    std::vector<ReadTask> splitMixedPriorityTasks(const std::vector<ReadTask>& tasks) const;
     std::vector<ReadTask> limitToOfflineProbeTasks(const std::vector<ReadTask>& tasks) const;
     std::vector<ReadTask> limitToMeterTaskBudget(
-        const std::vector<ReadTask>& tasks,
+        std::vector<ReadTask> tasks,
         std::int64_t nowMs,
         int maxTasksPerCycle,
         bool realtimeFocused = false
@@ -71,16 +72,24 @@ private:
     int taskFailureBackoffCycles(int consecutiveFailures, bool realtimeFocused) const;
 
     std::shared_ptr<IModbusClient> modbusClient_;
+    std::function<std::int64_t()> monotonicClockMs_;
+    // Shortened to the fastest point interval; a single in-flight request may overrun.
+    int timeSliceMs_ = 1000;
+    bool backgroundDeferred_ = false;
+    bool selectedTaskCoalescingHealthy_ = true;
+    std::vector<std::size_t> readablePointOrder_;
     std::unordered_map<std::uint32_t, int> pointFailureCounts_;
     int consecutiveSuccesses_ = 0;
     int consecutiveFailures_ = 0;
     bool online_ = false;
+    std::int64_t offlineProbeNextAttemptMs_ = 0;
     std::int64_t collectCycle_ = 0;
     std::int64_t slaveNextAttemptCycle_ = 0;
     std::int64_t backoffUntilMs_ = 0;
     struct TaskFailureState {
         int consecutiveFailures = 0;
         std::int64_t backoffUntilMs = 0;
+        std::int64_t offlineProbeUntilMs = 0;
         std::int64_t nextAttemptCycle = 0;
         std::int64_t lastFailureMs = 0;
         std::string lastMessage;

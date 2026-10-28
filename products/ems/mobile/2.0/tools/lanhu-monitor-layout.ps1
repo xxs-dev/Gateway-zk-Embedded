@@ -34,6 +34,10 @@ function Monitor-Heading($Widgets,$Id,$Title,$Icon,$X,$Y) {
     $Widgets.Add((New-LanhuImage "$Id-icon" $Icon $X ($Y+2) 22 22))
     $Widgets.Add((Ref-Text "$Id-heading" $Title ($X+34) $Y 250 28 18 '#303438' $true))
 }
+function Monitor-SectionBand($Widgets,$Id,$Title,$X,$Y,$W) {
+    $Widgets.Add((New-Frame "$Id-band" ($X+1) $Y ($W-2) 44 '#F7F7F7' 1))
+    $Widgets.Add((Ref-Text "$Id-heading" $Title $X ($Y+4) $W 36 18 '#303438' $true 'Center'))
+}
 function Monitor-Field($Widgets,$Id,$Title,$Index,$Unit,$X,$Y,$W,$Size=18) {
     $multiLine=$Title.Contains("`n")
     $labelHeight=if($multiLine){42}else{30}
@@ -94,37 +98,52 @@ function Build-MonitorEmu {
     $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w 'Devices-Emu' 'Device' 'Emu'
     $w.Add((New-LanhuImage 'emu-icon' 'monitor-emu.png' 162 233 45 45));$w.Add((Ref-Text 'emu-title' 'EMU' 225 237 200 35 22 '#303438' $true))
     $w.Add((Ref-Panel 'emu-metadata' 162 296 1210 91 '#F7F7F7'))
-    $titles=@('序列号','型号','软件版本','远方/就地','云平台','第三方平台')
-    foreach($i in 0..5){$left=185+$i*200;$w.Add((New-LanhuImage "emu-info-icon-$i" "monitor-emu-info-$i.png" $left 317 48 48));Monitor-Field $w "emu-info-$i" $titles[$i] $null '' ($left+60) 305 136 18}
-    foreach($i in 0..3){$left=162+$i*309;Monitor-Box $w "emu-resource-$i" $left 418 286 120;$w.Add((New-LanhuImage "emu-resource-icon-$i" "monitor-emu-resource-$i.png" ($left+38) 449 54 54));Monitor-Field $w "emu-resource-$i" @('CPU状态','内存状态','硬盘状态','运行温度')[$i] $null '' ($left+114) 438 165 26}
+    $titles=@('设备编号','设备型号','固件版本','EMS控制权限','云平台配置','第三方平台配置')
+    $keys=@('machineCode','model','firmware','controlMode','cloud','thirdParty')
+    $w|Where-Object widgetId -eq 'emu-metadata'|ForEach-Object {$_.geometry.height=190}
+    foreach($i in 0..5){
+        $left=185+($i%3)*400;$top=305+[math]::Floor($i/3)*90
+        $w.Add((New-LanhuImage "emu-info-icon-$i" "monitor-emu-info-$i.png" $left ($top+12) 48 48))
+        Monitor-Field $w "emu-info-$i" $titles[$i] $null '' ($left+60) $top 318 18
+        $w[$w.Count-1].properties|Add-Member localSystemField $keys[$i]
+    }
+    foreach($i in 0..3){
+        $left=162+$i*309;Monitor-Box $w "emu-resource-$i" $left 528 286 120
+        $w.Add((New-LanhuImage "emu-resource-icon-$i" "monitor-emu-resource-$i.png" ($left+24) 559 54 54))
+        Monitor-Field $w "emu-resource-$i" @('CPU使用率','内存使用率','磁盘使用率','芯片温度')[$i] $null '' ($left+94) 548 178 26
+        $w[$w.Count-1].properties|Add-Member localSystemField @('cpu','memory','disk','temperature')[$i]
+    }
     return New-MonitorScreen 'Devices-Emu' $w
 }
 function Build-MonitorPcs {
     $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w 'Devices-Pcs' 'Device' 'Pcs'
-    Monitor-Box $w 'pcs-overview' 162 222 1210 233 '直流/交流'
-    Monitor-Heading $w 'pcs-measurements' '遥测信息' 'monitor-measurement.png' 185 276
+    Monitor-Box $w 'pcs-overview' 162 218 1210 223
+    Monitor-SectionBand $w 'pcs-overview' 'DC/AC' 162 396 1210
+    Monitor-Heading $w 'pcs-measurements' '遥测信息' 'monitor-measurement.png' 185 230
     $temps=@(@{T='IGBT 1温度';I=1271},@{T='IGBT 2温度';I=1272},@{T='IGBT 3温度';I=1273},@{T='IGBT 4温度';I=1274},@{T='进风温度';I=1270},@{T='排风温度';I=1276})
-    foreach($i in 0..5){$e=$temps[$i];Monitor-Field $w "pcs-temp-$i" $e.T $e.I '℃' (185+($i%3)*106) (305+[math]::Floor($i/3)*75) 100}
-    $w.Add((New-Frame 'pcs-divider-1' 497 293 1 149 '#E5E8EB' 1));$w.Add((New-Frame 'pcs-divider-2' 938 293 1 149 '#E5E8EB' 1))
-    Monitor-Heading $w 'pcs-signals' '遥信信息' 'monitor-signal.png' 516 276
-    Monitor-SignalField $w 'pcs-mode' '控制模式' 1214 '远程' '就地' 519 305 98 '1'
-    Monitor-SignalField $w 'pcs-online' '在线状态' 1399 '在线' '离线' 625 305 98 '1'
-    $w.Add((Ref-Text 'pcs-run-label' '运行状态' 731 305 98 30 14 '#777E85'))
-    $w.Add((New-Widget 'pcs-run' 'statusCard' '' 731 342 98 30 5 @((New-Binding 1209),(New-Binding 1210),(New-Binding 1211)) @((New-StateRule 'stop' '停机' '#90979F' 1209 'eq' '1' 10),(New-StateRule 'standby' '待机' '#F5A623' 1210 'eq' '1' 20),(New-StateRule 'run' '运行' '#18C773' 1211 'eq' '1' 30)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
-    Monitor-SignalField $w 'pcs-fault' '总故障状态' 1212 '无故障' '故障' 837 305 98
-    Monitor-SignalField $w 'pcs-alarm' '总报警状态' 1213 '无告警' '告警' 519 380 98
-    Monitor-SignalField $w 'pcs-emergency' '急停输入状态' 1215 '无急停' '急停' 625 380 103
-    $w.Add((Ref-Text 'pcs-grid-label' '并离网状态' 731 380 196 30 14 '#777E85'))
-    $w.Add((New-Widget 'pcs-grid' 'statusCard' '' 731 417 196 30 5 @((New-Binding 1216),(New-Binding 1217)) @((New-StateRule 'grid' '并网状态' '#18C773' 1216 'eq' '1' 10),(New-StateRule 'offgrid' '离网状态' '#F52D59' 1217 'eq' '1' 20)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
-    Monitor-Heading $w 'pcs-alarms-heading' '告警信息' 'monitor-alarm.png' 960 276
-    Monitor-Alarms $w 'pcs-alarms' @(1399) 960 310 390 132
-    Monitor-Box $w 'pcs-dc' 162 471 352 303 '直流侧';Monitor-Box $w 'pcs-ac' 532 471 840 303 '交流侧'
+    foreach($i in 0..5){$e=$temps[$i];Monitor-Field $w "pcs-temp-$i" $e.T $e.I '℃' (185+($i%3)*106) (263+[math]::Floor($i/3)*68) 100}
+    $w.Add((New-Frame 'pcs-divider-1' 497 243 1 148 '#E5E8EB' 1));$w.Add((New-Frame 'pcs-divider-2' 938 243 1 148 '#E5E8EB' 1))
+    Monitor-Heading $w 'pcs-signals' '遥信信息' 'monitor-signal.png' 516 230
+    Monitor-SignalField $w 'pcs-mode' '控制模式' 1214 '远程' '就地' 519 263 98 '1'
+    Monitor-SignalField $w 'pcs-online' '在线状态' 1399 '在线' '离线' 625 263 98 '1'
+    $w.Add((Ref-Text 'pcs-run-label' '运行状态' 731 263 98 30 14 '#777E85'))
+    $w.Add((New-Widget 'pcs-run' 'statusCard' '' 731 297 98 30 5 @((New-Binding 1209),(New-Binding 1210),(New-Binding 1211)) @((New-StateRule 'stop' '停机' '#90979F' 1209 'eq' '1' 10),(New-StateRule 'standby' '待机' '#F5A623' 1210 'eq' '1' 20),(New-StateRule 'run' '运行' '#18C773' 1211 'eq' '1' 30)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
+    Monitor-SignalField $w 'pcs-fault' '总故障状态' 1212 '无故障' '故障' 837 263 98
+    Monitor-SignalField $w 'pcs-alarm' '总报警状态' 1213 '无告警' '告警' 519 331 98
+    Monitor-SignalField $w 'pcs-emergency' '急停输入状态' 1215 '无急停' '急停' 625 331 103
+    $w.Add((Ref-Text 'pcs-grid-label' '并离网状态' 731 331 196 30 14 '#777E85'))
+    $w.Add((New-Widget 'pcs-grid' 'statusCard' '' 731 365 196 30 5 @((New-Binding 1216),(New-Binding 1217)) @((New-StateRule 'grid' '并网状态' '#18C773' 1216 'eq' '1' 10),(New-StateRule 'offgrid' '离网状态' '#F52D59' 1217 'eq' '1' 20)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
+    Monitor-Heading $w 'pcs-alarms-heading' '告警信息' 'monitor-alarm.png' 960 230
+    Monitor-Alarms $w 'pcs-alarms' @(1399) 960 264 390 127
+    # Neutral diagram connectors do not assert power direction without confirmed feedback.
+    foreach($line in @(@{Id='dc-top';X=687;Y=442;W=2;H=21},@{Id='dc';X=344;Y=462;W=345;H=2},@{Id='dc-down';X=344;Y=462;W=2;H=28},@{Id='ac-top';X=831;Y=442;W=2;H=21},@{Id='ac';X=831;Y=462;W=345;H=2},@{Id='ac-down';X=1174;Y=462;W=2;H=28})){$w.Add((New-Frame "pcs-link-$($line.Id)" $line.X $line.Y $line.W $line.H '#A2BED6' 1))}
+    Monitor-Box $w 'pcs-dc' 162 491 352 287 '直流侧';Monitor-Box $w 'pcs-ac' 532 491 840 287 '交流侧'
     $dc=@(@{T='直流电压';I=1244;U='V'},@{T='直流电流';I=1245;U='A'},@{T='直流功率';I=1243;U='kW'},@{T='累计放电量';I=1250;U='kWh'},@{T='累计充电量';I=1249;U='kWh'})
-    foreach($i in 0..4){$e=$dc[$i];Monitor-MetricTile $w "pcs-dc-$i" $e.T $e.I $e.U "monitor-dc-$i.png" (180+($i%2)*164) (528+[math]::Floor($i/2)*81) $(if($i-eq4){316}else{152}) 69 @('#E6F2F8','#EAF8F6','#FBF4EE','#ECEAF8','#E4F3F8')[$i]}
+    foreach($i in 0..4){$e=$dc[$i];Monitor-MetricTile $w "pcs-dc-$i" $e.T $e.I $e.U "monitor-dc-$i.png" (180+($i%2)*164) (552+[math]::Floor($i/2)*73) $(if($i-eq4){316}else{152}) 64 @('#E6F2F8','#EAF8F6','#FBF4EE','#ECEAF8','#E4F3F8')[$i]}
     $m=Get-LanhuMeterIndexes 'Pcs';$cols=@(@{T='电压';A=$m.V;U='V'},@{T='电流';A=$m.I;U='A'},@{T='有功功率';A=$m.P;U='kW'},@{T='无功功率';A=$m.Q;U='kvar'},@{T='视在功率';A=$m.S;U='kVA'},@{T='下发有功功率';A=@(1318,1319,1320);U='kW'},@{T='下发无功功率';A=@(1321,1322,1323);U='kvar'})
-    Monitor-PhaseTable $w 'pcs-ac-table' $cols 550 531 804 176
+    Monitor-PhaseTable $w 'pcs-ac-table' $cols 550 542 804 181
     $totals=@(@{T='总有功功率';I=1230;U='kW'},@{T='总无功功率';I=1234;U='kvar'},@{T='总视在功率';I=1238;U='kVA'},@{T='累计放电量';I=1248;U='kWh'},@{T='累计充电量';I=1247;U='kWh'})
-    foreach($i in 0..4){$e=$totals[$i];Monitor-Field $w "pcs-ac-total-$i" $e.T $e.I $e.U (568+$i*160) 704 151}
+    foreach($i in 0..4){$e=$totals[$i];$left=568+$i*160;$w.Add((Ref-Text "pcs-ac-total-$i-label" $e.T $left 725 151 24 14 '#777E85'));Ref-Value $w "pcs-ac-total-$i" $e.I $left 750 151 22 $e.U 18;$w[$w.Count-1].properties.qtTextAlignment='Left'}
     return New-MonitorScreen 'Devices-Pcs' $w
 }
 function Monitor-PhaseTable($Widgets,$Id,$Columns,$X,$Y,$W,$H) {
@@ -142,7 +161,8 @@ function Build-MonitorBms {
     $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w 'Devices-Bms' 'Device' 'Bms'
     Monitor-Box $w 'bms-signals-panel' 162 222 409 466;Monitor-Box $w 'bms-measurements-panel' 590 222 782 552
     Monitor-Heading $w 'bms-signals' '遥信信息' 'monitor-signal.png' 180 236
-    Monitor-Field $w 'bms-charge-state' '充放电指示' 1454 '' 186 267 123
+    $w.Add((Ref-Text 'bms-charge-state-label' '充放电指示' 186 267 123 30 16 '#777E85'))
+    Ref-EnumValue $w 'bms-charge-state' 1454 ([ordered]@{'0'='静置';'1'='放电';'2'='充电'}) 186 301 123 28 18
     Monitor-SignalField $w 'bms-online' '在线状态' 3999 '在线' '离线' 318 267 123 '1'
     Monitor-SignalField $w 'bms-fault' 'BMS故障' 1462 '无故障' '故障' 450 267 105
     foreach($i in 0..2){
@@ -162,44 +182,58 @@ function Build-MonitorBms {
     foreach($i in 0..5){foreach($row in 0..1){$e=if($row-eq0){$top[$i]}else{$limits[$i]};Monitor-Field $w "bms-measurement-$row-$i" $e.T $e.I $e.U (616+$i*123) (261+$row*77) 118}}
     $w.Add((Ref-Panel 'bms-extrema-panel' 607 430 747 112 '#F3F8FC'))
     $ext=@(@{T='最高单体电压';I=1574;U='mV';N=1576},@{T='最低单体电压';I=1577;U='mV';N=1579},@{T='最高单体温度';I=1580;U='℃';N=1582},@{T='最低单体温度';I=1583;U='℃';N=1585})
-    foreach($i in 0..3){$e=$ext[$i];$left=627+$i*184;Monitor-Field $w "bms-extrema-$i" $e.T $e.I $e.U $left 442 168;Ref-Value $w "bms-extrema-number-$i" $e.N $left 508 168 27 '号电芯' 12}
+    foreach($i in 0..3){$e=$ext[$i];$left=627+$i*184;Monitor-Field $w "bms-extrema-$i" $e.T $e.I $e.U $left 442 168;Ref-Value $w "bms-extrema-number-$i" $e.N $left 508 168 27 $(if($i-lt2){'号电芯'}else{'号探头'}) 12}
     Monitor-Heading $w 'bms-energy-heading' '电能统计' 'monitor-energy.png' 607 564
     $energy=@(@{T='可充电量';I=1590},@{T='可放电量';I=1591},@{T='最近一次充电量';I=1588},@{T='最近一次放电量';I=1589})
     foreach($i in 0..3){$e=$energy[$i];Monitor-MetricTile $w "bms-energy-$i" $e.T $e.I 'kWh' "monitor-energy-$i.png" (607+$i*190) 600 176 69 @('#E6F2F8','#EAF8F6','#FBF4EE','#ECEAF8')[$i]}
-    $w.Add((Ref-Panel 'bms-energy-total-panel' 607 684 747 73 '#E4F3F8'))
-    foreach($i in 0..2){Monitor-MetricTile $w "bms-energy-total-$i" @('累计充电量','累计放电量','充放电循环')[$i] $null $(if($i-eq2){'次'}else{'kWh'}) "monitor-energy-total-$i.png" (628+$i*242) 688 233 66 '#E4F3F8'}
+    foreach($i in 0..2){Monitor-MetricTile $w "bms-energy-total-$i" @('累计充电量','累计放电量','充放电循环')[$i] $null $(if($i-eq2){'次'}else{'kWh'}) "monitor-energy-total-$i.png" (607+$i*190) 684 176 73 @('#E6F2F8','#EAF8F6','#E4F3F8')[$i]}
     return New-MonitorScreen 'Devices-Bms' $w
 }
 function Build-MonitorCells($Page=1,$Cluster=1) {
-    $id=if($Cluster-eq2){'Devices-Cells-2'}elseif($Page-eq1){'Devices-Cells'}else{"Devices-Cells-Page$Page"}
+    $id=Get-LanhuCellScreenId $Cluster $Page
     $w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w $id 'Monitor'
-    Ref-Tabs $w @(@{Id='1';T='1#电池簇';Target='Devices-Cells'},@{Id='2';T='2#电池簇';Target='Devices-Cells-2'}) ([string]$Cluster) 613 80 308
+    $clusterTabs=@(for($c=1;$c-le$lanhuClusters.Count;$c++){@{Id=[string]$c;T="$c#电池簇";Target=(Get-LanhuCellScreenId $c)}})
+    if($clusterTabs.Count-le6-and$clusterTabs.Count-gt0){Ref-Tabs $w $clusterTabs ([string]$Cluster) 376 80 800}
+    elseif($clusterTabs.Count-gt6){
+        $select=Ref-Button 'cells-cluster-selector' "$Cluster#电池簇" (Get-LanhuCellScreenId $Cluster) 613 80 308 40
+        $select.properties|Add-Member qtMenuScreensJson (ConvertTo-Json -InputObject @($clusterTabs|ForEach-Object {@{text=$_.T;screen=$_.Target}}) -Compress);$w.Add($select)
+    }
     $back=Ref-Button 'cells-back' '返回' 'Devices-Bms' 1320 87 82 36;$back.properties.qtTextColor='#129AF5';$back.properties.qtBorderColor='#129AF5';$w.Add($back)
+    if(-not$lanhuClusters.Count){$w.Add((Ref-Text 'cells-empty' '未配置电池簇' 162 260 1000 50 22));return New-MonitorScreen $id $w}
+    $clusterInfo=$lanhuClusters[$Cluster-1]
+    $points=$clusterInfo.Points
+    $summaryNames=@('电池总电压','电池总电流','平均温度','簇实时充放电功率')
     $totals=@(@{T='BMS总电压';I=1566;U='V'},@{T='BMS总电流';I=1567;U='A'},@{T='平均温度';I=1573;U='℃'},@{T='簇实时充放电功率';I=$null;U='kW'})
-    foreach($i in 0..3){$e=$totals[$i];$left=132+$i*322;$w.Add((Ref-Panel "cells-summary-$i-panel" $left 158 307 92));$w.Add((New-LanhuImage "cells-summary-icon-$i" "monitor-cells-$i.png" ($left+21) 174 60 60));Monitor-Field $w "cells-summary-$i" $e.T $(if($Cluster-eq1){$e.I}else{$null}) $e.U ($left+100) 166 204 22}
-    Monitor-Heading $w 'cells-heading' '电芯电压与温度' 'power-heading.png' 132 263
-    $selector=Ref-Button 'cells-page-selector' "全部电芯 · 第$Page 页" $(if($Cluster-eq1){'Devices-Cells'}else{''}) 1185 262 218 31
-    if($Cluster-eq1){$menu=@();foreach($p in 1..9){$menu+=@{text="全部电芯 · 第$p 页";screen=$(if($p-eq1){'Devices-Cells'}else{"Devices-Cells-Page$p"})}};$selector.properties|Add-Member qtMenuScreensJson (ConvertTo-Json -InputObject $menu -Compress)}
+    foreach($i in 0..3){$e=$totals[$i];$left=132+$i*322;$w.Add((Ref-Panel "cells-summary-$i-panel" $left 158 307 92));$w.Add((New-LanhuImage "cells-summary-icon-$i" "monitor-cells-$i.png" ($left+21) 174 60 60));Monitor-Field $w "cells-summary-$i" $e.T (Get-LanhuDevicePoint $points $summaryNames[$i]) $e.U ($left+100) 166 204 22}
+    Monitor-Heading $w 'cells-heading' '电芯电压 / 连接点温度' 'power-heading.png' 132 263
+    $selector=Ref-Button 'cells-page-selector' "全部电芯 · 第$Page 页" (Get-LanhuCellScreenId $Cluster) 1185 262 218 31
+    $menu=@();for($p=1;$p-le$clusterInfo.Pages;$p++){$menu+=@{text="全部电芯 · 第$p 页";screen=(Get-LanhuCellScreenId $Cluster $p)}}
+    $selector.properties|Add-Member qtMenuScreensJson (ConvertTo-Json -InputObject $menu -Compress)
     $w.Add($selector)
     $w.Add((Ref-Panel 'cells-body' 132 302 1271 486));$w.Add((Ref-Panel 'cells-extrema' 150 319 1234 84 '#F3F8FC'))
     $ext=@(@{T='电芯最大电压';I=1574;U='mV';N=1576},@{T='电芯最小电压';I=1577;U='mV';N=1579},@{T='电芯最高温度';I=1580;U='℃';N=1582},@{T='电芯最低温度';I=1583;U='℃';N=1585})
-    foreach($i in 0..3){$e=$ext[$i];$left=175+$i*309;Monitor-Field $w "cells-extrema-$i" $e.T $(if($Cluster-eq1){$e.I}else{$null}) $e.U $left 328 156 18;Monitor-Field $w "cells-extrema-number-$i" '电芯序号' $(if($Cluster-eq1){$e.N}else{$null}) '' ($left+168) 328 99 18}
+    $extNames=@('单体最高电压值','单体最低电压值','单体温度最高值','单体温度最低值')
+    $numberNames=@('单体电压最高节序号','单体电压最低节序号','单体温度最高节序号','单体温度最低节序号')
+    foreach($i in 0..3){$e=$ext[$i];$left=175+$i*309;Monitor-Field $w "cells-extrema-$i" $e.T (Get-LanhuDevicePoint $points $extNames[$i]) $e.U $left 328 156 18;Monitor-Field $w "cells-extrema-number-$i" $(if($i-lt2){'电芯序号'}else{'探头序号'}) (Get-LanhuDevicePoint $points $numberNames[$i]) '' ($left+168) 328 99 18}
     foreach($slot in 0..31){
         $number=($Page-1)*32+$slot+1;$left=150+($slot%4)*308.5;$top=419+[math]::Floor($slot/4)*41.25
+        if(-not$clusterInfo.Cells.ContainsKey($number)){continue}
         $border=New-Frame "cell-$slot-box" $left $top 308.5 41.25 '#FFFFFF' 1;$border.properties|Add-Member qtBorderColor '#D3D9E1';$w.Add($border)
         $w.Add((New-Frame "cell-$slot-number-bg" ($left+1) ($top+1) 74 39.25 '#F0F7FC' 2))
-        $w.Add((Ref-Text "cell-$slot-number" $(if($number-le260){[string]$number}else{''}) $left $top 75 41.25 14 '#303438' $false 'Center'))
+        $w.Add((Ref-Text "cell-$slot-number" ([string]$number) $left $top 75 41.25 14 '#303438' $false 'Center'))
         foreach($offset in @(75,191)){ $w.Add((New-Frame "cell-$slot-divider-$offset" ($left+$offset) $top 1 41.25 '#D3D9E1' 3)) }
         $w.Add((New-Frame "cell-$slot-top-rule" $left $top 308.5 1 '#D3D9E1' 3))
         if($slot-ge28){$w.Add((New-Frame "cell-$slot-bottom-rule" $left ($top+40.25) 308.5 1 '#D3D9E1' 3))}
-        $voltage=$null;$temperature=$null
-        if($Cluster-eq1-and$number-le260){
-            $candidateV=2000+$number;$candidateT=3000+$number
-            $owner=if(Has-Index 1566){(Tag-At 1566).deviceId}else{''}
-            if((Has-Index $candidateV)-and(Tag-At $candidateV).deviceId-eq$owner){$voltage=$candidateV}
-            if((Has-Index $candidateT)-and(Tag-At $candidateT).deviceId-eq$owner){$temperature=$candidateT}
+        $voltage=$clusterInfo.Cells[$number]
+        # The mobile battery harness measures the connection shared by two adjacent cells.
+        $temperature=$clusterInfo.Probes[[int][math]::Ceiling($number/2)]
+        $unit='V'
+        if($runtimePointByIndex.ContainsKey([uint32]$voltage)){
+            $read=$runtimePointByIndex[[uint32]$voltage].point.read
+            $unit=[string]$read.unit
+            if($unit-eq'mV'-and$read.scale-eq0.001){$unit='V'}
         }
-        Ref-Value $w "cell-$slot-voltage" $voltage ($left+76) $top 114 41.25 'mV' 16
+        Ref-Value $w "cell-$slot-voltage" $voltage ($left+76) $top 114 41.25 $unit 16
         Ref-Value $w "cell-$slot-temperature" $temperature ($left+192) $top 115 41.25 '℃' 16
     }
     $w.Add((New-Frame 'cells-left-rule' 150 419 1 330 '#D3D9E1' 3))
@@ -209,69 +243,80 @@ function Build-MonitorCells($Page=1,$Cluster=1) {
 function Build-MonitorThermal($Id='Devices-Thermal') {
     $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w $Id 'Device' 'Thermal'
     Monitor-Box $w 'thermal-details' 162 222 783 552;Monitor-Box $w 'thermal-alarm-panel' 963 222 409 552
-    Monitor-Heading $w 'thermal-liquid' '液冷' 'monitor-liquid.png' 180 237
-    Monitor-SignalField $w 'liquid-online' '在线状态' 127 '在线' '离线' 186 263 124 '1'
-    Monitor-Field $w 'liquid-fault' '故障代码' 153 '' 320 263 124
-    Monitor-Field $w 'liquid-mode' '运行模式反馈' 128 '' 470 263 200
-    Monitor-Field $w 'liquid-water-out' '出水温度' 131 '℃' 688 263 126
-    Monitor-Field $w 'liquid-pressure-out' '出水压力' 141 'Bar' 823 263 108
-    foreach($i in 0..3){$e=@(@{T='回水温度';I=132;U='℃'},@{T='回水压力';I=142;U='Bar'},@{T='设置温度';I=166;U='℃'},@{T='环境温度';I=135;U='℃'})[$i];Monitor-Field $w "liquid-second-$i" $e.T $e.I $e.U (186+$i*182) 331 165}
-    Monitor-Heading $w 'thermal-dehumidifier' '除湿' 'monitor-dehumidifier.png' 180 416
-    Monitor-SignalField $w 'dehumidifier-online' '在线状态' 188 '在线' '离线' 186 444 124 '1'
-    Monitor-SignalField $w 'dehumidifier-fault' '运行状态' $dehumidifierPoints.fault '正常' '告警' 320 444 124
-    Monitor-Field $w 'dehumidifier-work' '工作状态' $dehumidifierPoints.workState '' 470 444 160
-    Monitor-Field $w 'dehumidifier-humidity' '柜内湿度' $dehumidifierPoints.cabinetHumidity '%RH' 688 444 126
-    Monitor-Field $w 'dehumidifier-temperature' '柜内温度' $dehumidifierPoints.cabinetTemperature '℃' 823 444 108
-    Monitor-Heading $w 'thermal-fan' '风机' 'monitor-fan.png' 180 521
-    foreach($i in 0..2){$left=186+$i*254;$w.Add((Ref-Text "fan-$i-label" $(if($i-eq0){'风机继电器'}else{"$($i+1)#风机"}) $left 558 112 32 14 '#777E85'));Monitor-State $w "fan-$i-state" $(if($i-eq0){991}else{$null}) @(@{V='0';T='继电器断开';C='#90979F'},@{V='1';T='继电器闭合';C='#129AF5'}) ($left+112) 558 125}
-    Monitor-Heading $w 'thermal-fire' '消防' 'monitor-fire.png' 180 612
-    Monitor-SignalField $w 'fire-online' '在线状态' 310000 '在线' '离线' 186 638 134 '1'
-    Monitor-SignalField $w 'fire-alarm' '综合报警' 310012 '无告警' '告警' 338 638 134
-    Monitor-Field $w 'fire-smoke' '烟雾减光率' 310102 '%' 507 638 150
-    Monitor-Field $w 'fire-voc' 'VOC浓度' 310105 'ppm' 672 638 150
-    Monitor-Field $w 'fire-co' 'CO浓度' 310103 'ppm' 816 638 115
-    Monitor-Field $w 'fire-hydrogen' '氢气浓度' 310104 'ppm' 186 706 150
-    Monitor-Field $w 'fire-temperature' '柜内温度' 310101 '℃' 338 706 150
-    Monitor-Heading $w 'thermal-alarms-heading' '告警信息' 'monitor-alarm.png' 982 237
+    Monitor-SectionBand $w 'thermal-liquid' '液冷' 162 223 783
+    Monitor-SignalField $w 'liquid-online' '在线状态' 127 '在线' '离线' 180 271 124 '1'
+    Monitor-Field $w 'liquid-fault' '故障代码' 153 '' 332 271 124
+    $w.Add((Ref-Text 'liquid-mode-label' '运行模式反馈' 480 271 190 30 16 '#777E85'))
+    Ref-EnumValue $w 'liquid-mode' 128 ([ordered]@{'1'='水泵循环';'2'='制冷模式';'3'='制热模式';'4'='自动控制'}) 480 305 190 28 18
+    Monitor-Field $w 'liquid-water-out' '出水温度' 131 '℃' 688 271 126
+    Monitor-Field $w 'liquid-pressure-out' '出水压力' 141 'Bar' 832 271 100
+    foreach($i in 0..3){$e=@(@{T='回水温度';I=132;U='℃'},@{T='回水压力';I=142;U='Bar'},@{T='设置温度';I=166;U='℃'},@{T='环境温度';I=135;U='℃'})[$i];Monitor-Field $w "liquid-second-$i" $e.T $e.I $e.U @(180,332,480,688)[$i] 329 136}
+    Monitor-SectionBand $w 'thermal-dehumidifier' '除湿' 162 386 783
+    Monitor-SignalField $w 'dehumidifier-online' '在线状态' 188 '在线' '离线' 180 439 124 '1'
+    Monitor-SignalField $w 'dehumidifier-fault' '运行状态' $dehumidifierPoints.fault '正常' '告警' 332 439 124
+    Monitor-Field $w 'dehumidifier-work' '工作状态' $dehumidifierPoints.workState '' 480 439 160
+    Monitor-Field $w 'dehumidifier-humidity' '柜内湿度' $dehumidifierPoints.cabinetHumidity '%RH' 688 439 126
+    Monitor-Field $w 'dehumidifier-temperature' '柜内温度' $dehumidifierPoints.cabinetTemperature '℃' 832 439 100
+    Monitor-SectionBand $w 'thermal-fan' '风机' 162 497 783
+    foreach($i in 0..2){$left=@(180,332,480)[$i];$w.Add((Ref-Text "fan-$i-label" $(if($i-eq0){'风机继电器'}else{"$($i+1)#风机"}) $left 550 140 24 16 '#777E85'));Monitor-State $w "fan-$i-state" $(if($i-eq0){991}else{$null}) @(@{V='0';T='继电器断开';C='#90979F'},@{V='1';T='继电器闭合';C='#129AF5'}) $left 578 140 26}
+    Monitor-SectionBand $w 'thermal-fire' '消防' 162 609 783
+    Monitor-SignalField $w 'fire-online' '在线状态' 310000 '在线' '离线' 180 661 134 '1'
+    Monitor-SignalField $w 'fire-alarm' '综合报警' 310012 '无告警' '告警' 332 661 134
+    Monitor-Field $w 'fire-smoke' '烟雾减光率' 310102 '%' 480 661 150
+    Monitor-Field $w 'fire-voc' 'VOC浓度' 310105 'ppm' 688 661 126
+    Monitor-Field $w 'fire-co' 'CO浓度' 310103 'ppm' 832 661 100
+    Monitor-Field $w 'fire-hydrogen' '氢气浓度' 310104 'ppm' 180 718 134
+    Monitor-Field $w 'fire-temperature' '柜内温度' 310101 '℃' 332 718 134
+    Monitor-SectionBand $w 'thermal-alarms' '告警信息' 963 223 409
     Monitor-Alarms $w 'thermal-alarms' @(127,188,310000,991) 980 270 375 490
+    # Dense TMS rows use a 24px label and a separate 26px value within each band.
+    foreach($label in @($w|Where-Object widgetId -match '^(liquid|dehumidifier|fire)-.*-label$')){
+        $value=$w|Where-Object widgetId -eq ($label.widgetId -replace '-label$','')
+        $label.geometry.height=24
+        $value.geometry.y=$label.geometry.y+28;$value.geometry.height=26
+    }
     return New-MonitorScreen $Id $w
 }
-function Build-MonitorMccb {
-    $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w 'Devices-Mccb' 'Device' 'Mccb'
-    foreach($i in 0..7){
+function Build-MonitorMccb($Page=1) {
+    $id=Get-LanhuPageId 'Devices-Mccb' $Page
+    $w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w $id 'Device' 'Mccb'
+    $items=@($lanhuBreakers|Select-Object -Skip (($Page-1)*9) -First 9)
+    for($i=0;$i-lt$items.Count;$i++){
+        $breaker=$items[$i]
         $left=162+($i%3)*412;$top=233+[math]::Floor($i/3)*102;Monitor-Box $w "mccb-$i" $left $top 385 84
         $w.Add((New-LanhuImage "mccb-$i-icon" 'monitor-breaker.png' ($left+17) ($top+20) 42 43))
-        $w.Add((Ref-Text "mccb-$i-title" @('储能断路器','并网断路器','负荷断路器','断路器04','断路器05','断路器06','断路器07','断路器08')[$i] ($left+73) ($top+12) 270 25 16 '#303438' $true))
-        $w.Add((Ref-Text "mccb-$i-online-label" '当前状态：' ($left+73) ($top+40) 76 30 14 '#777E85'));Ref-Value $w "mccb-$i-online" $null ($left+149) ($top+40) 48 30
+        $w.Add((Ref-Text "mccb-$i-title" $breaker.Name ($left+73) ($top+12) 270 25 16 '#303438' $true))
+        $w.Add((Ref-Text "mccb-$i-online-label" '通信状态：' ($left+73) ($top+40) 76 30 14 '#777E85'));Monitor-Binary $w "mccb-$i-online" $breaker.Online '在线' '离线' ($left+149) ($top+40) 64 '1'
         $w.Add((Ref-Text "mccb-$i-position-label" '开关位置：' ($left+228) ($top+40) 76 30 14 '#777E85'))
-        Monitor-State $w "mccb-$i-position" $(if($i-lt3){@(997,998,999)[$i]}else{$null}) @(@{V='1';T='合闸';C='#F52D59'},@{V='0';T='分闸';C='#18C773'}) ($left+304) ($top+40) 64 30
+        Monitor-State $w "mccb-$i-position" $breaker.Position @(@{V='1';T='合闸';C='#F52D59'},@{V='0';T='分闸';C='#18C773'}) ($left+304) ($top+40) 64 30
     }
-    Monitor-Pager $w 'mccb' '' ''
-    return New-MonitorScreen 'Devices-Mccb' $w
+    if(-not$items.Count){$w.Add((Ref-Text 'mccb-empty' '未配置断路器' 162 260 1000 50 22))}
+    if($lanhuBreakers.Count-gt9){Monitor-Pager $w 'mccb' $(if($Page-gt1){Get-LanhuPageId 'Devices-Mccb' ($Page-1)}else{''}) $(if($Page*9-lt$lanhuBreakers.Count){Get-LanhuPageId 'Devices-Mccb' ($Page+1)}else{''})}
+    return New-MonitorScreen $id $w
 }
 function Monitor-Pager($Widgets,$Id,$Previous,$Next) {
     foreach($i in 0..1){$b=Ref-Button "$Id-page-$i" @('上一页','下一页')[$i] @($Previous,$Next)[$i] (1155+$i*116) 716 102 38;$b.properties.qtTextColor='#129AF5';$b.properties.qtBackgroundColor='#E3F3FF';$b.properties.qtCornerRadius=19;$Widgets.Add($b)}
 }
 function Build-MonitorMeters($Page=1) {
-    $id=if($Page-eq1){'Devices-Meters'}else{'Devices-Meters-Page2'};$w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w $id 'Device' 'Meters'
-    foreach($side in 0..1){
-        $left=162+$side*618;$source=if($Page-eq1){@('Input','Output')[$side]}else{@('Through','Reserved')[$side]}
-        $known=$source-ne'Reserved';$m=if($known){Get-LanhuMeterIndexes $source}else{@{V=@($null,$null,$null);I=@($null,$null,$null);P=@($null,$null,$null);Q=@($null,$null,$null);S=@($null,$null,$null);TotalP=$null;TotalQ=$null;TotalS=$null;Factor=$null;Frequency=$null}}
+    $id=Get-LanhuPageId 'Devices-Meters' $Page;$w=[System.Collections.Generic.List[object]]::new();Monitor-Chrome $w $id 'Device' 'Meters'
+    $items=@($lanhuMeters|Select-Object -Skip (($Page-1)*2) -First 2)
+    for($side=0;$side-lt$items.Count;$side++){
+        $left=162+$side*618;$meter=$items[$side];$m=$meter.Indexes
         Monitor-Box $w "meter-$side" $left 219 592 489
         $w.Add((New-LanhuImage "meter-$side-icon" 'monitor-meter.png' ($left+18) 234 54 54))
-        $w.Add((Ref-Text "meter-$side-title" $(switch($source){'Input'{'并网点电表'}'Output'{'防逆流表'}'Through'{'负荷电表'}default{'电表预留'}}) ($left+87) 234 480 30 18 '#303438' $true))
+        $w.Add((Ref-Text "meter-$side-title" $meter.Name ($left+87) 234 480 30 18 '#303438' $true))
         $w.Add((Ref-Text "meter-$side-online-label" '在线状态：' ($left+87) 264 71 30 14 '#777E85'))
-        Monitor-Binary $w "meter-$side-online" $(switch($source){'Input'{1199}'Output'{1099}'Through'{9099}default{$null}}) '在线' '离线' ($left+158) 264 54 '1'
+        Monitor-Binary $w "meter-$side-online" $meter.Online '在线' '离线' ($left+158) 264 54 '1'
         $w.Add((Ref-Text "meter-$side-ratio" 'PT变比： --    CT变比： --' ($left+216) 264 300 30 14 '#777E85'))
         $cols=@(@{T='电压';A=$m.V;U='V'},@{T='电流';A=$m.I;U='A'},@{T='有功功率';A=$m.P;U='kW'},@{T='无功功率';A=$m.Q;U='kvar'},@{T='视在功率';A=$m.S;U='kVA'})
         Monitor-PhaseTable $w "meter-$side-table" $cols ($left+18) 313 556 197
         $w.Add((New-Frame "meter-$side-energy-band" ($left+1) 526 590 36 '#F7F7F7' 1));$w.Add((Ref-Text "meter-$side-energy-heading" '功率和电量' $left 526 592 36 18 '#303438' $true 'Center'))
         $total=@(@{T='总有功功率';I=$m.TotalP;U='kW'},@{T='总无功功率';I=$m.TotalQ;U='kvar'},@{T='总视在功率';I=$m.TotalS;U='kVA'},@{T='功率因数';I=$m.Factor;U=''},@{T='频率';I=$m.Frequency;U='Hz'})
         foreach($i in 0..4){$e=$total[$i];Monitor-Field $w "meter-$side-total-$i" $e.T $e.I $e.U ($left+16+$i*116) 565 111}
-        $base=switch($source){'Input'{1100}'Output'{1000}'Through'{9000}default{$null}}
-        foreach($i in 0..3){Monitor-Field $w "meter-$side-energy-$i" @('正向有功总电量','反向有功总电量','正向无功总电量','反向无功总电量')[$i] $(if($null-ne$base){$base+@(5,10,20,25)[$i]}else{$null}) $(if($i-lt2){'kWh'}else{'kvarh'}) ($left+16+$i*145) 634 139}
+        foreach($i in 0..3){Monitor-Field $w "meter-$side-energy-$i" @('正向有功总电量','反向有功总电量','正向无功总电量','反向无功总电量')[$i] $meter.Energy[$i] $(if($i-lt2){'kWh'}else{'kvarh'}) ($left+16+$i*145) 634 139}
     }
-    Monitor-Pager $w 'meter' $(if($Page-eq2){'Devices-Meters'}else{''}) $(if($Page-eq1){'Devices-Meters-Page2'}else{''})
+    if(-not$items.Count){$w.Add((Ref-Text 'meters-empty' '未配置电表' 162 260 1000 50 22))}
+    if($lanhuMeters.Count-gt2){Monitor-Pager $w 'meter' $(if($Page-gt1){Get-LanhuPageId 'Devices-Meters' ($Page-1)}else{''}) $(if($Page*2-lt$lanhuMeters.Count){Get-LanhuPageId 'Devices-Meters' ($Page+1)}else{''})}
     return New-MonitorScreen $id $w
 }
 function Build-MonitorDiesel {
@@ -317,7 +362,9 @@ function Build-MonitorStrategy {
     return New-MonitorScreen 'Monitor-Strategy' $w
 }
 function Get-MonitorScreens {
-    Build-MonitorNetwork;Build-MonitorStrategy;Build-MonitorEmu;Build-MonitorMccb;Build-MonitorMeters;Build-MonitorMeters 2;Build-MonitorDiesel
-    Build-MonitorCells;Build-MonitorCells 1 2
-    foreach($page in 2..9){Build-MonitorCells $page}
+    Build-MonitorNetwork;Build-MonitorStrategy;Build-MonitorEmu;Build-MonitorDiesel
+    for($page=1;$page-le[math]::Max(1,[math]::Ceiling($lanhuBreakers.Count/9));$page++){Build-MonitorMccb $page}
+    for($page=1;$page-le[math]::Max(1,[math]::Ceiling($lanhuMeters.Count/2));$page++){Build-MonitorMeters $page}
+    if(-not$lanhuClusters.Count){Build-MonitorCells}
+    for($c=1;$c-le$lanhuClusters.Count;$c++){for($page=1;$page-le$lanhuClusters[$c-1].Pages;$page++){Build-MonitorCells $page $c}}
 }

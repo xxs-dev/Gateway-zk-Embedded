@@ -29,6 +29,10 @@ if(BUILD_TESTING AND UNIX)
     set_tests_properties(channel_trace PROPERTIES TIMEOUT 10)
 endif()
 
+add_executable(ems_control_mode_test EXCLUDE_FROM_ALL tools/ems_control_mode_test.cpp)
+target_link_libraries(ems_control_mode_test PRIVATE edge_gateway)
+add_test(NAME ems_control_mode_test COMMAND ems_control_mode_test)
+
 add_library(edge_gateway
     src/channel_trace.cpp
     src/agc_avc_controller.cpp
@@ -56,6 +60,7 @@ add_library(edge_gateway
     src/event_commit_status.cpp
     src/event_store_stats.cpp
     src/ems_cluster.cpp
+    src/ems_control_mode.cpp
     src/ems_cluster_dispatch.cpp
     src/ems_cluster_network.cpp
     src/ems_cluster_points.cpp
@@ -539,6 +544,12 @@ add_executable(memory_point_store_lifecycle_test tools/memory_point_store_lifecy
 target_link_libraries(memory_point_store_lifecycle_test PRIVATE edge_gateway)
 target_compile_options(memory_point_store_lifecycle_test PRIVATE -fdiagnostics-color=never)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(posix_robust_mutex_probe tools/posix_robust_mutex_probe.cpp)
+    target_link_libraries(posix_robust_mutex_probe PRIVATE pthread)
+    target_compile_options(posix_robust_mutex_probe PRIVATE -fdiagnostics-color=never)
+endif()
+
 if(UNIX)
     add_executable(filesystem_compat_test tools/filesystem_compat_test.cpp)
     target_include_directories(filesystem_compat_test PRIVATE include)
@@ -811,6 +822,14 @@ target_link_options(system_monitor_direct_maintenance_owner_test PRIVATE
 
 if(BUILD_TESTING)
     add_test(NAME command_receipt_observation COMMAND command_receipt_observation_test)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME storage_budget_entrypoint_audit
+            COMMAND Python3::Interpreter
+                "${CMAKE_SOURCE_DIR}/tools/storage_budget_entrypoint_audit.py"
+        )
+    endif()
     add_test(NAME agc_avc_controller COMMAND agc_avc_controller_test)
     add_test(NAME mqtt_forwarder_service COMMAND mqtt_forwarder_service_test)
     add_test(NAME point_store_router_retention COMMAND point_store_router_retention_test)
@@ -851,7 +870,26 @@ if(BUILD_TESTING)
     add_test(NAME iec_codec COMMAND iec_codec_test)
     add_test(NAME memory_point_store_lifecycle COMMAND memory_point_store_lifecycle_test)
     set_tests_properties(memory_point_store_lifecycle PROPERTIES TIMEOUT 15)
+    if(TARGET posix_robust_mutex_probe)
+        add_test(NAME posix_robust_mutex_probe COMMAND posix_robust_mutex_probe)
+        add_test(
+            NAME memory_point_store_robust_owner_death
+            COMMAND memory_point_store_lifecycle_test --robust-owner-death-only
+        )
+        set_tests_properties(
+            posix_robust_mutex_probe
+            memory_point_store_robust_owner_death
+            PROPERTIES TIMEOUT 5 LABELS "native-runtime-gate"
+        )
+    endif()
     if(UNIX)
+        add_executable(memory_point_store_multiwriter_test
+            tools/memory_point_store_multiwriter_test.cpp src/memory_point_store.cpp)
+        target_include_directories(memory_point_store_multiwriter_test PRIVATE include)
+        target_link_libraries(memory_point_store_multiwriter_test PRIVATE pthread rt)
+        target_compile_options(memory_point_store_multiwriter_test PRIVATE -fdiagnostics-color=never)
+        add_test(NAME memory_point_store_multiwriter COMMAND memory_point_store_multiwriter_test)
+        set_tests_properties(memory_point_store_multiwriter PROPERTIES TIMEOUT 35)
         add_executable(memory_point_store_reader_cache_test
             tools/memory_point_store_reader_cache_test.cpp src/memory_point_store.cpp)
         target_include_directories(memory_point_store_reader_cache_test PRIVATE include)
@@ -920,6 +958,10 @@ if(BUILD_TESTING)
         add_test(NAME gateway_services_boot
             COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_boot_test.sh")
         set_tests_properties(gateway_services_boot PROPERTIES TIMEOUT 15)
+        add_test(
+            NAME gateway_cellular_failover
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_cellular_failover_test.sh"
+        )
         add_test(
             NAME gateway_test_lab_modbus_e2e
             COMMAND sh

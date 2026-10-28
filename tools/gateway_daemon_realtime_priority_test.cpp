@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/interfaces.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
@@ -181,6 +182,95 @@ void verifyCollectLoopUsesActualPointIntervals() {
         edge_gateway::resolveCollectLoopIntervalMs(item) == 2,
         "device default should remain the fallback when no readable point is enabled"
     );
+}
+
+void verifyDeferredCollectionResumesAndHonorsControlLease() {
+    class DeferredCollector final : public edge_gateway::ICollector {
+    public:
+        DeferredCollector(std::atomic<int>& calls, edge_gateway::PriorityControlLease* lease)
+            : calls_(calls), lease_(lease) {}
+        edge_gateway::CollectCycleResult collectOnce(std::int64_t now, bool) override {
+            const auto count = ++calls_;
+            if (lease_) lease_->acquire("test-deferred", "METER_1", 1001, now, 30000);
+            edge_gateway::CollectCycleResult result;
+            result.workDeferred = count < 3;
+            return result;
+        }
+        void publishDeviceOnlineStatus(bool, std::int64_t) const override {}
+    private:
+        std::atomic<int>& calls_;
+        edge_gateway::PriorityControlLease* lease_;
+    };
+    for (bool block : {false, true}) {
+        const auto name = uniqueStoreName("gateway_deferred_collection");
+        const auto leasePath = "/tmp/" + name + ".json";
+        {
+            auto cfg = config(name);
+            cfg.meters.resize(1);
+            cfg.meters[0].points[0].read.intervalMs = 5000;
+            cfg.mqttDriver.priorityControlLeaseFile = leasePath;
+            edge_gateway::MemoryPointStore store(cfg.memoryStore);
+            edge_gateway::PriorityControlLease lease(leasePath, "test-owner");
+            std::atomic<int> calls{0};
+            edge_gateway::GatewayDaemon daemon(cfg, store,
+                [&](const edge_gateway::DeviceConfig&, edge_gateway::MemoryPointStore&) {
+                    return std::unique_ptr<edge_gateway::ICollector>(new DeferredCollector(calls, block ? &lease : nullptr));
+                },
+                [](const edge_gateway::DeviceConfig& device, edge_gateway::MemoryPointStore&) {
+                    return std::unique_ptr<edge_gateway::ICommandExecutor>(new edge_gateway::UnsupportedCommandExecutor(device));
+                }, {});
+            daemon.start();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+            while (calls.load() < (block ? 1 : 3) && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            daemon.stop();
+            require(calls.load() == (block ? 1 : 3),
+                    "deferred work slept a full interval, spun after completion, or bypassed a control lease");
+        }
+        std::remove(leasePath.c_str());
+        std::remove((leasePath + ".lock").c_str());
+        edge_gateway::MemoryPointStore::cleanupOrphanedSegment(name);
+    }
+}
+
+void verifyCompletionDeadlineWakesBetweenFixedTicks() {
+    class DeadlineCollector final : public edge_gateway::ICollector {
+    public:
+        explicit DeadlineCollector(std::atomic<int>& calls) : calls_(calls) {}
+        edge_gateway::CollectCycleResult collectOnce(std::int64_t, bool) override {
+            const auto count = ++calls_;
+            edge_gateway::CollectCycleResult result;
+            result.nextDelayMs = count < 3 ? 20 : 0;
+            return result;
+        }
+        void publishDeviceOnlineStatus(bool, std::int64_t) const override {}
+    private:
+        std::atomic<int>& calls_;
+    };
+    const auto name = uniqueStoreName("gateway_collection_deadline");
+    {
+        auto cfg = config(name);
+        cfg.meters.resize(1);
+        cfg.meters[0].points[0].read.intervalMs = 500;
+        cfg.mqttDriver.priorityControlLeaseFile = "/tmp/" + name + ".json";
+        edge_gateway::MemoryPointStore store(cfg.memoryStore);
+        std::atomic<int> calls{0};
+        edge_gateway::GatewayDaemon daemon(cfg, store,
+            [&](const edge_gateway::DeviceConfig&, edge_gateway::MemoryPointStore&) {
+                return std::unique_ptr<edge_gateway::ICollector>(new DeadlineCollector(calls));
+            },
+            [](const edge_gateway::DeviceConfig& device, edge_gateway::MemoryPointStore&) {
+                return std::unique_ptr<edge_gateway::ICommandExecutor>(new edge_gateway::UnsupportedCommandExecutor(device));
+            }, {});
+        daemon.start();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+        while (calls.load() < 4 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        daemon.stop();
+        require(calls.load() == 4, "early deadlines waited for fixed ticks or delayed the later normal cadence");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(name);
 }
 
 void verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop() {
@@ -475,6 +565,46 @@ void verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+void verifyEmsLocalModeAtPhysicalDispatch() {
+    const auto storeName = uniqueStoreName("ems_mode_dispatch_test");
+    const std::string modePath = "/tmp/" + storeName + ".json";
+    auto deviceConfig = config(storeName);
+    deviceConfig.memoryStore.pendingWriteMaxAgeMs = 0;
+    deviceConfig.memoryStore.emsControlModeFile = modePath;
+    deviceConfig.mqttDriver.powerControlOwnershipFile = modePath + ".owner";
+    deviceConfig.mqttDriver.priorityControlLeaseFile = modePath + ".priority";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        edge_gateway::MemoryPointStore store(deviceConfig.memoryStore);
+        auto client = std::make_shared<FakeModbusClient>();
+        edge_gateway::GatewayDaemon daemon(deviceConfig, store, client);
+        edge_gateway::EmsControlMode mode(modePath);
+        edge_gateway::PendingWriteCommand command;
+        command.index=1001;command.value=7;command.ts=100;command.acceptedAt=100;
+        command.source="local-display-scada";command.platformControl=true;command.highPriority=true;
+        command.cmdId="OLD_PLATFORM";
+        store.submitWriteCommand(command);
+        mode.setRemote(false,200);
+        daemon.processWritebackOnce(300);
+        auto result=store.getWritebackResult(command.cmdId);
+        require(result && !result->success && client->writeCount(1)==0,"local mode allowed queued platform write");
+        mode.setRemote(true,400);
+        command.cmdId="OLD_PLATFORM_AFTER_REMOTE";
+        store.submitWriteCommand(command);daemon.processWritebackOnce(500);
+        require(client->writeCount(1)==0,"reopening remote replayed revoked command");
+        mode.setRemote(false,600);
+        command.cmdId="LOCAL_ALLOWED";command.platformControl=false;
+        store.submitWriteCommand(command);daemon.processWritebackOnce(700);
+        require(client->writeCount(1)==1,"local operation blocked by EMS mode gate");
+        mode.setRemote(true,800);
+        command.cmdId="NEW_PLATFORM";command.platformControl=true;command.acceptedAt=900;
+        store.submitWriteCommand(command);daemon.processWritebackOnce(900);
+        require(client->writeCount(1)==2,"new platform operation blocked in remote mode");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    std::remove(modePath.c_str());std::remove((modePath+".lock").c_str());
+}
+
 }  // namespace
 
 int main() {
@@ -485,9 +615,12 @@ int main() {
 
     try {
         verifyCollectLoopUsesActualPointIntervals();
+        verifyDeferredCollectionResumesAndHonorsControlLease();
+        verifyCompletionDeadlineWakesBetweenFixedTicks();
         verifyAlarmTransitionFlushesWithoutWaitingForPeriodicLoop();
         verifyStaleControlGenerationIsRejectedBeforeDeviceWrite();
         verifyExpiredControlLeaseIsRejectedBeforeDeviceWrite();
+        verifyEmsLocalModeAtPhysicalDispatch();
         auto deviceConfig = config(storeName);
         {
             writeFile(

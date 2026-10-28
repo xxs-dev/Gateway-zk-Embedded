@@ -1383,6 +1383,11 @@ Optional<StoredPointValue> PointStoreRouter::getRawLatestByRoute(
         value = store->getLatestByIndex(route.index, nowMs);
     } catch (const std::exception& ex) {
         logStoreReadFailure("getLatestByIndex", route.sharedMemoryName, ex);
+        if (failOnStoreReadError_) {
+            throw std::runtime_error(
+                "required shared memory store read failed: " + route.sharedMemoryName + ": " + ex.what()
+            );
+        }
         return NullOpt;
     }
     if (!value) {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 
 namespace edge_gateway {
 
@@ -30,30 +31,39 @@ std::vector<ReadTask> ReadTaskPlanner::build(
         throw std::invalid_argument("maxBatchRegisters must be positive");
     }
 
-    std::vector<PointDefinition> readable;
+    std::vector<const PointDefinition*> readable;
     readable.reserve(points.size());
     for (const auto& point : points) {
         if (point.enabled && point.read.enable && point.read.dataType != "device_online") {
-            readable.push_back(point);
+            readable.push_back(&point);
         }
     }
 
     std::sort(readable.begin(), readable.end(), [](const auto& lhs, const auto& rhs) {
-        if (lhs.read.function != rhs.read.function) {
-            return lhs.read.function < rhs.read.function;
+        if (lhs->read.function != rhs->read.function) {
+            return lhs->read.function < rhs->read.function;
         }
-        return lhs.address < rhs.address;
+        return lhs->address < rhs->address;
     });
+    return buildSorted(readable, maxBatchRegisters, batchOptimize);
+}
 
+std::vector<ReadTask> ReadTaskPlanner::buildSorted(
+    const std::vector<const PointDefinition*>& points, int maxBatchRegisters, bool batchOptimize
+) {
+    if (maxBatchRegisters <= 0) {
+        throw std::invalid_argument("maxBatchRegisters must be positive");
+    }
     std::vector<ReadTask> tasks;
-    for (const auto& point : readable) {
+    for (const auto* definition : points) {
+        const auto& point = *definition;
         if (!batchOptimize || tasks.empty() || !canMerge(tasks.back(), point, maxBatchRegisters)) {
             ReadTask task;
             task.function = point.read.function;
             task.start = point.address;
             task.count = point.read.length;
             task.points.push_back(ReadTaskPoint{point, 0});
-            tasks.push_back(task);
+            tasks.push_back(std::move(task));
             continue;
         }
 

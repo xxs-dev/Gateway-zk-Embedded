@@ -85,7 +85,12 @@ void mergeAppDependencies(
         addUnique(result.sharedMemoryNames, appConfig.agcAvc.outputSharedMemoryName);
     }
     if (appConfig.cameraService.enabled) {
-        addUnique(result.sharedMemoryNames, appConfig.cameraService.sharedMemoryName);
+        addUnique(
+            result.sharedMemoryNames,
+            appConfig.cameraService.sharedMemoryName.empty()
+                ? std::string("gateway_point_store")
+                : appConfig.cameraService.sharedMemoryName
+        );
         result.cameraServices.push_back(appConfig.cameraService);
     }
 }

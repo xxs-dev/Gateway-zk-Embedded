@@ -10633,7 +10633,7 @@
     "tagId": "COMM202600104_FIRE_DETECTOR.fire_detector_auto_upload_period",
     "sharedMemoryName": "gateway_point_store_can0_zhenghua",
     "index": 310106,
-    "writable": true,
+    "writable": false,
     "dataType": "uint8",
     "unit": "s"
   },

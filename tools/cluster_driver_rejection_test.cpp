@@ -78,6 +78,7 @@ struct Fixture {
         p.write.can.dlc = 8; p.write.can.bitLength = 16;
         config.points = {p};
         config.protocol.dlt645.write.enabled = true; config.protocol.dlt645.write.password = "02000000";
+        config.protocol.dlt645.write.operatorCode = "01020304";
         command.cmdId = "missing-context"; command.index = 1234; command.value = 1;
         command.source = "graph-ems";
         store.reset(new MemoryPointStore(config.memoryStore));

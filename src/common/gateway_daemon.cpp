@@ -1,4 +1,5 @@
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 
 #include <algorithm>
@@ -296,6 +297,8 @@ bool GatewayDaemon::isRunning() const {
 }
 
 void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
+    collectionWorkDeferred_ = false;
+    collectionNextDelayMs_ = 0;
     if (runtimeDevices_.empty()) {
         return;
     }
@@ -313,7 +316,12 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
         }
         auto& runtimeDevice = runtimeDevices_[index];
         try {
-            runtimeDevice.collector->collectOnce(nowMsValue, realtimeFocused);
+            const auto result = runtimeDevice.collector->collectOnce(nowMsValue, realtimeFocused);
+            collectionWorkDeferred_ = collectionWorkDeferred_ || result.workDeferred;
+            if (result.nextDelayMs > 0) {
+                collectionNextDelayMs_ = collectionNextDelayMs_ > 0
+                    ? std::min(collectionNextDelayMs_, result.nextDelayMs) : result.nextDelayMs;
+            }
         } catch (const std::exception& ex) {
             runtimeDevice.collector->publishDeviceOnlineStatus(false, nowMsValue);
             std::cerr << "collect failed"
@@ -530,6 +538,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
         bool expiredBeforeSend = false;
         const auto executePending = [&] {
             BeforePhysicalWrite beforeWrite;
+            const auto modePermit = EmsControlMode(config_.memoryStore.emsControlModeFile).dispatchPermit(command);
             const bool clusterGuard = clusterAuthorizationRequired(config_.emsCluster, command);
             if (clusterGuard || (maxAgeMs > 0 &&
                 (config_.protocol.type == "modbus_rtu" || config_.protocol.type == "modbus_tcp"))) {
@@ -665,6 +674,8 @@ void GatewayDaemon::collectLoop() {
     std::int64_t lastStoreHeartbeatMs = 0;
     std::int64_t lastExpirySweepMs = 0;
     while (running_.load()) {
+        collectionWorkDeferred_ = false;
+        collectionNextDelayMs_ = 0;
         try {
             const auto ts = nowMs();
             if (lastStoreHeartbeatMs <= 0 || ts - lastStoreHeartbeatMs >= kStoreHeartbeatIntervalMs) {
@@ -680,7 +691,17 @@ void GatewayDaemon::collectLoop() {
             }
         } catch (...) {
         }
-        const auto remaining = static_cast<int>(nextDeadline - nowMs());
+        if (collectionWorkDeferred_) {
+            sleepInterruptibly(running_, 1);
+            nextDeadline = nowMs() + intervalMs;
+            continue;
+        }
+        const auto afterCollection = nowMs();
+        auto remaining = static_cast<int>(nextDeadline - afterCollection);
+        if (collectionNextDelayMs_ > 0 && collectionNextDelayMs_ < remaining) {
+            remaining = collectionNextDelayMs_;
+            nextDeadline = afterCollection + remaining;
+        }
         sleepInterruptibly(running_, std::max(1, remaining));
         nextDeadline += intervalMs;
         const auto now = nowMs();

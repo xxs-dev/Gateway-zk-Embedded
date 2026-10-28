@@ -1,12 +1,12 @@
 [
   {
     "file": "login-background.png",
-    "source": "https://lanhu-oss-2537-2.lanhuapp.com/FigmaSlicePNG38d56a6b6e5f21b4cf7e674e78901fc0.png",
+    "source": "https://lanhu-oss-2537-2.lanhuapp.com/FigmaSlicePNG6629f62d46fcee714e2f9557a3f625b0.png",
     "sourceSize": [
-      3836,
+      3840,
       2160
     ],
-    "sourceSha256": "d1c6ee7e1f8e18f0e86b8f98580c221581657b98db3cee2662b4ab6f3986d791"
+    "sourceSha256": "ef5133fbba1298b836ca6805f6a93b1322252203b01d5005896add6a7dec3518"
   },
   {
     "file": "login-user.png",
@@ -28,13 +28,11 @@
   },
   {
     "file": "login-logo.png",
-    "source": "https://assets.lanhuapp.com/FigmaCover12b033ed63144c667af53aae621888da.png",
-    "sourceSha256": "1f2de601968c76eed78dd4cd5666b45dab6e2f1a4b8e26ff58cfcb5c97125856",
-    "crop": [
-      68,
-      80,
-      300,
-      129
+    "source": "https://lanhu-oss-2537-2.lanhuapp.com/FigmaSlicePNGa9ad741af925d0d879182ae24fb9934f.png",
+    "sourceSha256": "2071a6d583e45369ecbaed28feaf3387a22d5c75c4aae31361bd0ae1461e1d76",
+    "sourceSize": [
+      458,
+      92
     ]
   }
 ]

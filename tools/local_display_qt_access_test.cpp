@@ -75,7 +75,10 @@ int main(int argc, char** argv) {
         control.widgetId = "lanhu-untrusted-control";
         protectedScreen.widgets.push_back(control);
         const auto gate = makeLanhuAccessGate(protectedScreen);
-        require(gate.widgets.size() == 3, "gate retained protected content");
+        require(gate.widgets.size() == 4, "gate retained protected content");
+        require(gate.widgets[1].widgetId == "access-gate-icon" &&
+                gate.widgets[1].properties.at("qtImageFile") == "assets/lanhu-assets/access-lock.png",
+                "gate artwork missing");
         for (const auto& widget : gate.widgets) {
             require(widget.bindings.empty(), "gate retained telemetry binding");
             require(widget.action.type == "none" || widget.action.type == "navigate", "gate contains executable writes");

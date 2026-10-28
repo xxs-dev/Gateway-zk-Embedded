@@ -1,0 +1,6 @@
+{
+  "sampleTimestampMs": 1000,
+  "points": [
+    {"index": 740100, "value": 1, "quality": 1, "ts": 900, "expireAt": 2000, "stale": false}
+  ]
+}

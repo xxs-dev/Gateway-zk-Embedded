@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -123,6 +124,71 @@ void verifyDisabledCameraDoesNotCreateStore() {
             const bool cameraExists = ::access(("/dev/shm/" + camera).c_str(), F_OK) == 0;
             require(cameraExists == enabled, "disabled camera must not create a shared memory store");
         }
+    } catch (...) { cleanup(); throw; }
+    cleanup();
+}
+
+void verifyFullTelemetryRequiresExistingStores() {
+    char directory[] = "/tmp/gateway-full-telemetry-XXXXXX";
+    require(::mkdtemp(directory) != nullptr, "private full telemetry fixture");
+    const std::string root(directory);
+    const auto name = root.substr(root.find_last_of('/') + 1);
+    const auto app = root + "/monitor.json";
+    const auto device = root + "/device.cfg";
+    const auto identity = root + "/device_identity.json";
+    const auto cleanup = [&] {
+        ::shm_unlink(("/" + name).c_str());
+        std::remove(app.c_str());
+        std::remove(device.c_str());
+        std::remove(identity.c_str());
+        ::rmdir(root.c_str());
+    };
+    try {
+        { std::ofstream f(identity); f << "{\"machineCode\":\"GW_TEST\"}"; }
+        { std::ofstream f(device);
+          f << "{\"machineCode\":\"GW_TEST\",\"protocol\":{\"type\":\"computed\"},"
+               "\"memoryStore\":{\"sharedMemoryName\":\"" << name << "\"},"
+               "\"meters\":[{\"meterCode\":\"TEST\",\"points\":[{\"index\":990001,"
+               "\"pointCode\":\"FULL_TEST\",\"enabled\":true,\"fullUpload\":true,"
+               "\"read\":{\"enable\":true},\"write\":{\"enable\":false}}]}]}"; }
+        { std::ofstream f(app);
+          f << "{\"identityConfigFile\":\"" << identity << "\",\"deviceConfigFiles\":[\"" << device << "\"],"
+               "\"mqttDriver\":{\"sharedMemoryName\":\"" << name << "\"}}"; }
+        edge_gateway::SystemMonitorConfig::DirectMaintenanceConfig config;
+        config.appConfigFile = app;
+        config.scadaUpperComputerSafetyEnabled = false;
+        const auto request = [&] {
+            return edge_gateway::system_monitor_direct_maintenance::handleHttpRequest(
+                config, "GET", "/api/v1/telemetry/full", "", "", "", "127.0.0.1");
+        };
+        const auto missing = request();
+        require(!startsWith(missing, "HTTP/1.1 200"), "missing store must reject a full snapshot");
+        require(::access(("/dev/shm/" + name).c_str(), F_OK) != 0,
+                "full snapshot must not create a missing producer store");
+        {
+            edge_gateway::MemoryPointStore store(name);
+            edge_gateway::PointDefinition point;
+            point.index = 990001;
+            point.pointCode = "FULL_TEST";
+            point.enabled = point.fullUpload = true;
+            point.read.cachePolicy.storeLatest = true;
+            store.registerPoint("GW_TEST", "TEST", point);
+            edge_gateway::PointValue value;
+            value.index = point.index;
+            value.machineCode = "GW_TEST";
+            value.meterCode = "TEST";
+            value.pointCode = point.pointCode;
+            value.value = 42;
+            value.quality = 1;
+            value.ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            store.putLatest(value);
+            const auto present = request();
+            require(startsWith(present, "HTTP/1.1 200") && present.find("FULL_TEST") != std::string::npos,
+                    "existing producer must appear in the full snapshot: " + present);
+        }
+        ::shm_unlink(("/" + name).c_str());
+        require(!startsWith(request(), "HTTP/1.1 200"), "removed producer must not yield successful empty snapshot");
     } catch (...) { cleanup(); throw; }
     cleanup();
 }
@@ -636,6 +702,7 @@ int main(int argc, char** argv) {
         }
         verifyDisabledCameraDoesNotCreateStore();
         verifyRealtimeCoverage();
+        verifyFullTelemetryRequiresExistingStores();
         const auto json = edge_gateway::system_monitor_direct_maintenance::otaCapabilitiesJson();
         require(json.find("\"supportedPackageTypes\":[\"config\",\"full\",\"scada\"]") != std::string::npos,
                 "OTA package capabilities are incomplete");

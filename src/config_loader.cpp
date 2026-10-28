@@ -327,6 +327,7 @@ void normalizeCollectConfig(CollectConfig& config) {
     config.adaptiveSplitMaxDepth = std::max(1, config.adaptiveSplitMaxDepth);
     config.adaptiveSplitLeafProbeBudget = std::max(0, config.adaptiveSplitLeafProbeBudget);
     config.offlineProbeTaskCount = std::max(1, config.offlineProbeTaskCount);
+    config.offlineProbeIntervalMs = std::max(0, config.offlineProbeIntervalMs);
     config.runtimeMeterBatchSize = std::max(1, config.runtimeMeterBatchSize);
     config.maxTasksPerMeterPerCycle = std::max(1, config.maxTasksPerMeterPerCycle);
     config.realtimeMaxTasksPerMeterPerCycle = std::max(
@@ -1148,8 +1149,12 @@ void parseDlt645Config(const JsonValue* value, ProtocolConfig& protocol) {
         if (protocol.dlt645.write.enabled && protocol.dlt645.write.password.empty()) {
             throw std::invalid_argument("dlt645.write.password is required when write is enabled");
         }
-        if (!validHex32(protocol.dlt645.write.operatorCode)) {
+        if (!protocol.dlt645.write.operatorCode.empty() &&
+            !validHex32(protocol.dlt645.write.operatorCode)) {
             throw std::invalid_argument("dlt645.write.operatorCode must be exactly 8 hex characters");
+        }
+        if (protocol.dlt645.write.enabled && protocol.dlt645.write.operatorCode.empty()) {
+            throw std::invalid_argument("dlt645.write.operatorCode is required when write is enabled");
         }
     }
 }
@@ -1257,6 +1262,11 @@ CollectConfig parseCollect(const JsonValue* value) {
     );
     config.offlineProbeOnly = requireBool(object, "offlineProbeOnly", config.offlineProbeOnly);
     config.offlineProbeTaskCount = requireInt(object, "offlineProbeTaskCount", config.offlineProbeTaskCount);
+    config.offlineProbeIntervalMs = requireInt(
+        object,
+        "offlineProbeIntervalMs",
+        config.offlineProbeIntervalMs
+    );
     config.runtimeMeterBatchSize = requireInt(object, "runtimeMeterBatchSize", config.runtimeMeterBatchSize);
     config.maxTasksPerMeterPerCycle = requireInt(
         object,
@@ -1400,6 +1410,7 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.sqlitePath = requireString(object, "sqlitePath", config.sqlitePath);
     config.sqliteLibraryPath = requireString(object, "sqliteLibraryPath", config.sqliteLibraryPath);
     config.controlDedupPath = requireString(object, "controlDedupPath", config.controlDedupPath);
+    config.emsControlModeFile = requireString(object, "emsControlModeFile", config.emsControlModeFile);
     config.persistFlushIntervalMs = requireInt(object, "persistFlushIntervalMs", config.persistFlushIntervalMs);
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
@@ -1843,7 +1854,9 @@ MqttForwardControlConfig parseMqttForwardControlConfig(const JsonValue* value) {
         throw std::invalid_argument("mqttForward.control must be an object");
     }
     const auto& object = value->asObject();
+    config.emsControlModeFile = requireString(object, "emsControlModeFile", config.emsControlModeFile);
     static const char* allowedKeys[] = {
+        "emsControlModeFile",
         "enabled",
         "commandTopic",
         "replyTopic",
@@ -2489,6 +2502,7 @@ MqttDriverConfig parseMqttDriverConfig(const JsonValue* value) {
         return config;
     }
     const auto& object = value->asObject();
+    config.emsControlModeFile = requireString(object, "emsControlModeFile", config.emsControlModeFile);
     config.enabled = requireBool(object, "enabled", config.enabled);
     config.sharedMemoryName = requireString(object, "sharedMemoryName", config.sharedMemoryName);
     if (const auto* names = value->find("sharedMemoryNames")) {
@@ -3806,6 +3820,27 @@ CameraAuthConfig parseCameraAuthConfig(const JsonValue* value) {
     if (config.tokenParam.empty()) {
         config.tokenParam = "token";
     }
+    if (config.enabled) {
+        std::string mode = config.mode;
+        std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (mode == "basic" || mode == "url_userinfo" || mode == "userinfo") {
+            if (config.username.empty() || config.password.empty()) {
+                throw std::invalid_argument(
+                    "enabled camera basic authentication requires injected username and password"
+                );
+            }
+        } else if (mode == "token_query" || mode == "query_token") {
+            if (config.token.empty()) {
+                throw std::invalid_argument(
+                    "enabled camera token authentication requires an injected token"
+                );
+            }
+        } else {
+            throw std::invalid_argument("unsupported enabled camera authentication mode");
+        }
+    }
     return config;
 }
 
@@ -4018,8 +4053,8 @@ AppConfig buildBuiltinExampleAppConfig() {
     config.ota.storage.provider = "local";
     config.ota.storage.presignExpireMinutes = 60;
     config.ota.storage.minio.endpoint = "http://127.0.0.1:9000";
-    config.ota.storage.minio.accessKey = "minioadmin";
-    config.ota.storage.minio.secretKey = "minioadmin";
+    config.ota.storage.minio.accessKey.clear();
+    config.ota.storage.minio.secretKey.clear();
     config.ota.storage.minio.bucket = "edge-ota";
     config.ota.storage.minio.basePath = "packages";
     config.realtime.enabled = true;

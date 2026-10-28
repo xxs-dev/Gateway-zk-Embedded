@@ -13,7 +13,8 @@
     "sharedMemoryName": "gateway_test_lab_modbus",
     "sharedMemoryNames": ["gateway_test_lab_modbus"],
     "scanIntervalMs": 200,
-    "priorityControlLeaseFile": "__TEST_LAB_ROOT__/run/priority-control.json"
+    "priorityControlLeaseFile": "__TEST_LAB_ROOT__/run/priority-control.json",
+    "powerControlOwnershipFile": "__TEST_LAB_ROOT__/run/power-control-owner.json"
   },
   "alarmStore": {"enabled": false},
   "eventEngine": {"enabled": false},

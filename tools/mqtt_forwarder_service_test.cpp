@@ -22,6 +22,7 @@
 #include "edge_gateway/mqtt_event_outbox.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/mqtt_forwarder_service.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/power_control_ownership.hpp"
 #include "edge_gateway/process_file_lock.hpp"
@@ -765,6 +766,8 @@ struct ControlTestEnvironment {
         forward.control.commandTopic = "third/cmd";
         forward.control.replyTopic = "third/reply";
         forward.control.ownershipFile = ownershipFile;
+        forward.control.emsControlModeFile = ownershipFile + ".ems-mode.json";
+        std::remove(forward.control.emsControlModeFile.c_str());
         forward.control.scope = "pcs-power";
         forward.control.sessionId = "third-party";
         forward.control.leaseTtlMs = 1000;
@@ -1466,6 +1469,19 @@ void testControlRejectsUnsafePayloads() {
         false,
         "64-byte control id must be rejected before shared-memory submission"
     );
+}
+
+void testEmsLocalModeRejectsThirdPartyControl() {
+    ControlTestEnvironment environment;
+    EmsControlMode mode(environment.forward.control.emsControlModeFile);
+    mode.setRemote(false,1000);
+    environment.runCommand("{\"type\":1,\"target\":1,\"id\":\"EMS_LOCAL_DENY\"}",2000);
+    require(environment.store->peekPendingWriteCommands().empty(),"third-party ingress bypassed EMS local mode");
+    mode.setRemote(true,3000);
+    environment.runCommand("{\"type\":1,\"target\":1,\"id\":\"EMS_REMOTE_ALLOW\"}",4000);
+    const auto pending=environment.store->peekPendingWriteCommands();
+    require(pending.size()==2 && pending[0].platformControl && pending[1].platformControl,"third-party pending writes lost transport origin");
+    std::remove(environment.forward.control.emsControlModeFile.c_str());
 }
 
 void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
@@ -3726,6 +3742,7 @@ int main(int argc, char** argv) {
         testControlTakeoverDuplicateReleaseAndExpiry();
         std::cerr << "running third-party unsafe payload rejection test" << std::endl;
         testControlRejectsUnsafePayloads();
+        testEmsLocalModeRejectsThirdPartyControl();
         std::cerr << "running concurrent construction lease preservation test" << std::endl;
         testConcurrentConstructionPreservesActiveLease();
         std::cerr << "running changed-session lease preservation test" << std::endl;

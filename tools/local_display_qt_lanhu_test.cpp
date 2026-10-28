@@ -1,6 +1,7 @@
 #include "local_display_qt_scada_scene.hpp"
 #include "local_display_qt_pcs_power_control.hpp"
 #include "local_display_qt_parallel_topology.hpp"
+#include "local_display_qt_system_info.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -16,6 +17,7 @@
 #include <QMenu>
 #include <QLabel>
 #include <QGraphicsPathItem>
+#include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
 #include <QGraphicsProxyWidget>
 #include <QGraphicsRectItem>
@@ -23,6 +25,7 @@
 #include <QTimer>
 #include <QDialog>
 #include <QMessageBox>
+#include <QInputDialog>
 #include <QDir>
 #include <QFile>
 #include <QFontInfo>
@@ -30,9 +33,15 @@
 #include <QTextDocument>
 #include <QTextBlock>
 #include <QTextLayout>
+#include <QTemporaryDir>
+#include <QThread>
 
 class ScadaSceneViewTestAccess {
 public:
+    static void control(ScadaSceneView& view, const edge_gateway::ScadaWidget& widget) {
+        view.handleAction(widget.action, {}, {}, false, widget);
+    }
+    static bool pending(const ScadaSceneView& view) { return view.controlInFlight_; }
     static const auto& widgets(const ScadaSceneView& view) { return view.runtimeWidgets_; }
     static auto& widgets(ScadaSceneView& view) { return view.runtimeWidgets_; }
     static void render(ScadaSceneView& view) { for (auto& widget : view.runtimeWidgets_) view.renderTrend(widget); }
@@ -65,13 +74,25 @@ class FixtureRuntime final : public ScadaSceneRuntimeSource {
 public:
     std::string node = "edge-1";
     std::string cluster;
+    std::string machine;
+    std::map<std::string, std::string> systemInfo;
     int writeCalls = 0;
     int groupWriteCalls = 0;
+    int modeChanges = 0;
+    edge_gateway::PendingWriteCommand lastCommand;
+    edge_gateway::Optional<edge_gateway::WritebackResultRecord> acknowledgement;
+    ScadaSceneWriteResult setEmsControlMode(bool remote) override {
+        ++modeChanges;
+        systemInfo["controlModeCode"] = remote ? "remote" : "local";
+        return {true, "fixture mode saved"};
+    }
     std::string clusterStatusJson() const override { return cluster; }
     std::unordered_map<std::uint32_t, edge_gateway::StoredPointValue> values;
     std::unordered_map<std::uint32_t, std::string> devices;
     std::unordered_map<std::string, ScadaSceneResolvedTag> projectTags;
     const std::string& nodeId() const override { return node; }
+    std::string machineCode() const override { return machine.empty() ? node : machine; }
+    std::map<std::string, std::string> localSystemInfo() const override { return systemInfo; }
     edge_gateway::Optional<ScadaSceneResolvedTag> resolveTag(const std::string& tagId) const override {
         const auto configured = projectTags.find(tagId);
         if (configured != projectTags.end()) return configured->second;
@@ -103,15 +124,16 @@ public:
         }
         return result;
     }
-    ScadaSceneWriteResult submitWrite(const std::string&, edge_gateway::PendingWriteCommand) override {
+    ScadaSceneWriteResult submitWrite(const std::string&, edge_gateway::PendingWriteCommand command) override {
         ++writeCalls;
+        lastCommand = command;
         return {true, "fixture accepted, not executed"};
     }
     ScadaSceneWriteResult submitWriteGroup(const std::vector<ScadaSceneWriteTarget>&, edge_gateway::PendingWriteCommand) override {
         ++groupWriteCalls;
         return {true, "fixture accepted, not executed"};
     }
-    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(const std::string&, const std::string&) const override { return edge_gateway::NullOpt; }
+    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(const std::string&, const std::string&) const override { return acknowledgement; }
     void put(std::uint32_t index, double value, bool stale = false, int quality = 1) {
         edge_gateway::StoredPointValue point;
         point.index = index;
@@ -135,6 +157,192 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     try {
         FixtureRuntime runtime;
+        {
+            FixtureRuntime controls;
+            bool authorized = true;
+            controls.setOperatorAuthorization([&] { return authorized; });
+            edge_gateway::ScadaScreen screen;
+            screen.width = 400; screen.height = 100;
+            ScadaSceneView view(screen, ".", {}, {}, controls, [](const std::string&) {});
+            auto command = widget("qtButton");
+            command.title = "fixture control";
+            command.action.type = "writeSetpoint";
+            command.action.tagId = "t1";
+            command.action.requiresConfirmation = true;
+            command.properties["controlOptionsJson"] = R"([{"label":"Auto","value":0,"feedbackValue":4},{"label":"Pump","value":3,"feedbackValue":1}])";
+            command.properties["controlFeedbackTag"] = "t2";
+            bool cancel = true, expire = false;
+            QTimer responder;
+            QObject::connect(&responder, &QTimer::timeout, [&] {
+                if (auto* input = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+                    input->setTextValue("Pump");
+                    if (cancel) input->reject(); else input->accept();
+                } else if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    if (box->standardButtons() & QMessageBox::Yes) {
+                        require(box->text().contains("Pump"), "confirmation lost enum meaning");
+                        if (expire) authorized = false;
+                        box->button(QMessageBox::Yes)->click();
+                    } else if (box->windowTitle() != QString::fromUtf8("控制执行结果")) box->accept();
+                }
+            });
+            responder.start(10);
+            ScadaSceneViewTestAccess::control(view, command);
+            require(controls.writeCalls == 0, "cancelled enum submitted command");
+            cancel = false; expire = true;
+            ScadaSceneViewTestAccess::control(view, command);
+            require(controls.writeCalls == 0, "authorization expiry during confirmation submitted command");
+            expire = false; authorized = true;
+            ScadaSceneViewTestAccess::control(view, command);
+            require(controls.writeCalls == 1 && controls.lastCommand.value == 3, "enum meaning mapped to wrong protocol value");
+            responder.stop();
+            auto spin = [&](int milliseconds) {
+                const auto until = QDateTime::currentMSecsSinceEpoch() + milliseconds;
+                while (QDateTime::currentMSecsSinceEpoch() < until) { app.processEvents(); QThread::msleep(5); }
+            };
+            auto receiptText = [&] {
+                const auto boxes = view.findChildren<QMessageBox*>();
+                require(!boxes.empty(), "missing execution feedback dialog");
+                return boxes.back()->text();
+            };
+            edge_gateway::WritebackResultRecord ack;
+            ack.success = true; ack.completedAt = controls.lastCommand.ts + 1;
+            controls.acknowledgement = ack;
+            controls.put(2, 1); controls.values[2].ts = controls.lastCommand.ts - 1;
+            spin(250);
+            require(ScadaSceneViewTestAccess::pending(view), "old matching feedback falsely confirmed command");
+            controls.values[2].ts = ack.completedAt + 1;
+            controls.values[2].value = 3;
+            spin(250);
+            require(ScadaSceneViewTestAccess::pending(view), "write enum incorrectly reused for readback enum");
+            controls.values[2].value = 1; controls.values[2].stale = true;
+            spin(250);
+            require(ScadaSceneViewTestAccess::pending(view), "stale feedback confirmed command");
+            controls.values[2].stale = false; spin(250);
+            require(!ScadaSceneViewTestAccess::pending(view) && receiptText().contains(QString::fromUtf8("新鲜反馈")), "fresh readback not confirmed");
+            for (auto* box : view.findChildren<QMessageBox*>()) box->close();
+            app.processEvents();
+            command.properties.erase("controlOptionsJson");
+            command.action.value = "0"; command.action.requiresConfirmation = false;
+            ack.success = false; ack.message = "fixture transport error"; controls.acknowledgement = ack;
+            ScadaSceneViewTestAccess::control(view, command); spin(250);
+            require(!ScadaSceneViewTestAccess::pending(view) && receiptText().contains("fixture transport error"), "driver failure not reported");
+            for (auto* box : view.findChildren<QMessageBox*>()) box->close();
+            app.processEvents();
+            controls.acknowledgement = edge_gateway::NullOpt;
+            ScadaSceneViewTestAccess::control(view, command); spin(10300);
+            require(!ScadaSceneViewTestAccess::pending(view) && receiptText().contains(QString::fromUtf8("超时")) && controls.writeCalls == 3, "timeout retried command or hid uncertainty");
+        }
+        {
+            FixtureRuntime modeRuntime;
+            require(!modeRuntime.setOperatorEmsControlMode(false).accepted && modeRuntime.modeChanges == 0, "EMS mode changed without authorization callback");
+            bool authorized = true;
+            modeRuntime.setOperatorAuthorization([&] { return authorized; });
+            require(modeRuntime.setOperatorEmsControlMode(false).accepted && modeRuntime.modeChanges == 1, "authorized EMS mode change rejected");
+            authorized = false;
+            require(!modeRuntime.setOperatorEmsControlMode(true).accepted && modeRuntime.modeChanges == 1, "expired session changed EMS mode");
+        }
+        {
+            FixtureRuntime modeRuntime;
+            modeRuntime.systemInfo["controlModeCode"] = "remote";
+            bool authorized = true;
+            modeRuntime.setOperatorAuthorization([&] { return authorized; });
+            edge_gateway::ScadaScreen modeScreen;
+            modeScreen.width = 400; modeScreen.height = 100;
+            for (const auto& target : {std::string("remote"), std::string("local")}) {
+                auto b = widget("qtButton");
+                b.widgetId = target;
+                b.title = target;
+                b.geometry = {target == "remote" ? 0.0 : 200.0, 0, 180, 60};
+                b.properties["emsControlModeTarget"] = target;
+                modeScreen.widgets.push_back(b);
+            }
+            ScadaSceneView modeView(modeScreen, ".", {}, {}, modeRuntime, [](const std::string&) {});
+            modeView.refresh(QDateTime::currentMSecsSinceEpoch());
+            const auto& modes = ScadaSceneViewTestAccess::widgets(modeView);
+            require(modes.size() == 2, "EMS selectors missing");
+            auto* remoteButton = modes[0].toggleButton;
+            auto* localButton = modes[1].toggleButton;
+            require(remoteButton->isChecked() && !remoteButton->isEnabled() && localButton->isEnabled(), "default remote selector incorrect");
+            bool confirm = false, expire = false;
+            QTimer responder;
+            QObject::connect(&responder, &QTimer::timeout, [&] {
+                auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                if (!dialog) return;
+                if (dialog->standardButtons() & QMessageBox::Yes) {
+                    if (expire) authorized = false;
+                    dialog->button(confirm ? QMessageBox::Yes : QMessageBox::No)->click();
+                } else dialog->accept();
+            });
+            responder.start(10);
+            localButton->click();
+            require(modeRuntime.modeChanges == 0 && remoteButton->isChecked() && !localButton->isChecked(), "cancel changed EMS mode");
+            confirm = true;
+            localButton->click();
+            require(modeRuntime.modeChanges == 1 && localButton->isChecked() && !localButton->isEnabled(), "confirmed local state not refreshed");
+            expire = true;
+            remoteButton->click();
+            require(modeRuntime.modeChanges == 1 && localButton->isChecked(), "expired confirmation changed EMS mode");
+            responder.stop();
+            modeRuntime.systemInfo["controlModeCode"] = "unknown";
+            modeView.refresh(QDateTime::currentMSecsSinceEpoch());
+            require(!remoteButton->isEnabled() && !localButton->isEnabled(), "invalid state permits switching");
+            require(modeRuntime.writeCalls == 0 && modeRuntime.groupWriteCalls == 0, "EMS selector sent equipment command");
+        }
+        {
+            QTemporaryDir host;
+            require(host.isValid(), "host fixture directory failed");
+            auto save = [&](const QString& path, const QByteArray& data) {
+                QDir().mkpath(QFileInfo(host.path() + path).path());
+                QFile file(host.path() + path);
+                require(file.open(QIODevice::WriteOnly) && file.write(data) == data.size(), "host fixture write failed");
+            };
+            save("/config/runtime/device_identity.json", R"({"model":"EDGE-GW","firmwareVersion":"1.0.0"})");
+            save("/config/runtime/apps/mqtt-service.json", R"({"mqtt":{"enabled":true}})");
+            save("/proc/stat", "cpu 10 0 10 80 0 0 0 0\n");
+            save("/proc/meminfo", "MemTotal: 1000 kB\nMemAvailable: 750 kB\n");
+            save("/sys/class/thermal/thermal_zone0/temp", "42500\n");
+            LocalSystemInfo source(host.path(), host.path()+"/proc", host.path()+"/sys");
+            auto first = source.read("COMM202600104");
+            require(first.at("machineCode") == "COMM202600104" && first.at("model") == "EDGE-GW", "EMU identity not from host");
+            require(first.at("memory") == "25.0 %" && first.at("temperature").find("42.5") == 0, "EMU resource units incorrect");
+            require(first.count("cpu") == 0, "CPU first sample invents usage");
+            require(first.at("cloud") == QString::fromUtf8("已启用").toStdString(), "cloud configuration mislabeled");
+            save("/proc/stat", "cpu 40 0 30 130 0 0 0 0\n");
+            QThread::msleep(1010);
+            require(source.read("COMM202600104").at("cpu") == "50.0 %", "CPU must use counter deltas");
+            QFile::remove(host.path()+"/proc/meminfo");
+            QFile::remove(host.path()+"/sys/class/thermal/thermal_zone0/temp");
+            QThread::msleep(1010);
+            auto missing = source.read("COMM202600104");
+            require(!missing.count("memory") && !missing.count("temperature"), "EMU retained stale host metrics");
+        }
+        {
+            FixtureRuntime host;
+            host.machine = "COMM202600104";
+            QJsonObject tags{{"p","t1"},{"q","t2"},{"soc","t3"},{"online","t4"},{"bmsOnline","t5"},{"breaker","t6"},{"frequency","t7"},{"ua","t8"}};
+            host.put(1,12.3); host.put(2,-2); host.put(3,96); host.put(4,1); host.put(5,1); host.put(6,1); host.put(7,50); host.put(8,230);
+            ParallelTopology local(host, ".", tags);
+            local.refresh(10000);
+            require(local.vehicleId(0) == "COMM202600104" && !local.fresh(), "local identity confused with SCADA node or cluster status");
+            require(local.valueText(0,"p") == "12.3" && local.valueText(0,"soc") == "96.0" && local.valueText(0,"ua") == "230.0", "valid local data requires cluster membership");
+            require(local.valueText(0,"breaker") == QString::fromUtf8("合闸") && local.valueText(0,"frequency") == "50.00", "local feedback binding missing");
+            host.put(1,100,true); host.put(3,96,false,0); local.refresh(10001);
+            require(local.valueText(0,"p") == "--" && local.valueText(0,"soc") == "--", "invalid local quality shown live");
+            host.put(4,0); local.refresh(10002);
+            require(local.valueText(0,"q") == "--", "offline PCS data shown live");
+            host.values.clear(); local.refresh(10003);
+            require(local.valueText(0,"breaker") == "--", "local stale cache retained");
+            require(host.writeCalls == 0 && host.groupWriteCalls == 0, "local topology writes control");
+            host.systemInfo["machineCode"] = host.machine;
+            edge_gateway::ScadaScreen emuScreen;
+            auto field = widget("qtLabel"); field.properties["localSystemField"] = "machineCode";
+            emuScreen.widgets = {field};
+            ScadaSceneView emu(emuScreen,".",{}, {},host,[](const std::string&){});
+            emu.refresh(10000);
+            require(ScadaSceneViewTestAccess::widgets(emu)[0].valueText->toPlainText() == "COMM202600104", "EMU field not refreshed");
+            host.systemInfo.clear(); emu.refresh(10001);
+            require(ScadaSceneViewTestAccess::widgets(emu)[0].valueText->toPlainText() == "--", "EMU missing source retains old value");
+        }
         // Audit the real renderer without connecting any data/control transport.
         if (argc > 3 && std::string(argv[3]) == "--layout-audit") {
             ScadaRuntimeWindow window(argv[1], 500, false, [](const edge_gateway::ScadaProject&) {
@@ -258,11 +466,21 @@ int main(int argc, char** argv) {
         ParallelTopology topology(runtime, argc > 1 ? argv[1] : ".");
         topology.setFixedSize(1230, 653);
         topology.refresh(10000);
-        require(!topology.fresh() && topology.vehicleCount() == 0, "missing membership became an invented vehicle");
+        require(!topology.fresh() && topology.usingLocalFallback() && topology.vehicleCount() == 1,
+                "missing membership must display one local vehicle");
+        require(topology.vehicleId(0) == QString::fromStdString(runtime.nodeId()), "default vehicle is not the configured local node");
+        for (const QString& key : {"p", "q", "pa", "pb", "pc", "soc", "frequency", "factor"})
+            require(topology.valueText(0, key) == "--", "local fallback invented telemetry");
+        require(topology.page() == 0 && topology.pageCount() == 1 &&
+                topology.findChild<QPushButton*>("topologyNext")->isHidden(), "default vehicle must not paginate");
+        runtime.cluster = "{"; topology.refresh(10000);
+        require(topology.usingLocalFallback() && topology.vehicleCount() == 1 && !topology.fresh(),
+                "malformed first snapshot removed the default local vehicle");
         for (int count : {0, 1, 2, 3, 4, 5, 10}) {
             runtime.cluster = clusterFixture(count, 0, 10000);
             topology.refresh(10000);
-            require(topology.fresh() && topology.vehicleCount() == count, "vehicle count differs from membership");
+            require(topology.fresh() && topology.vehicleCount() == std::max(1, count), "vehicle count differs from membership/default");
+            require(topology.usingLocalFallback() == (count == 0), "local fallback was appended to real membership");
             require(topology.pageCount() == std::max(1, (count + 2) / 3), "wrong vehicle pagination");
         }
         topology.findChild<QPushButton*>("topologyNext")->click();
@@ -288,7 +506,10 @@ int main(int argc, char** argv) {
         runtime.cluster = QJsonDocument(duplicate).toJson().toStdString(); topology.refresh(16006);
         require(!topology.fresh() && topology.vehicleCount() == 2, "duplicate node identity accepted");
         runtime.cluster = clusterFixture(0, 0, 16007); topology.refresh(16007);
-        require(topology.fresh() && topology.vehicleCount() == 0, "valid zero membership not cleared");
+        require(topology.fresh() && topology.vehicleCount() == 1 && topology.usingLocalFallback() &&
+                topology.vehicleId(0) == QString::fromStdString(runtime.nodeId()), "empty membership did not restore the local default");
+        require(topology.valueText(0, "p") == "--" && topology.valueText(0, "soc") == "--",
+                "empty membership retained peer telemetry in the local default");
         for (const QString& field : {QString("capabilityFresh"), QString("compatible"), QString("duplicateIdentity")}) {
             auto object = QJsonDocument::fromJson(QByteArray::fromStdString(clusterFixture(1, 0, 16008))).object();
             auto list = object["members"].toArray(); auto member = list[0].toObject();
@@ -359,7 +580,7 @@ int main(int argc, char** argv) {
         ScadaSceneView charts(screen, ".", {}, {}, runtime, [](const std::string&) {});
         const auto& plotted = ScadaSceneViewTestAccess::widgets(charts)[0];
         require(plotted.chartY >= 52, "two-row legend overlaps plot");
-        require(plotted.chartWidth > 1500, "light chart retains dark sidebar gap");
+        require(plotted.chartX == 88 && plotted.chartWidth == 1472, "light chart must reserve only the axis gutters");
         chart.properties.erase("qtTheme");
         screen.widgets = {chart};
         ScadaSceneView legacy(screen, ".", {}, {}, runtime, [](const std::string&) {});
@@ -453,6 +674,19 @@ int main(int argc, char** argv) {
         require(axes.trendSeries[0].index == 2 && axes.trendSeries[0].secondaryAxis, "legend order or secondary unit wrong");
         require(axes.chartYLabels[0]->toPlainText().toDouble() < 3 && axes.chartSecondaryYLabels[0]->toPlainText().toDouble() > 240, "voltage shares power scale");
         require(!axes.trendSeries[0].path->path().isEmpty(), "secondary series not rendered");
+        axes.trendSeries[0].samples = {{now-60000,3326},{now,3334}};
+        axes.trendSeries[1].samples = {{now-60000,-123456.78},{now,123456.78}};
+        ScadaSceneViewTestAccess::render(dual);
+        for (const auto& labels : {axes.chartYLabels, axes.chartSecondaryYLabels}) {
+            QString previous;
+            for (auto* label : labels) {
+                require(label->document()->defaultTextOption().wrapMode() == QTextOption::NoWrap, "axis tick can wrap");
+                require(QFontMetricsF(label->font()).horizontalAdvance(label->toPlainText()) <= label->textWidth(), "axis tick exceeds gutter");
+                require(label->toPlainText() != previous, "axis formatting lost tick distinction");
+                require(label->document()->begin().layout()->lineCount() == 1, "axis tick has multiple lines");
+                previous = label->toPlainText();
+            }
+        }
 
         auto selector = widget("qtButton"); selector.action.type = "navigate"; selector.action.targetScreen = "Fallback";
         selector.properties["qtMenuScreensJson"] = R"([{"text":"Voltage","screen":"Trends-Voltage"}])";
@@ -479,10 +713,84 @@ int main(int argc, char** argv) {
             const auto& project = window.project();
             const auto topologyScreen = std::find_if(project.screens.begin(), project.screens.end(), [](const auto& s) { return s.screenId == "Topology"; });
             require(topologyScreen != project.screens.end(), "topology route missing");
+            const auto singleScreen = std::find_if(project.screens.begin(), project.screens.end(), [](const auto& s) { return s.screenId == "Topology-Single"; });
+            require(singleScreen != project.screens.end(), "single topology route missing");
+            FixtureRuntime singleRuntime;
+            for (const auto& mapping : project.runtimeMappings) {
+                ScadaSceneResolvedTag tag; tag.mapping = mapping;
+                for (const auto& candidate : project.tags) if (candidate.tagId == mapping.tagId) tag.tag = candidate;
+                singleRuntime.projectTags[mapping.tagId] = tag;
+            }
+            ScadaSceneView singleView(*singleScreen, argv[1], project.alarms, project.trends, singleRuntime, [](const std::string&) {});
+            singleView.setWindowFlag(Qt::FramelessWindowHint);
+            singleView.resize(1920, 1080); singleView.show(); app.processEvents();
+            int images = 0;
+            for (auto* item : singleView.scene()->items()) if (auto* bitmap = dynamic_cast<QGraphicsPixmapItem*>(item)) {
+                ++images;
+                require(!bitmap->pixmap().isNull() && bitmap->transformationMode() == Qt::SmoothTransformation,
+                        "single topology artwork missing or enlarged without smoothing");
+            }
+            require(images >= 5, "single topology device artwork missing");
+            for (int scenario = 0; scenario < 6; ++scenario) {
+                singleRuntime.values.clear();
+                if (scenario != 4) for (const auto& mapping : project.runtimeMappings) singleRuntime.put(mapping.index, 25.8);
+                for (auto index : {997u, 998u, 999u}) if (scenario != 4)
+                    singleRuntime.put(index, scenario == 1 ? 0 : scenario == 5 ? 2 : 1, scenario == 3, scenario == 2 ? 0 : 1);
+                singleRuntime.put(1216, 1); singleRuntime.put(1217, 0); singleRuntime.put(1569, 75);
+                singleView.refresh(now); app.processEvents();
+                int breakers = 0;
+                for (const auto& item : ScadaSceneViewTestAccess::widgets(singleView)) {
+                    if (!item.valueText) continue;
+                    const auto id = item.valueText->data(0).toString();
+                    if (id == "single-load-breaker" || id == "single-grid-breaker" || id == "single-pcs-breaker") {
+                        ++breakers;
+                        const auto expected = scenario == 0 ? QColor("#F52D59") : scenario == 1 ? QColor("#18C773")
+                            : scenario == 5 ? QColor("#90979F") : QColor("#71808A");
+                        require(item.panel->brush().color() == expected, "single topology breaker quality/state incorrect");
+                    }
+                    if (id == "single-bus-0") require(item.valueText->toPlainText() == "--", "reserved bus borrowed PCS telemetry");
+                }
+                require(breakers == 3, "single topology DI feedback missing");
+                if (argc > 2) {
+                    QDir().mkpath(argv[2]);
+                    require(singleView.grab().save(QString::fromLocal8Bit(argv[2]) + QString("/Topology-Single-state-%1.png").arg(scenario)), "single topology screenshot failed");
+                }
+            }
+            for (int scenario = 0; scenario < 12; ++scenario) {
+                singleRuntime.put(1216, scenario == 1 || scenario == 2 ? 0 : 1);
+                singleRuntime.put(1217, scenario == 1 || scenario == 3 ? 1 : 0);
+                if (scenario == 4) singleRuntime.put(1217, 2);
+                if (scenario == 5) singleRuntime.put(1216, 2);
+                if (scenario == 6) singleRuntime.values.erase(1217);
+                if (scenario == 7) singleRuntime.values.erase(1216);
+                if (scenario == 8) singleRuntime.put(1217, 0, true);
+                if (scenario == 9) singleRuntime.put(1216, 1, true);
+                if (scenario == 10) singleRuntime.put(1217, 0, false, 0);
+                if (scenario == 11) singleRuntime.put(1216, 1, false, 0);
+                singleView.refresh(now);
+                bool found = false;
+                for (const auto& item : ScadaSceneViewTestAccess::widgets(singleView)) {
+                    if (!item.valueText || item.valueText->data(0).toString() != "single-pcs-grid-state") continue;
+                    found = true;
+                    const auto expected = scenario == 0 ? QColor("#18C773") : scenario == 1 ? QColor("#F52D59")
+                        : scenario < 6 ? QColor("#90979F") : QColor("#71808A");
+                    require(item.panel->brush().color() == expected, "single topology mode pair accepted invalid feedback");
+                    if (scenario >= 2) require(item.valueText->toPlainText() == "--", "invalid mode pair claims a mode");
+                }
+                require(found, "single topology mode indicator missing");
+            }
+            require(singleRuntime.writeCalls == 0 && singleRuntime.groupWriteCalls == 0, "single topology issued a write");
+            singleView.close();
             FixtureRuntime topologyRuntime;
             ScadaSceneView topologyView(*topologyScreen, argv[1], project.alarms, project.trends, topologyRuntime, [](const std::string&) {});
             topologyView.setWindowFlag(Qt::FramelessWindowHint);
             topologyView.resize(1440, 810); topologyView.show(); app.processEvents();
+            topologyView.refresh(QDateTime::currentMSecsSinceEpoch()); app.processEvents();
+            if (argc > 2) {
+                QDir().mkpath(argv[2]);
+                require(topologyView.grab().save(QString::fromLocal8Bit(argv[2]) + "/Topology-local-default.png"),
+                        "default local topology screenshot failed");
+            }
             for (const auto& scenario : std::vector<std::pair<int, int>>{{0,0},{1,0},{2,0},{3,0},{3,1},{3,2},{3,3},{5,0}}) {
                 const auto now = QDateTime::currentMSecsSinceEpoch();
                 topologyRuntime.cluster = clusterFixture(scenario.first, scenario.second, now);
@@ -501,6 +809,7 @@ int main(int argc, char** argv) {
             if (argc > 2) require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Topology-5-page2.png"), "page2 screenshot failed");
             topologyRuntime.cluster.clear(); topologyView.refresh(QDateTime::currentMSecsSinceEpoch()); app.processEvents();
             if (argc > 2) require(topologyView.grab().scaled(1440, 810, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).save(QString::fromLocal8Bit(argv[2]) + "/Topology-stale.png"), "stale screenshot failed");
+            require(topologyRuntime.writeCalls == 0 && topologyRuntime.groupWriteCalls == 0, "parallel topology issued a write");
             topologyView.close();
             window.setWindowFlag(Qt::FramelessWindowHint);
             window.resize(1440, 810); window.show(); app.processEvents();

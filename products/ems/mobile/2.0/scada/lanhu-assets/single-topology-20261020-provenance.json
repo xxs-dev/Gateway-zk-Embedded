@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-20",
+  "sourceUrl": "https://assets.lanhuapp.com/FigmaCoverbaf4a047eb263786ab18dcae50f3f49b.png",
+  "sourceSize": [
+    1920,
+    1081
+  ],
+  "sourceSha256": "e510071e85688da5d5b6625cf34efa8f9e2ca3fd2823ead977debd8f3864c128",
+  "supersedes": "The four single-* entries in update-20261016-provenance.json",
+  "assets": [
+    {
+      "file": "single-load-meter.png",
+      "designCrop": [
+        150,
+        176,
+        295,
+        309
+      ],
+      "nativeCrop": [
+        200,
+        235,
+        393,
+        412
+      ],
+      "size": [
+        193,
+        177
+      ],
+      "sha256": "ffda28ddb3b8ad9c7500053526fc1eb4c12c3ba567f54d67ba91a027057fc9d1"
+    },
+    {
+      "file": "single-grid-meter.png",
+      "designCrop": [
+        807,
+        177,
+        947,
+        309
+      ],
+      "nativeCrop": [
+        1076,
+        236,
+        1263,
+        412
+      ],
+      "size": [
+        187,
+        176
+      ],
+      "sha256": "ae77eeaaceb5a830e748c8023f54f9b8950c8c2315f536ba5ccff9f3bb2f02f4"
+    },
+    {
+      "file": "single-pcs.png",
+      "designCrop": [
+        420,
+        490,
+        580,
+        598
+      ],
+      "nativeCrop": [
+        560,
+        654,
+        773,
+        798
+      ],
+      "size": [
+        213,
+        144
+      ],
+      "sha256": "10a0ce742d34043f7ac5a4909c5c3097962cc95d7428d67b81298b1a93e49f3b"
+    },
+    {
+      "file": "single-battery.png",
+      "designCrop": [
+        420,
+        691,
+        580,
+        795
+      ],
+      "nativeCrop": [
+        560,
+        922,
+        773,
+        1061
+      ],
+      "size": [
+        213,
+        139
+      ],
+      "sha256": "ba44c9dd4a2f7fe4cf64b187fa6b8b73492c4ecd113e208cd21fa6faa16cab94"
+    }
+  ]
+}

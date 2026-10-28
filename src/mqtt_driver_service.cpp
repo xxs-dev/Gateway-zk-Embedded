@@ -1,4 +1,5 @@
 #include "edge_gateway/mqtt_driver_service.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -2218,6 +2219,8 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         reply.pointCode = request.pointCode;
         reply.index = request.index;
         reply.highPriority = request.highPriority;
+        // Transport origin cannot be overridden by a payload's source field.
+        EmsControlMode(driverConfig_.emsControlModeFile).admitPlatform(nowMs);
         if (request.machineCode.empty()) {
             throw std::invalid_argument("machineCode is required");
         }
@@ -2291,6 +2294,8 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             mailboxCommand.source = request.source;
             mailboxCommand.ts = request.ts > 0 ? request.ts : nowMs;
             mailboxCommand.acceptedAt = nowMs;
+            mailboxCommand.platformControl = true;
+            const auto modePermit = EmsControlMode(driverConfig_.emsControlModeFile).dispatchPermit(mailboxCommand);
             const auto submitted = router_.submitCommandMailbox(mailboxCommand);
             if (!submitted.accepted) {
                 throw std::invalid_argument(submitted.message);
@@ -2336,6 +2341,7 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         command.acceptedAt = nowMs;
         command.highPriority = request.highPriority;
         command.durableControl = durableControl;
+        command.platformControl = true;
         const auto submitResult = router_.submitWriteCommand(command);
         if (!submitResult.accepted) {
             if (request.highPriority) {

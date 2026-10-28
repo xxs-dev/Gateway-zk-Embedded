@@ -227,15 +227,18 @@ cellular_ipv4() {
     interface_ipv4 "$CELLULAR_INTERFACE"
 }
 
+cellular_route_ready() {
+    ip link show dev "$CELLULAR_INTERFACE" >/dev/null 2>&1 &&
+        [ -n "$(cellular_ipv4)" ] &&
+        [ -n "$(cellular_gateway)" ]
+}
+
 cellular_gateway() {
     local gateway
     gateway=$(ip -4 route show default dev "$CELLULAR_INTERFACE" 2>/dev/null |
         awk 'NR == 1 { for (i = 1; i <= NF; ++i) if ($i == "via") { print $(i + 1); exit } }')
-    if [ -n "$gateway" ]; then
-        printf '%s\n' "$gateway"
-    else
-        printf '%s\n' "$CELLULAR_GATEWAY"
-    fi
+    [ -n "$gateway" ] || return 1
+    printf '%s\n' "$gateway"
 }
 
 interface_gateway() {
@@ -345,16 +348,18 @@ cellular_default_metric() {
 
 replace_cellular_default() {
     local metric="$1"
-    local gateway
+    local address gateway
+    address=$(cellular_ipv4)
+    if [ -z "$address" ]; then
+        last_message="cellular IPv4 address is unavailable; route update skipped"
+        return 1
+    fi
     gateway=$(cellular_gateway)
     if [ -z "$gateway" ]; then
         last_message="cellular gateway is unavailable"
         return 1
     fi
-    while ip -4 route del default dev "$CELLULAR_INTERFACE" >/dev/null 2>&1; do
-        :
-    done
-    if ! ip -4 route add default via "$gateway" dev "$CELLULAR_INTERFACE" metric "$metric"; then
+    if ! ip -4 route replace default via "$gateway" dev "$CELLULAR_INTERFACE" metric "$metric"; then
         last_message="failed to install cellular default route"
         return 1
     fi
@@ -362,6 +367,10 @@ replace_cellular_default() {
 
 set_cellular_primary() {
     local metric
+    if ! cellular_route_ready; then
+        last_message="cellular interface has no IPv4 address; primary route update skipped"
+        return 1
+    fi
     metric=$(cellular_default_metric)
     if [ "$metric" != "$CELLULAR_ROUTE_METRIC" ]; then
         replace_cellular_default "$CELLULAR_ROUTE_METRIC" || return 1
@@ -385,10 +394,7 @@ set_wired_fallback() {
 
     current_metric=$(interface_default_metric "$interface")
     if [ "$current_metric" != "$WIRED_ROUTE_METRIC" ]; then
-        while ip -4 route del default dev "$interface" >/dev/null 2>&1; do
-            :
-        done
-        if ! ip -4 route add default via "$gateway" dev "$interface" metric "$WIRED_ROUTE_METRIC"; then
+        if ! ip -4 route replace default via "$gateway" dev "$interface" metric "$WIRED_ROUTE_METRIC"; then
             last_message="$reason, but failed to promote wired interface $interface"
             return 1
         fi
@@ -398,18 +404,22 @@ set_wired_fallback() {
         local previous_gateway
         previous_gateway=$(interface_gateway "$previous_interface")
         if [ -n "$previous_gateway" ]; then
-            while ip -4 route del default dev "$previous_interface" >/dev/null 2>&1; do
-                :
-            done
-            ip -4 route add default via "$previous_gateway" dev "$previous_interface" metric "$WIRED_STANDBY_ROUTE_METRIC" >/dev/null 2>&1 || true
+            ip -4 route replace default via "$previous_gateway" dev "$previous_interface" metric "$WIRED_STANDBY_ROUTE_METRIC" >/dev/null 2>&1 || true
         fi
     fi
 
-    local metric
-    metric=$(cellular_default_metric)
-    if [ "$metric" != "$FALLBACK_ROUTE_METRIC" ]; then
-        replace_cellular_default "$FALLBACK_ROUTE_METRIC" || return 1
-        log_message "$reason; $interface is the primary wired route and $CELLULAR_INTERFACE is standby (metric $FALLBACK_ROUTE_METRIC)"
+    local metric=""
+    if cellular_route_ready; then
+        metric=$(cellular_default_metric)
+        if [ "$metric" != "$FALLBACK_ROUTE_METRIC" ]; then
+            if replace_cellular_default "$FALLBACK_ROUTE_METRIC"; then
+                log_message "$reason; $interface is the primary wired route and $CELLULAR_INTERFACE is standby (metric $FALLBACK_ROUTE_METRIC)"
+            else
+                log_message "$reason; $interface is primary, but the cellular standby route could not be updated"
+            fi
+        fi
+    else
+        log_message "$reason; $interface is the primary wired route and cellular standby route is unavailable"
     fi
     if [ "$previous_interface" != "$interface" ]; then
         log_message "selected wired interface changed from ${previous_interface:-none} to $interface"
@@ -476,6 +486,12 @@ select_healthy_wired_interface() {
 
 keep_cellular_as_last_resort() {
     local should_log=0
+    if ! cellular_route_ready; then
+        mode="unknown"
+        last_message="4G has no IPv4 address and no healthy wired interface is available; no default route was changed"
+        log_message "$last_message"
+        return 1
+    fi
     [ "$mode" != "cellular-degraded" ] && should_log=1
     if [ "$(cellular_default_metric)" != "$CELLULAR_ROUTE_METRIC" ]; then
         replace_cellular_default "$CELLULAR_ROUTE_METRIC" || return 1

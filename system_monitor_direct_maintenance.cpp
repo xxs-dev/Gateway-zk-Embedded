@@ -29,6 +29,7 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/compute_graph_observation.hpp"
 #include "edge_gateway/channel_trace.hpp"
+#include "edge_gateway/system_monitor_runtime_discovery.hpp"
 #include "edge_gateway/diagnostic_process.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
@@ -687,9 +688,13 @@ void appendControlTimingJson(
         << ",\"highPriority\":" << (result.highPriority ? "true" : "false");
 }
 
-std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirectMaintenanceConfig& config) {
+std::unique_ptr<RealtimeContext> createRealtimeContext(
+    const SystemMonitorDirectMaintenanceConfig& config,
+    bool failOnRequiredStoreError = false
+) {
     using namespace edge_gateway;
     std::unique_ptr<RealtimeContext> context(new RealtimeContext());
+    context->router.setFailOnStoreReadError(failOnRequiredStoreError);
     context->appConfig = ConfigLoader::loadAppConfigFromFile(config.appConfigFile);
     context->router.setPowerControlOwnershipFile(
         context->appConfig.mqttDriver.powerControlOwnershipFile,
@@ -700,40 +705,81 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
     if (!context->appConfig.identityConfigFile.empty()) {
         identity = ConfigLoader::loadDeviceIdentityFromFile(context->appConfig.identityConfigFile);
     }
-    context->deviceConfigs = ConfigLoader::loadMany(context->appConfig.deviceConfigFiles, identity);
-
-    std::vector<std::string> sharedMemoryNames = context->appConfig.mqttDriver.sharedMemoryNames;
-    if (sharedMemoryNames.empty() && !context->appConfig.mqttDriver.sharedMemoryName.empty()) {
-        sharedMemoryNames.push_back(context->appConfig.mqttDriver.sharedMemoryName);
+    const auto runtimeDependencies = discoverSystemMonitorRuntimeDependencies(
+        config.appConfigFile,
+        context->appConfig
+    );
+    for (const auto& warning : runtimeDependencies.warnings) {
+        std::cerr << "SystemMonitor direct maintenance skipped sibling app config "
+                  << warning << std::endl;
     }
+    context->deviceConfigs = ConfigLoader::loadMany(context->appConfig.deviceConfigFiles, identity);
+    std::unordered_set<std::string> primaryDeviceFiles(
+        context->appConfig.deviceConfigFiles.begin(),
+        context->appConfig.deviceConfigFiles.end()
+    );
+    for (const auto& file : runtimeDependencies.deviceConfigFiles) {
+        if (primaryDeviceFiles.find(file) != primaryDeviceFiles.end()) {
+            continue;
+        }
+        try {
+            context->deviceConfigs.push_back(ConfigLoader::loadFromFile(file, identity));
+        } catch (const std::exception& ex) {
+            std::cerr << "SystemMonitor direct maintenance skipped sibling device config "
+                      << file << ": " << ex.what() << std::endl;
+        }
+    }
+
+    std::vector<DeviceConfig> mailboxDeviceConfigs;
+    std::vector<std::string> mailboxSharedMemoryNames;
     context->agcAvcCommandMailbox = appendSiblingAgcAvcRuntime(
         config.appConfigFile,
         identity,
-        context->deviceConfigs,
-        sharedMemoryNames
+        mailboxDeviceConfigs,
+        mailboxSharedMemoryNames
     );
-    std::unordered_set<std::string> seen(sharedMemoryNames.begin(), sharedMemoryNames.end());
-    for (const auto& deviceConfig : context->deviceConfigs) {
-        const auto& name = deviceConfig.memoryStore.sharedMemoryName;
-        if (!name.empty() && seen.insert(name).second) {
-            sharedMemoryNames.push_back(name);
-        }
-    }
-    if (context->appConfig.cameraService.enabled &&
-        !context->appConfig.cameraService.sharedMemoryName.empty() &&
-        seen.insert(context->appConfig.cameraService.sharedMemoryName).second) {
-        sharedMemoryNames.push_back(context->appConfig.cameraService.sharedMemoryName);
-    }
-    if (sharedMemoryNames.empty()) {
-        sharedMemoryNames.push_back("gateway_point_store");
+    context->router.addRoutesFromDeviceConfigs(
+        context->deviceConfigs,
+        context->appConfig.mqttDriver.sharedMemoryName
+    );
+    const auto machineCode = !identity.machineCode.empty()
+        ? identity.machineCode : context->appConfig.mqtt.clientId;
+    for (const auto& cameraService : runtimeDependencies.cameraServices) {
+        context->router.addRoutesFromCameraServiceConfig(cameraService, machineCode);
     }
 
-    context->stores.reserve(sharedMemoryNames.size());
-    for (const auto& name : sharedMemoryNames) {
+    std::vector<std::string> requiredStoreNames;
+    std::unordered_set<std::string> seen;
+    if (!failOnRequiredStoreError) {
+        for (const auto& name : runtimeDependencies.sharedMemoryNames) {
+            if (!name.empty() && seen.insert(name).second) requiredStoreNames.push_back(name);
+        }
+    }
+    for (const auto& entry : context->router.routes()) {
+        const auto& name = entry.second.sharedMemoryName;
+        if (!name.empty() && seen.insert(name).second) {
+            requiredStoreNames.push_back(name);
+        }
+    }
+    context->stores.reserve(requiredStoreNames.size());
+    for (const auto& name : requiredStoreNames) {
         try {
-            context->stores.emplace_back(new MemoryPointStore(name));
+            context->stores.emplace_back(new MemoryPointStore(
+                name,
+                failOnRequiredStoreError
+                    ? MemoryStoreOpenMode::OpenExisting
+                    : MemoryStoreOpenMode::CreateOrOpen
+            ));
+            if (failOnRequiredStoreError) {
+                (void)context->stores.back()->getStats();
+            }
             context->router.addStore(name, *context->stores.back());
         } catch (const std::exception& ex) {
+            if (failOnRequiredStoreError) {
+                throw std::runtime_error(
+                    "required shared memory store is unavailable: " + name + ": " + ex.what()
+                );
+            }
             std::cerr << "SystemMonitor direct maintenance skipped shared memory "
                       << name
                       << ": "
@@ -741,15 +787,6 @@ std::unique_ptr<RealtimeContext> createRealtimeContext(const SystemMonitorDirect
                       << std::endl;
         }
     }
-    context->router.addRoutesFromDeviceConfigs(
-        context->deviceConfigs,
-        context->appConfig.mqttDriver.sharedMemoryName
-    );
-
-    const auto machineCode = !identity.machineCode.empty()
-        ? identity.machineCode
-        : context->appConfig.mqtt.clientId;
-    context->router.addRoutesFromCameraServiceConfig(context->appConfig.cameraService, machineCode);
     return context;
 }
 
@@ -876,7 +913,7 @@ std::string realtimePointsJson(
 }
 
 std::string fullTelemetryJson(const SystemMonitorDirectMaintenanceConfig& config) {
-    auto context = createRealtimeContext(config);
+    auto context = createRealtimeContext(config, true);
     auto machineCode = resolveMachineCode(config, context->appConfig);
     const auto ts = nowMs();
     const auto values = context->router.getAllLatest(ts);

@@ -20,6 +20,7 @@
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mqtt_driver_service.hpp"
+#include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/process_file_lock.hpp"
@@ -256,6 +257,8 @@ ServiceFixture makeFixture(
     fixture.mqttConfig.statusTopic = "edge/status";
 
     fixture.driverConfig.enabled = true;
+    fixture.driverConfig.emsControlModeFile = "/tmp/" + fixture.shmName + "-ems-mode.json";
+    std::remove(fixture.driverConfig.emsControlModeFile.c_str());
     fixture.driverConfig.sharedMemoryName = fixture.shmName;
     fixture.driverConfig.priorityControlLeaseFile = "/tmp/" + fixture.shmName + "-priority.json";
     fixture.driverConfig.powerControlOwnershipFile = "/tmp/" + fixture.shmName + "-ownership.json";
@@ -1588,6 +1591,26 @@ void testCommandRequestDoesNotCreatePriorityControlLeaseByDefault() {
     require(pending.size() == 1, "normal command should enqueue pending write");
     require(pending.front().cmdId == "CMD_NORMAL", "normal pending write cmdId mismatch");
     require(!pending.front().highPriority, "normal pending write should not be high priority");
+    require(pending.front().platformControl, "MQTT ingress lost trusted platform origin");
+    cleanupFixture(fixture);
+}
+
+void testEmsLocalModeRejectsSpoofedPlatformCommands() {
+    auto fixture = makeFixture("ems_local_mode", 10000, true);
+    EmsControlMode mode(fixture.driverConfig.emsControlModeFile);
+    mode.setRemote(false, 1770000030000LL);
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"SPOOF_LOCAL\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7,\"source\":\"local-display-scada\"}"
+    ));
+    fixture.service->runScanOnce(1770000040000LL);
+    require(fixture.store->peekPendingWriteCommands().empty(), "local source spoof bypassed EMS local mode");
+    mode.setRemote(true,1770000050000LL);
+    fixture.publisher->incoming.push_back(commandRequest(
+        "{\"cmdId\":\"REMOTE_RESTORED\",\"machineCode\":\"GW_TEST\",\"index\":1001,\"value\":7}"
+    ));
+    fixture.service->runScanOnce(1770000060000LL);
+    require(fixture.store->peekPendingWriteCommands().size()==1,"remote mode did not restore command admission");
+    std::remove(fixture.driverConfig.emsControlModeFile.c_str());
     cleanupFixture(fixture);
 }
 
@@ -3056,6 +3079,7 @@ int main(int argc, char** argv) {
         testRealtimeSessionsKeepMeterAndIndexSelectorsIsolated();
         testRealtimeSessionEchoForEverySelectorAndLegacyDefault();
         testCommandRequestDoesNotCreatePriorityControlLeaseByDefault();
+        testEmsLocalModeRejectsSpoofedPlatformCommands();
         testCommandWritebackWaitDoesNotBlockMqttScan();
         testHighPriorityCommandRequestCreatesPriorityControlLease();
         testRemoteCommandIngressSafetyDefaults();

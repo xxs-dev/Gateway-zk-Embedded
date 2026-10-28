@@ -6,8 +6,8 @@
     "protocolVersion": "mqtt5",
     "broker": "tcp://203.0.113.10:1883",
     "clientId": "GW0001",
-    "username": "edge_user",
-    "password": "edge_password",
+    "username": "",
+    "password": "",
     "statusTopic": "edge/status",
     "qos": 1,
     "maxPayloadBytes": 49152,
@@ -34,10 +34,10 @@
       "transport": "tcp",
       "reconnectIntervalMs": 5000,
       "auth": {
-        "enabled": true,
+        "enabled": false,
         "mode": "basic",
-        "username": "GW0001",
-        "password": "change_me",
+        "username": "",
+        "password": "",
         "token": "",
         "tokenParam": "token",
         "hideCredentialsInStatus": true
@@ -51,10 +51,10 @@
         "sourceType": "rtsp",
         "source": "rtsp://192.168.1.50:554/stream1",
         "sourceAuth": {
-          "enabled": true,
+          "enabled": false,
           "mode": "basic",
-          "username": "camera_user",
-          "password": "camera_password",
+          "username": "",
+          "password": "",
           "token": "",
           "tokenParam": "token",
           "hideCredentialsInStatus": true

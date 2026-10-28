@@ -48,6 +48,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPointer>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -264,7 +265,9 @@ void ScadaSceneView::buildScene() {
             (widget.type == "qtImage" || widget.type == "image") && !imageOverlayText.empty();
 
         if (widget.type == "qtParallelTopology") {
-            auto* topology = new ParallelTopology(runtime_, projectRoot_);
+            const auto localTags = QJsonDocument::fromJson(
+                QByteArray::fromStdString(property(widget, "localTelemetryTagsJson"))).object();
+            auto* topology = new ParallelTopology(runtime_, projectRoot_, localTags);
             topology->setFixedSize(qRound(geometry.width()), qRound(geometry.height()));
             auto* proxy = scene_->addWidget(topology);
             proxy->setAutoFillBackground(false);
@@ -333,6 +336,7 @@ void ScadaSceneView::buildScene() {
                     contain ? Qt::KeepAspectRatio : Qt::IgnoreAspectRatio,
                     Qt::SmoothTransformation
                 ));
+                image->setTransformationMode(Qt::SmoothTransformation);
                 image->setPos(geometry.x() + (contain ? (geometry.width() - image->boundingRect().width()) / 2 : 0),
                               geometry.y() + (contain ? (geometry.height() - image->boundingRect().height()) / 2 : 0));
                 image->setZValue(widget.zIndex);
@@ -341,6 +345,8 @@ void ScadaSceneView::buildScene() {
         }
 
         if (isButtonType(widget.type)) {
+            const auto emsModeTarget = property(widget, "emsControlModeTarget");
+            const bool emsModeButton = emsModeTarget == "remote" || emsModeTarget == "local";
             auto* button = new QPushButton(QString::fromStdString(
                 property(widget, "qtText").empty() ? widget.title : property(widget, "qtText")
             ));
@@ -377,7 +383,7 @@ void ScadaSceneView::buildScene() {
             }
             style += QStringLiteral("QPushButton:pressed{background:%1;}")
                 .arg(QString::fromStdString(property(widget, "qtPressedColor").empty() ? "#0D2734" : property(widget, "qtPressedColor")));
-            bool actionAvailable = widget.action.type == "navigate" && !widget.action.targetScreen.empty();
+            bool actionAvailable = emsModeButton || (widget.action.type == "navigate" && !widget.action.targetScreen.empty());
             if (isControlAction(widget.action.type)) {
                 const auto resolved = runtime_.resolveTag(widget.action.tagId);
                 actionAvailable = resolved && resolved->tag.nodeId == runtime_.nodeId() &&
@@ -388,11 +394,32 @@ void ScadaSceneView::buildScene() {
                     ? QStringLiteral("QPushButton:disabled{color:#929AA4;border:1px dashed #DDE3E9;background:#F5F7F9;}")
                     : QStringLiteral("QPushButton:disabled{color:#80919A;border:1px dashed #52636C;background:#17242B;}");
                 button->setEnabled(false);
-                button->setToolTip(QString::fromUtf8("未配置可执行动作"));
+                button->setToolTip(property(widget, "controlUnavailableReason").empty()
+                    ? QString::fromUtf8("未配置可执行动作")
+                    : QString::fromStdString(property(widget, "controlUnavailableReason")));
             }
             button->setStyleSheet(style);
             const auto menuDocument = QJsonDocument::fromJson(QString::fromStdString(property(widget, "qtMenuScreensJson")).toUtf8());
-            if (menuDocument.isArray()) {
+            if (emsModeButton) {
+                button->setCheckable(true);
+                button->setStyleSheet(QStringLiteral("QPushButton{color:#303438;background:#FFFFFF;border:1px solid #C5D2DE;border-radius:4px;font-size:16px;}QPushButton:checked{color:#FFFFFF;background:#129AF5;}QPushButton:disabled{color:#929AA4;}"));
+                QObject::connect(button, &QPushButton::clicked, this, [this, emsModeTarget, button] {
+                    button->setChecked(!button->isChecked());
+                    const auto prompt = emsModeTarget == "remote"
+                        ? QString::fromUtf8("切换为远程，允许平台侧控制？")
+                        : QString::fromUtf8("切换为就地，拒绝平台侧控制，仅保留本机和直连操作？");
+                    if (QMessageBox::question(this, QString::fromUtf8("EMS 控制权限"), prompt,
+                            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+                    const auto result = runtime_.setOperatorEmsControlMode(emsModeTarget == "remote");
+                    if (!result.accepted) QMessageBox::warning(this, QString::fromUtf8("切换未完成"), QString::fromStdString(result.message));
+                    refresh(QDateTime::currentMSecsSinceEpoch());
+                });
+                RuntimeWidget mode;
+                mode.toggleButton = button;
+                mode.emsControlModeTarget = emsModeTarget;
+                mode.localSystemField = "controlModeCode";
+                runtimeWidgets_.push_back(std::move(mode));
+            } else if (menuDocument.isArray()) {
                 auto* menu = new QMenu(button);
                 menu->setStyleSheet(QStringLiteral("QMenu{background:#FFFFFF;color:#303438;font-size:14px;}QMenu::item:selected{background:#E5F3FD;}"));
                 for (const auto& entry : menuDocument.array()) {
@@ -406,8 +433,8 @@ void ScadaSceneView::buildScene() {
             } else if (actionAvailable) {
                 const auto action = widget.action;
                 QObject::connect(button, &QPushButton::clicked, this,
-                                 [this, action, pauseModeTag, pauseAppliedTag, pauseGuardRequired]() {
-                    handleAction(action, pauseModeTag, pauseAppliedTag, pauseGuardRequired);
+                                 [this, action, widget, pauseModeTag, pauseAppliedTag, pauseGuardRequired]() {
+                    handleAction(action, pauseModeTag, pauseAppliedTag, pauseGuardRequired, widget);
                 });
             }
             auto* proxy = scene_->addWidget(button);
@@ -482,6 +509,7 @@ void ScadaSceneView::buildScene() {
         RuntimeWidget runtimeWidget;
         runtimeWidget.type = widget.type;
         runtimeWidget.clockFormat = property(widget, "qtClockFormat");
+        runtimeWidget.localSystemField = property(widget, "localSystemField");
         runtimeWidget.textColor = property(widget, "qtTextColor");
         runtimeWidget.unavailableStateLabel = property(widget, "unavailableStateLabel");
         runtimeWidget.lightTheme = lightTheme;
@@ -951,11 +979,14 @@ void ScadaSceneView::buildScene() {
             const auto legendRows = centeredLegend ? 1 : (runtimeWidget.indexes.size() + 3) / 4;
             const auto hideLegend = property(widget, "qtHideLegend") == "true";
             const auto topInset = hideLegend ? 18.0 : lightTheme && legacyChart ? std::max(30.0, legendRows * 22.0 + 8.0) : legacyChart ? 30.0 : 42.0;
-            runtimeWidget.chartX = geometry.x() + (centeredLegend ? 42 : legacyChart ? 58 : 44);
+            const double leftInset = lightTheme ? 88 : centeredLegend ? 42 : legacyChart ? 58 : 44;
+            const double rightInset = lightTheme ? (secondaryUnit.empty() ? 40 : 88)
+                : (centeredLegend ? 20 : legacyChart ? 24 : 14) + (secondaryUnit.empty() ? 0 : 22);
+            runtimeWidget.chartX = geometry.x() + leftInset;
             runtimeWidget.chartY = geometry.y() + topInset;
             runtimeWidget.chartWidth = std::max(
                 1.0,
-                geometry.width() * (legacyChart && !lightTheme ? 0.76 : 1.0) - (centeredLegend ? 62 : legacyChart ? 82 : 58) - (secondaryUnit.empty() ? 0 : 22)
+                geometry.width() * (legacyChart && !lightTheme ? 0.76 : 1.0) - leftInset - rightInset
             );
             runtimeWidget.chartHeight = std::max(1.0, geometry.height() - topInset - (legacyChart ? 40 : 24));
             QPen gridPen(QColor(lightTheme ? "#EDF0F3" : "#1C506B"), 1, Qt::DashLine);
@@ -984,13 +1015,14 @@ void ScadaSceneView::buildScene() {
             for (int line = 0; line <= 5; ++line) {
                 auto* label = scene_->addText(QStringLiteral("--"), axisFont);
                 label->setDefaultTextColor(QColor(lightTheme ? "#818A94" : "#8FB0BF"));
-                label->setTextWidth(50);
+                label->setTextWidth(lightTheme ? 76 : 50);
                 auto option = label->document()->defaultTextOption();
                 option.setAlignment(Qt::AlignRight);
+                option.setWrapMode(QTextOption::NoWrap);
                 label->document()->setDefaultTextOption(option);
                 label->document()->setDocumentMargin(0);
                 label->setPos(
-                    runtimeWidget.chartX - 54,
+                    runtimeWidget.chartX - (lightTheme ? 82 : 54),
                     runtimeWidget.chartY + runtimeWidget.chartHeight * static_cast<double>(line) / 5.0 - 9
                 );
                 label->setZValue(widget.zIndex + 0.3);
@@ -998,6 +1030,10 @@ void ScadaSceneView::buildScene() {
                 if (!secondaryUnit.empty()) {
                     auto* secondary = scene_->addText(QStringLiteral("--"), axisFont);
                     secondary->setDefaultTextColor(QColor("#818A94")); secondary->document()->setDocumentMargin(0);
+                    secondary->setTextWidth(lightTheme ? 76 : 50);
+                    auto secondaryOption = option;
+                    secondaryOption.setAlignment(Qt::AlignLeft);
+                    secondary->document()->setDefaultTextOption(secondaryOption);
                     secondary->setPos(runtimeWidget.chartX + runtimeWidget.chartWidth + 8, label->pos().y());
                     secondary->setZValue(widget.zIndex + 0.3); runtimeWidget.chartSecondaryYLabels.push_back(secondary);
                 }
@@ -1008,6 +1044,7 @@ void ScadaSceneView::buildScene() {
                 label->setTextWidth(64);
                 auto option = label->document()->defaultTextOption();
                 option.setAlignment(Qt::AlignHCenter);
+                option.setWrapMode(QTextOption::NoWrap);
                 label->document()->setDefaultTextOption(option);
                 label->document()->setDocumentMargin(0);
                 label->setPos(
@@ -1137,7 +1174,7 @@ void ScadaSceneView::buildScene() {
         if (unboundDataWidget || unboundStateWidget ||
             !runtimeWidget.indexes.empty() || !runtimeWidget.stateRules.empty() ||
             !runtimeWidget.alarms.empty() || isTrendType(widget.type) || widget.type == "alarmTable" ||
-            !runtimeWidget.clockFormat.empty() || runtimeWidget.alarmActiveCount) {
+            !runtimeWidget.clockFormat.empty() || !runtimeWidget.localSystemField.empty() || runtimeWidget.alarmActiveCount) {
             runtimeWidgets_.push_back(runtimeWidget);
         }
     }
@@ -1145,6 +1182,9 @@ void ScadaSceneView::buildScene() {
 }
 
 void ScadaSceneView::refresh(std::int64_t now) {
+    const bool needsSystem = std::any_of(runtimeWidgets_.begin(), runtimeWidgets_.end(),
+        [](const RuntimeWidget& w) { return !w.localSystemField.empty(); });
+    const auto systemInfo = needsSystem ? runtime_.localSystemInfo() : std::map<std::string, std::string>{};
     for (auto& widget : runtimeWidgets_) {
         if (widget.parallelTopology) widget.parallelTopology->refresh(now);
     }
@@ -1162,6 +1202,13 @@ void ScadaSceneView::refresh(std::int64_t now) {
     for (const auto& value : values) byIndex[value.index] = value;
 
     for (auto& widget : runtimeWidgets_) {
+        if (!widget.emsControlModeTarget.empty()) {
+            const auto mode = systemInfo.find("controlModeCode");
+            const bool known = mode != systemInfo.end() && (mode->second == "remote" || mode->second == "local");
+            widget.toggleButton->setChecked(known && mode->second == widget.emsControlModeTarget);
+            widget.toggleButton->setEnabled(known && mode->second != widget.emsControlModeTarget);
+            continue;
+        }
         if (widget.toggleButton != nullptr) {
             const auto point = widget.indexes.empty() ? byIndex.end() : byIndex.find(widget.indexes.front());
             const auto available = point != byIndex.end() && point->second.quality == 1 && !point->second.stale &&
@@ -1181,6 +1228,12 @@ void ScadaSceneView::refresh(std::int64_t now) {
         }
         if (!widget.clockFormat.empty()) {
             updateValueText(widget, QDateTime::fromMSecsSinceEpoch(now).toString(QString::fromStdString(widget.clockFormat)));
+            continue;
+        }
+        if (!widget.localSystemField.empty()) {
+            const auto field = systemInfo.find(widget.localSystemField);
+            updateValueText(widget, field == systemInfo.end() || field->second.empty()
+                ? QStringLiteral("--") : QString::fromStdString(field->second));
             continue;
         }
         if (widget.alarmActiveCount) {
@@ -1478,22 +1531,56 @@ bool ScadaSceneView::requirePausedControl(const std::string& modeTag, const std:
 void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
                                 const std::string& pauseModeTag,
                                 const std::string& pauseAppliedTag,
-                                bool pauseGuardRequired) {
+                                bool pauseGuardRequired,
+                                const edge_gateway::ScadaWidget& control) {
     if (action.type == "navigate") {
         if (!action.targetScreen.empty()) navigate_(action.targetScreen);
         return;
     }
     if (!isControlAction(action.type)) return;
+    if (controlInFlight_) {
+        QMessageBox::warning(this, QString::fromUtf8("控制未完成"), QString::fromUtf8("上一条命令仍在等待回执，请勿重复下发。"));
+        return;
+    }
     if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
 
     const auto resolved = runtime_.resolveTag(action.tagId);
-    if (!resolved || resolved->tag.nodeId != runtime_.nodeId()) {
+    if (!resolved || resolved->tag.nodeId != runtime_.nodeId() ||
+        resolved->mapping.index == 0 || !resolved->mapping.writable) {
         QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromUtf8("当前边端不存在该控制点。"));
         return;
     }
 
     double target = 0.0;
-    if (action.type == "toggle") {
+    QString meaning = QString::fromStdString(control.title);
+    auto feedbackTag = property(control, "controlFeedbackTag");
+    double feedbackValue = 0.0;
+    bool feedbackUsesTarget = property(control, "controlFeedbackValue").empty();
+    if (!feedbackUsesTarget && !parseDouble(property(control, "controlFeedbackValue"), &feedbackValue)) return;
+    const auto optionsText = property(control, "controlOptionsJson");
+    if (!optionsText.empty()) {
+        const auto document = QJsonDocument::fromJson(QByteArray::fromStdString(optionsText));
+        QStringList labels;
+        if (!document.isArray() || document.array().isEmpty()) return;
+        for (const auto& entry : document.array()) {
+            const auto option = entry.toObject();
+            const auto label = option.value("label").toString();
+            if (label.isEmpty() || labels.contains(label) || !option.value("value").isDouble()) return;
+            labels.push_back(label);
+        }
+        bool accepted = false;
+        const auto selected = QInputDialog::getItem(this, QString::fromUtf8("选择控制目标"),
+            QString::fromStdString(resolved->tag.displayName), labels, 0, false, &accepted);
+        if (!accepted || !labels.contains(selected)) return;
+        const auto option = document.array().at(labels.indexOf(selected)).toObject();
+        target = option.value("value").toDouble();
+        if (option.contains("feedbackValue")) {
+            if (!option.value("feedbackValue").isDouble()) return;
+            feedbackValue = option.value("feedbackValue").toDouble();
+            feedbackUsesTarget = false;
+        }
+        meaning = selected;
+    } else if (action.type == "toggle") {
         const auto current = runtime_.readTag(action.tagId, nowMs());
         if (!current || current->quality != 1 || current->stale) {
             QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromUtf8("当前值不可用，已拒绝切换操作。"));
@@ -1509,24 +1596,37 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
         target = 1.0;
     } else {
         bool accepted = false;
+        const auto minValue = numericProperty(control, "controlMin", -1000000000.0);
+        const auto maxValue = numericProperty(control, "controlMax", 1000000000.0);
+        if (!std::isfinite(minValue) || !std::isfinite(maxValue) || minValue > maxValue) return;
+        const auto current = runtime_.readTag(action.tagId, nowMs());
+        const double initial = current && current->quality == 1 && !current->stale && std::isfinite(current->value)
+            ? std::max(minValue, std::min(maxValue, current->value)) : minValue;
         target = QInputDialog::getDouble(
             this,
             QString::fromUtf8("设定值控制"),
-            QString::fromUtf8("目标值"),
-            0.0,
-            -1000000000.0,
-            1000000000.0,
-            3,
+            QString::fromStdString(resolved->tag.displayName + " (" + resolved->tag.unit + ")"),
+            initial,
+            minValue,
+            maxValue,
+            std::max(0, std::min(6, static_cast<int>(numericProperty(control, "controlDecimals", 3)))),
             &accepted
         );
         if (!accepted) return;
+        meaning = QString::number(target) + QString::fromStdString(resolved->tag.unit);
     }
+    if (!std::isfinite(target)) return;
+    if (feedbackUsesTarget) feedbackValue = target;
 
     if (action.requiresConfirmation) {
         const auto answer = QMessageBox::question(
             this,
             QString::fromUtf8("确认控制"),
-            QString::fromUtf8("确认将 %1 写入 %2？").arg(target).arg(QString::fromStdString(resolved->tag.displayName)),
+            QString::fromUtf8("设备：%1\n控制点：%2\n操作：%3\n下发值：%4\n%5")
+                .arg(QString::fromStdString(resolved->tag.deviceId))
+                .arg(QString::fromStdString(resolved->tag.displayName))
+                .arg(meaning.isEmpty() ? QString::number(target) : meaning).arg(target)
+                .arg(QString::fromStdString(property(control, "controlWarning"))),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No
         );
@@ -1535,6 +1635,9 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
 
     // A modal confirmation runs an event loop; the mode can change while it is open.
     if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
+    const auto latest = runtime_.resolveTag(action.tagId);
+    if (!latest || latest->tag.nodeId != runtime_.nodeId() || !latest->mapping.writable ||
+        latest->mapping.index != resolved->mapping.index || latest->tag.deviceId != resolved->tag.deviceId) return;
     edge_gateway::PendingWriteCommand command;
     command.cmdId = nextCommandId();
     command.value = target;
@@ -1547,6 +1650,58 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
         QMessageBox::warning(this, QString::fromUtf8("控制失败"), QString::fromStdString(result.message));
         return;
     }
+
+    // Queue admission, protocol acknowledgement and physical readback are distinct.
+    controlInFlight_ = true;
+    auto* receipt = new QMessageBox(QMessageBox::Information, QString::fromUtf8("控制执行结果"),
+        QString::fromUtf8("命令已受理，等待驱动回执。\n%1").arg(QString::fromStdString(command.cmdId)),
+        QMessageBox::Close, this);
+    receipt->setAttribute(Qt::WA_DeleteOnClose);
+    receipt->setWindowModality(Qt::WindowModal);
+    receipt->show();
+    const QPointer<QMessageBox> receiptGuard(receipt);
+    auto* poll = new QTimer(this);
+    poll->setInterval(200);
+    const auto deadline = nowMs() + 10000;
+    QObject::connect(poll, &QTimer::timeout, this,
+        [this, poll, receiptGuard, command, action, feedbackTag, feedbackValue, deadline]() {
+        const auto now = nowMs();
+        const auto ack = runtime_.getWritebackResult(action.tagId, command.cmdId);
+        QString message;
+        bool finished = false;
+        bool success = false;
+        if (ack && !ack->success) {
+            message = QString::fromUtf8("驱动执行失败：%1").arg(QString::fromStdString(ack->message));
+            finished = true;
+        } else if (ack && feedbackTag.empty()) {
+            message = QString::fromUtf8("驱动回执成功，未配置独立状态核验；不代表设备动作已确认。");
+            finished = true;
+            success = true;
+        } else if (ack) {
+            const auto feedback = runtime_.readTag(feedbackTag, now);
+            const auto valid = feedback && feedback->quality == 1 && !feedback->stale &&
+                feedback->ts > std::max(command.ts, ack->completedAt) && std::isfinite(feedback->value);
+            if (valid && std::fabs(feedback->value - feedbackValue) < 0.00001) {
+                message = QString::fromUtf8("驱动回执成功，命令之后的新鲜反馈与目标一致。");
+                finished = success = true;
+            } else {
+                message = QString::fromUtf8("驱动回执成功，等待命令之后的新鲜目标反馈。");
+            }
+        } else {
+            message = QString::fromUtf8("命令已受理，等待驱动回执。");
+        }
+        if (!finished && now >= deadline) {
+            message = ack ? QString::fromUtf8("驱动回执成功，但设备反馈未确认（无效、过期或与目标不一致）。")
+                          : QString::fromUtf8("等待驱动回执超时；设备可能仍在执行，未自动重发。");
+            finished = true;
+        }
+        if (receiptGuard) {
+            receiptGuard->setText(message + QStringLiteral("\n") + QString::fromStdString(command.cmdId));
+            if (finished) receiptGuard->setIcon(success ? QMessageBox::Information : QMessageBox::Warning);
+        }
+        if (finished) { controlInFlight_ = false; poll->stop(); poll->deleteLater(); }
+    });
+    poll->start();
 
     if (action.type == "pulse") {
         const auto tagId = action.tagId;
@@ -1772,9 +1927,20 @@ void ScadaSceneView::renderTrend(RuntimeWidget& widget) {
         const auto ratio = widget.chartYLabels.size() <= 1
             ? 0.0
             : static_cast<double>(line) / static_cast<double>(widget.chartYLabels.size() - 1);
-        widget.chartYLabels[line]->setPlainText(axisHasSamples[0] ? formatNumber(maximum[0] - (maximum[0] - minimum[0]) * ratio) : QStringLiteral("--"));
+        const auto axisText = [&](int axis) {
+            if (!axisHasSamples[axis]) return QStringLiteral("--");
+            const auto step = (maximum[axis] - minimum[axis]) / 5;
+            const int decimals = std::max(0, std::min(4, static_cast<int>(std::ceil(-std::log10(step))) + 1));
+            const auto value = maximum[axis] - (maximum[axis] - minimum[axis]) * ratio;
+            auto text = QString::number(value, 'f', decimals);
+            const QFontMetricsF metrics(widget.chartYLabels[line]->font());
+            for (int precision = 5; precision >= 2 && metrics.horizontalAdvance(text) > widget.chartYLabels[line]->textWidth() - 2; --precision)
+                text = QString::number(value, 'g', precision);
+            return text;
+        };
+        widget.chartYLabels[line]->setPlainText(axisText(0));
         if (line < widget.chartSecondaryYLabels.size()) widget.chartSecondaryYLabels[line]->setPlainText(axisHasSamples[1]
-            ? formatNumber(maximum[1] - (maximum[1] - minimum[1]) * ratio) : QStringLiteral("--"));
+            ? axisText(1) : QStringLiteral("--"));
     }
     for (auto& series : widget.trendSeries) {
         const auto axis = series.secondaryAxis ? 1 : 0;

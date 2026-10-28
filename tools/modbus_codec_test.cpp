@@ -49,6 +49,24 @@ int main() {
     bitPoint.read.bit = 3;
     requireNear(ModbusCodec::decodeReadValue({8}, bitPoint).value, 1.0,
                 "register bit decoding must remain unchanged");
+    bitPoint.read.dataType = "bool";
+    requireNear(ModbusCodec::decodeReadValue({8}, bitPoint).value, 1.0,
+                "bool with explicit bit must preserve bit decoding");
+    requireNear(ModbusCodec::decodeReadValue({16}, bitPoint).value, 0.0,
+                "bool with explicit bit must not decode the whole register");
+    auto coilPoint = readablePoint("bool");
+    for (int function : {1, 2}) {
+        coilPoint.read.function = function;
+        requireNear(ModbusCodec::decodeReadValue({1}, coilPoint).value, 1.0,
+                    "bool coil/discrete input must remain supported");
+        requireNear(ModbusCodec::decodeReadValue({0}, coilPoint).value, 0.0,
+                    "zero bool coil/discrete input must remain false");
+    }
+    bitPoint.read.bit = 16;
+    bool invalidBitRejected = false;
+    try { ModbusCodec::decodeReadValue({8}, bitPoint); }
+    catch (const std::invalid_argument&) { invalidBitRejected = true; }
+    require(invalidBitRejected, "out-of-range bool bit must be rejected");
 
     edge_gateway::PointDefinition int16Write;
     int16Write.write.enable = true;

@@ -14,14 +14,15 @@
 #include <QStyle>
 #include <QWidget>
 
-// The cluster process owns membership. The view never infers vehicle identities
-// from onlineMembers, cabinet numbers, or local PCS points.
+// Membership and local acquisition are independent. Peer data still requires
+// fresh cluster evidence; local data uses only explicitly bound read-only tags.
 class ParallelTopology final : public QWidget {
 public:
-    ParallelTopology(ScadaSceneRuntimeSource& runtime, const std::string& root)
-        : runtime_(runtime) {
+    ParallelTopology(ScadaSceneRuntimeSource& runtime, const std::string& root, QJsonObject localTags = {})
+        : runtime_(runtime), localTags_(std::move(localTags)) {
         setObjectName("parallelTopology");
         setAttribute(Qt::WA_TranslucentBackground);
+        localMember_.insert("nodeId", QString::fromStdString(runtime_.machineCode()));
         const QDir assets(QString::fromStdString(root) + "/assets/lanhu-assets");
         storage_.load(assets.filePath("storage.png"));
         idle_.load(assets.filePath("storage-idle.png"));
@@ -45,6 +46,16 @@ public:
     }
 
     void refresh(std::int64_t now) {
+        localValues_ = {};
+        for (auto it = localTags_.begin(); it != localTags_.end(); ++it) {
+            if (!it.value().isString()) continue;
+            const auto tag = it.value().toString().toStdString();
+            const auto resolved = runtime_.resolveTag(tag);
+            if (!resolved || resolved->tag.nodeId != runtime_.nodeId()) continue;
+            const auto point = runtime_.readTag(tag, now);
+            if (point && point->quality == 1 && !point->stale && std::isfinite(point->value))
+                localValues_.insert(it.key(), point->value);
+        }
         const auto json = runtime_.clusterStatusJson();
         QJsonParseError error;
         const auto doc = json.size() <= 1024 * 1024
@@ -86,13 +97,25 @@ public:
         setPage(page_);
     }
 
-    int vehicleCount() const { return static_cast<int>(members_.size()); }
+    bool usingLocalFallback() const { return members_.empty(); }
+    int vehicleCount() const { return std::max(1, static_cast<int>(members_.size())); }
     int pageCount() const { return std::max(1, (vehicleCount() + 2) / 3); }
     int page() const { return page_; }
     bool fresh() const { return fresh_; }
-    QString vehicleId(int i) const { return members_.at(i).value("nodeId").toString(); }
+    QString vehicleId(int i) const { return memberAt(i).value("nodeId").toString(); }
     QString valueText(int i, const QString& key) const {
-        const auto& member = members_.at(i);
+        const auto& member = memberAt(i);
+        if (isLocal(member)) {
+            const auto onlineKey = key == "soc" ? "bmsOnline" : "online";
+            if (key != "breaker" && localValues_.value(onlineKey).toDouble(-1) != 1) return "--";
+            const auto value = localValues_.value(key);
+            if (!value.isDouble()) return "--";
+            const auto number = value.toDouble();
+            if (key == "soc" && (number < 0 || number > 100)) return "--";
+            if (key == "breaker") return number == 1 ? QString::fromUtf8("合闸")
+                : number == 0 ? QString::fromUtf8("分闸") : QStringLiteral("--");
+            return QString::number(number, 'f', key == "factor" ? 3 : key == "frequency" ? 2 : 1);
+        }
         const auto capability = member.value("capability").toObject();
         if (!online(member) || !member.value("capabilityFresh").toBool() ||
             !capability.value("ready").toBool()) return "--";
@@ -119,8 +142,8 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
         p.setRenderHint(QPainter::SmoothPixmapTransform);
-        const QString summary = !fresh_ ? QString::fromUtf8("组网数据不可用") : members_.empty()
-            ? QString::fromUtf8("暂无接入车辆")
+        const QString summary = usingLocalFallback() ? QString::fromUtf8("本机 1 台 · 组网状态未知")
+            : !fresh_ ? QString::fromUtf8("组网数据不可用")
             : QString::fromUtf8("储能车 %1 台 · 在线 %2 台").arg(vehicleCount()).arg(
                 std::count_if(members_.begin(), members_.end(), [this](const QJsonObject& m) { return online(m); }));
         text(p, QRect(420, 321, 650, 30), summary, 14, QColor("#777E85"));
@@ -130,16 +153,16 @@ protected:
         // These lines represent physical topology only, never breaker closure
         // or verified energization. No animated flow is synthesized.
         if (count > 0) {
-            p.setPen(QPen(QColor("#A2BED6"), 3, online(members_[page_ * 3]) ? Qt::SolidLine : Qt::DashLine));
+            p.setPen(QPen(QColor("#A2BED6"), 3, online(memberAt(page_ * 3)) ? Qt::SolidLine : Qt::DashLine));
             p.drawLine(698, 61, 948, 61);
             if (count > 1) {
-                p.setPen(QPen(QColor("#A2BED6"), 3, online(members_[page_ * 3]) && online(members_[page_ * 3 + 1]) ? Qt::SolidLine : Qt::DashLine));
+                p.setPen(QPen(QColor("#A2BED6"), 3, online(memberAt(page_ * 3)) && online(memberAt(page_ * 3 + 1)) ? Qt::SolidLine : Qt::DashLine));
                 p.drawLine(1104, 61, 1228, 61);
                 p.drawLine(1228, 61, 1228, 417);
                 p.drawLine(1228, 417, 1104, 417);
             }
             if (count > 2) {
-                p.setPen(QPen(QColor("#A2BED6"), 3, online(members_[page_ * 3 + 1]) && online(members_[page_ * 3 + 2]) ? Qt::SolidLine : Qt::DashLine));
+                p.setPen(QPen(QColor("#A2BED6"), 3, online(memberAt(page_ * 3 + 1)) && online(memberAt(page_ * 3 + 2)) ? Qt::SolidLine : Qt::DashLine));
                 p.drawLine(698, 417, 948, 417);
             }
         }
@@ -147,6 +170,13 @@ protected:
     }
 
 private:
+    bool isLocal(const QJsonObject& member) const {
+        return &member == &localMember_ || member.value("nodeId").toString() == QString::fromStdString(runtime_.machineCode());
+    }
+    const QJsonObject& memberAt(int index) const {
+        if (usingLocalFallback() && index == 0) return localMember_;
+        return members_.at(index);
+    }
     void setPage(int page) {
         page_ = std::max(0, std::min(page, pageCount() - 1));
         previous_->setVisible(pageCount() > 1);
@@ -155,7 +185,7 @@ private:
         next_->setEnabled(page_ + 1 < pageCount());
         QStringList identities;
         for (int i = page_ * 3; i < std::min(vehicleCount(), (page_ + 1) * 3); ++i)
-            identities.push_back(members_[i].value("nodeId").toString());
+            identities.push_back(vehicleId(i));
         setToolTip(identities.join('\n'));
         update();
     }
@@ -175,21 +205,24 @@ private:
     void drawVehicle(QPainter& p, int i, QPoint origin) {
         p.save();
         p.translate(origin);
-        const auto& member = members_[i];
-        const bool connected = online(member);
+        const auto& member = memberAt(i);
+        const bool local = isLocal(member);
+        const bool connected = local ? localValues_.value("online").toDouble(-1) == 1 : online(member);
         const bool lower = origin.y() > 0;
-        p.drawPixmap(QRect(109, 0, 158, 124), connected ? storage_ : idle_);
+        p.drawPixmap(QRect(122, 0, 132, 104), connected ? storage_ : idle_);
         p.fillRect(QRect(0, 134, 376, lower ? 160 : 184), connected ? QColor("#FFFFFF") : QColor("#EEF1F5"));
         p.fillRect(QRect(0, 134, 376, 42), QColor("#F7F7F7"));
         const int cabinet = member.value("cabinetNo").toInt();
-        const QString title = cabinet > 0 ? QString::fromUtf8("%1#储能车").arg(cabinet) : QString::fromUtf8("储能车");
+        const QString title = local ? QString::fromUtf8("本机储能车")
+            : cabinet > 0 ? QString::fromUtf8("%1#储能车").arg(cabinet) : QString::fromUtf8("储能车");
         text(p, QRect(8, 137, 180, 36), title, 18, QColor("#303438"), true);
-        text(p, QRect(194, 137, 172, 36), QString::fromUtf8("PCS断路器  --"), 14);
-        QString state = !fresh_ ? QString::fromUtf8("状态未知") : member.value("duplicateIdentity").toBool()
+        text(p, QRect(194, 137, 172, 36), QString::fromUtf8("PCS断路器  ") + valueText(i, "breaker"), 14);
+        QString state = usingLocalFallback() || !fresh_ ? QString::fromUtf8("状态未知") : member.value("duplicateIdentity").toBool()
             ? QString::fromUtf8("身份冲突") : !member.value("compatible").toBool()
             ? QString::fromUtf8("配置不兼容") : connected ? QString::fromUtf8("在线") : QString::fromUtf8("离线");
-        text(p, QRect(0, 7, 105, 22), member.value("nodeId").toString(), 12, QColor("#777E85"));
-        text(p, QRect(0, 31, 105, 22), state, 12, QColor("#777E85"));
+        if (local) state = connected ? QString::fromUtf8("本机采集在线") : QString::fromUtf8("本机采集不可用");
+        text(p, QRect(0, 108, 376, 22), member.value("nodeId").toString(), 12, QColor("#777E85"));
+        text(p, QRect(0, 31, 109, 42), state, 12, QColor("#777E85"));
         const QString labels[] = {QString::fromUtf8("P总"), QString::fromUtf8("Q总"), QString::fromUtf8("功率因数"), QString::fromUtf8("频率")};
         const QString keys[] = {"p", "q", "factor", "frequency"};
         const QString units[] = {" kW", " kvar", "", " Hz"};
@@ -203,12 +236,14 @@ private:
         if (soc != "--") p.fillRect(QRectF(16, 251, 210 * soc.toDouble() / 100, 2), QColor("#18CC70"));
         const QString phases[] = {"a", "b", "c"};
         for (int phase = 0; phase < 3; ++phase) {
-            if (!lower) text(p, QRect(16 + phase * 122, 259, 112, 25), "U" + phases[phase] + "  -- V", 13);
+            if (!lower) text(p, QRect(16 + phase * 122, 259, 112, 25), "U" + phases[phase] + "  " + valueText(i, "u" + phases[phase]) + " V", 13);
             text(p, QRect(16 + phase * 122, lower ? 259 : 285, 112, 25), "P" + phases[phase] + "  " + valueText(i, "p" + phases[phase]) + " kW", 13);
         }
         p.restore();
     }
     ScadaSceneRuntimeSource& runtime_;
+    QJsonObject localMember_;
+    QJsonObject localTags_, localValues_;
     std::vector<QJsonObject> members_;
     bool known_ = false;
     bool fresh_ = false;
