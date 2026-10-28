@@ -22,14 +22,22 @@ struct CanSignalSpec {
     std::string frameId;
     bool extended = false;
     int dlc = 8;
+    // Signal position, see doc/协议与驱动/CAN接口接入设计.md: little = Intel (LSB at byteOffset, bitOffset
+    // counted from the byte's LSB); big = Motorola (MSB at byteOffset, bitOffset counted from the byte's MSB).
     int byteOffset = 0;
     int bitOffset = 0;
     int bitLength = 0;
-    std::string bitOrder = "lsb0";
-    std::string endian = "little";
+    std::string bitOrder = "lsb0";  // only "lsb0" is accepted (rejected otherwise at load time)
+    std::string endian = "little";  // "little" or "big"
     int receiveTimeoutMs = 5000;
     bool receiveTimeoutExplicit = false;
     bool remoteRequest = false;
+    // Read: raw (unscaled, unsigned) bit patterns that mean "not available", e.g. 0xFFFF in J1939.
+    std::vector<std::uint64_t> invalidRawValues;
+    // Write: initial content of the frame's payload mirror (hex, dlc bytes); empty = all zero.
+    std::string payloadTemplate;
+    // Write: send this frame as CAN FD (needs protocol.can.fdEnabled); default classic CAN.
+    bool fd = false;
 };
 
 struct IecPointSpec {
@@ -473,11 +481,6 @@ struct CanProtocolConfig {
     int udpListenPort = 19011;
     std::string udpPeerAddress = "127.0.0.1";
     int udpPeerPort = 19012;
-    // When true, a write of one signal starts from the last payload written to
-    // the same frame so other signals keep their commanded values. Default
-    // false (legacy): every write starts from an all-zero payload, which never
-    // re-asserts one-shot bits (start/reset/clear-fault) of other signals.
-    bool preserveFrameSignals = false;
 };
 
 struct IecProtocolConfig {

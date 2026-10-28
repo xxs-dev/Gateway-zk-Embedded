@@ -110,7 +110,11 @@ echo out > /sys/class/gpio/gpio<gpio>/direction
 echo <0|1> > /sys/class/gpio/gpio<gpio>/value
 ```
 
-驱动实现建议直接操作 sysfs 文件，减少对 shell 脚本的依赖。
+驱动直接操作 sysfs 文件，不依赖 shell 脚本：
+
+- 每次写控制文件（`export`、`direction`）都检查 `open`/`write`/`close` 的结果，被内核拒绝的写入作为错误上报（点质量 `0`），不会被吞掉。
+- `export` 后确认 `gpio<gpio>/direction` 已出现才视为导出成功；失败的导出不被记住，单次调用内重试一次，之后至少间隔 5 秒再试，避免一个错误的 GPIO 编号拖慢其他输入的采集周期。
+- DO 设为输出时直接写 `high`/`low` 到 `direction`（一步完成方向和初值，不产生低电平毛刺）。
 
 ### 3.2 厂商脚本
 
@@ -254,7 +258,7 @@ config/runtime/devices/device_dio.json
 | `address` | DIDO 逻辑通道号 |
 | `read.gpio` | 实际 GPIO 编号 |
 | `read.activeHigh` | `true` 表示 GPIO 1 为点值 1，`false` 表示 GPIO 0 为点值 1 |
-| `read.debounceMs` | 防抖时间，避免干接点抖动导致重复变位事件 |
+| `read.debounceMs` | 防抖时间，避免干接点抖动导致重复变位事件；按单调时钟计时，系统时间回拨或前跳不会冻结或提前确认输入变化（消防、门禁、急停输入持续更新） |
 
 ### 5.3 DO 点位
 
@@ -316,7 +320,25 @@ config/runtime/devices/device_dio.json
 | `read.gpio` | 实际 GPIO 编号 |
 | `read.activeHigh=false` | 因为说明书定义 DO 拉低闭合 |
 | `write.enable=true` | 允许通过 pendingWrites 下发 |
-| `write.verifyByRead=true` | 写后读取 GPIO 电平确认状态 |
+| `write.startupValue` | 可选，`0` 或 `1`：驱动启动时该 DO 的逻辑值；不填为 `0`（非激活） |
+| `write.verifyByRead=true` | 写后读取 GPIO 电平确认状态（读到的是 SoC 输出锁存，不是继电器触点） |
+
+#### DO 启动与退出状态
+
+- 驱动启动、开始采集和执行写命令之前，把每个可写 DO（`write.enable=true` 且 `write.dataType=digital_output`）设为输出并写入启动值：`write.startupValue`，未配置时为逻辑 `0`（非激活）。按 `activeHigh` 换算电平，例如 `activeHigh=false` 的 DO 启动为高电平（继电器断开）。驱动重启同样回到启动值，之后由平台 / EMS 重新下发。
+- 某个 DO 启动时无法设置（GPIO 不可用）时记录日志，该点上报坏质量，不会把悬空输入电平当作 DO 状态上报；GPIO 可用后由采集周期补设为启动值。已经是输出的引脚，采集不会改动它的电平（不覆盖已执行的写命令）。
+- `--once` 诊断运行不强制写启动值，已是输出的引脚保持原电平，避免干扰正在运行的驱动。
+- 进程退出（停止服务、崩溃）时不主动改变输出，DO 保持最后的电平，直到下次启动写入启动值。
+- 只读的 `digital_output` 点（`write.enable=false`）不由驱动驱动，按引脚当前电平上报。
+
+#### 加载校验
+
+以下定义加载时报错并点名测点：
+
+- 同一个 GPIO 既配置为 DI（`digital_input`）又配置为 DO（读或写）。
+- 两个可写 DO 使用同一个 GPIO。
+- `digital_input` 点打开了 `write.enable`；可写点的 `write.dataType` 不是 `digital_output`。
+- 读点缺少 `read.gpio`、`read.dataType` 不是 `digital_input`/`digital_output`、`debounceMs` 为负、`startupValue` 不是 `0`/`1`。
 
 ## 6. 写回设备逻辑
 
@@ -332,7 +354,7 @@ DO 必须支持“写共享内存后实际下发设备”。
   -> 根据 index 找到 DO1
   -> value=1 转换为 GPIO 0
   -> 写 /sys/class/gpio/gpio231/value
-  -> 读回 GPIO 0，转换回点值 1
+  -> 读回 GPIO 0（输出锁存），转换回点值 1
   -> 更新 latest
   -> 发布命令执行结果
 ```
@@ -342,7 +364,8 @@ DO 必须支持“写共享内存后实际下发设备”。
 - GPIO 不存在：点质量置为 `0`，状态消息上报 `gpio not found`。
 - 没有权限：点质量置为 `0`，状态消息上报 `permission denied`。
 - 写入值不在 `0/1`：拒绝命令，不触碰 GPIO。
-- 写后读回不一致：命令失败，不伪造成功状态。
+- 写后读回不一致：命令失败，不伪造成功状态。读回只能确认 SoC 输出锁存，确认不了继电器触点是否真的动作；需要触点确认时应接一路 DI 反馈。
+- sysfs 控制文件写入被拒绝：命令失败并带上内核错误原因。
 - pendingWrites 中不是本 DIDO 点：忽略，交给对应驱动消费。
 
 ## 7. DI 采集与变位
@@ -498,7 +521,7 @@ wgpio.sh 231 1
 
 - 共享内存能看到 DI/DO latest。
 - GPIO 读失败时 quality 为 `0`。
-- 首次启动不会误触发 DO。
+- 首次启动不会误触发 DO：DO 均为输出且处于启动值（默认非激活）。
 
 ### 11.3 写回验证
 

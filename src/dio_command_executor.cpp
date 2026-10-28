@@ -2,11 +2,47 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 
 namespace edge_gateway {
+
+bool isDioOutputPoint(const PointDefinition& point) {
+    return point.write.enable && point.write.dataType == "digital_output";
+}
+
+bool dioStartupGpioHigh(const PointDefinition& point) {
+    const auto logicalHigh = point.write.startupValue && *point.write.startupValue > 0.5;
+    return point.read.activeHigh ? logicalHigh : !logicalHigh;
+}
+
+std::vector<std::string> applyDioStartupOutputs(const DeviceConfig& config, IGpioPort& gpioPort) {
+    std::vector<const PointDefinition*> points;
+    if (config.meters.empty()) {
+        for (const auto& point : config.points) points.push_back(&point);
+    } else {
+        for (const auto& meter : config.meters) {
+            if (!meter.enabled) continue;
+            for (const auto& point : meter.points) points.push_back(&point);
+        }
+    }
+    std::vector<std::string> failures;
+    for (const auto* point : points) {
+        if (!point->enabled || !isDioOutputPoint(*point) || point->read.gpio < 0) {
+            continue;
+        }
+        try {
+            gpioPort.setOutputDirection(point->read.gpio, dioStartupGpioHigh(*point));
+        } catch (const std::exception& ex) {
+            failures.push_back(point->pointCode + ": " + ex.what());
+            std::cerr << "DO startup state failed pointCode=" << point->pointCode
+                      << " gpio=" << point->read.gpio << " error=" << ex.what() << std::endl;
+        }
+    }
+    return failures;
+}
 
 DioCommandExecutor::DioCommandExecutor(
     DeviceConfig config,
@@ -66,8 +102,8 @@ void DioCommandExecutor::dispatchLocalDioWrite(
     if (!point.write.enable) {
         throw std::invalid_argument("point write is disabled");
     }
-    if (point.read.dataType != "digital_output" && point.write.dataType != "digital_output") {
-        throw std::invalid_argument("local_dio write requires digital_output point");
+    if (!isDioOutputPoint(point) || point.read.dataType == "digital_input") {
+        throw std::invalid_argument("local_dio write requires a digital_output point");
     }
     if (point.read.gpio < 0) {
         throw std::invalid_argument("local_dio point missing read.gpio");

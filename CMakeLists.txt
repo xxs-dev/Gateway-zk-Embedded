@@ -48,6 +48,7 @@ add_library(edge_gateway
     src/am5se_iec103_client.cpp
     src/alarm_service.cpp
     src/can_driver_service.cpp
+    src/can_driver_writeback.cpp
     src/can_signal_codec.cpp
     src/collector.cpp
     src/common/collector_base.cpp
@@ -540,6 +541,18 @@ target_compile_options(iec104_semantics_test PRIVATE -fdiagnostics-color=never)
 add_executable(iec_validation_test tools/iec_validation_test.cpp)
 target_link_libraries(iec_validation_test PRIVATE edge_gateway)
 target_compile_options(iec_validation_test PRIVATE -fdiagnostics-color=never)
+# driver-review: can-dio
+add_executable(can_signal_layout_test tools/can_signal_layout_test.cpp)
+target_link_libraries(can_signal_layout_test PRIVATE edge_gateway)
+add_executable(can_driver_runtime_test tools/can_driver_runtime_test.cpp)
+target_link_libraries(can_driver_runtime_test PRIVATE edge_gateway)
+add_executable(dio_driver_review_test tools/dio_driver_review_test.cpp)
+target_link_libraries(dio_driver_review_test PRIVATE edge_gateway ${CMAKE_DL_LIBS})
+if(BUILD_TESTING)
+    add_test(NAME can_signal_layout COMMAND can_signal_layout_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME can_driver_runtime COMMAND can_driver_runtime_test)
+    add_test(NAME dio_driver_review COMMAND dio_driver_review_test)
+endif()
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)

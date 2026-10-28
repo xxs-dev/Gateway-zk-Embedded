@@ -242,7 +242,7 @@ int main() {
         require(initialOnline->quality == 1, "CAN initial offline point must have good quality");
 
         const auto heartbeatTs = nowMs + 1001;
-        service.updateOnlineStatus(heartbeatTs);
+        service.updateOnlineStatus(heartbeatTs, CanDriverService::steadyNowMs() + 1001);
         const auto refreshedOnline = store.getLatestByIndex(310000, heartbeatTs);
         require(static_cast<bool>(refreshedOnline), "CAN online point must remain available while state is stable");
         requireNear(refreshedOnline->value, 0.0, 0.0001, "CAN stable offline heartbeat value mismatch");
