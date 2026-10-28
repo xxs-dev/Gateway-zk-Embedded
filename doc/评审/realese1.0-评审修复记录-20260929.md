@@ -38,7 +38,7 @@
 | M12 | ✅ | SUBACK 逐个 topic 对应检查返回码：命令 topic 被拒时抛错重连，可选 topic 被拒只记日志。 |
 | M13 | ✅ | 租约文件通过旁路锁文件加 flock 串行化，release 在锁内重新读取后才删除。 |
 | M14 | ✅ | 修正空 payload 越界、MQTT5 属性长度上限、CONNACK 解析位置、ring buffer 长度溢出与 wrap 标记越界。 |
-| M15 | ◐ | 配置了 TLS 时直接拒绝，不再明文发送。发送后不等 PUBACK 的问题未改；该实现目前没有被任何程序使用。 |
+| M15 | ✅ | 该实现未进任何构建目标、没有程序使用，已整体删除（`mosquitto_mqtt_driver_publisher.*`，2026-10-28 驱动审查修复）。 |
 
 ### 2.2 协议驱动
 
