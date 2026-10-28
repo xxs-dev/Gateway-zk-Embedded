@@ -1,6 +1,7 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/device_config_validation.hpp"
 #include "edge_gateway/modbus_codec.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
@@ -479,9 +480,16 @@ ReadSpec parseReadSpec(const JsonValue* value) {
     spec.debounceMs = requireInt(object, "debounceMs", spec.debounceMs);
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
+        // scale/decoder are not read.dlt645 fields: reject instead of silently ignoring them.
+        for (const char* misplaced : {"scale", "decoder"}) {
+            if (dlt645->find(misplaced) != nullptr) {
+                throw std::invalid_argument(std::string("read.dlt645.") + misplaced +
+                    " is not supported; use read.scale / read.dataType");
+            }
+        }
         spec.dlt645Di = requireString(dlt645Object, "di", spec.dlt645Di);
         spec.dlt645ByteCount = requireInt(dlt645Object, "byteCount", spec.dlt645ByteCount);
-        spec.dlt645Decoder = requireString(dlt645Object, "decoder", spec.dlt645Decoder);
+        spec.dlt645Offset = requireInt(dlt645Object, "offset", spec.dlt645Offset);
         if (spec.dlt645ByteCount > 0 && spec.length <= 1) {
             spec.length = spec.dlt645ByteCount;
         }
@@ -543,6 +551,11 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
             "fixedDataHex",
             spec.dlt645.fixedDataHex
         );
+        spec.dlt645.verifyPointCode = requireString(dlt645Object, "verifyPointCode", spec.dlt645.verifyPointCode);
+        if (const auto* verifyValue = dlt645->find("verifyValue")) {
+            if (!verifyValue->isNull()) spec.dlt645.verifyValue = verifyValue->asNumber();
+        }
+        spec.dlt645.verifyTimeoutMs = requireInt(dlt645Object, "verifyTimeoutMs", spec.dlt645.verifyTimeoutMs);
     }
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
@@ -4302,7 +4315,8 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
         point.read.intervalMs = requireInt(object, "defaultIntervalMs", 1000);
         point.read.dlt645Di = requireString(object, "di");
         point.read.dlt645ByteCount = requireInt(object, "byteCount", 0);
-        point.read.dlt645Decoder = requireString(object, "decoder", point.read.dlt645Decoder);
+        point.read.dlt645Offset = requireInt(object, "offset", 0);
+        point.collectPriority = std::max(0, requireInt(object, "collectPriority", 0));
         point.read.bit = requireInt(object, "bit", point.read.bit);
         point.read.length = point.read.dlt645ByteCount > 0 ? point.read.dlt645ByteCount : point.read.length;
         point.read.cachePolicy.storeLatest = requireBool(object, "storeLatest", true);
@@ -4314,6 +4328,7 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
 
         result.push_back(std::move(point));
     }
+    validateDlt645PointList(result, "DLT645 standard points");
     return result;
 }
 

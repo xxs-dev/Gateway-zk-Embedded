@@ -33,35 +33,23 @@ std::string bytesToHex(const std::vector<std::uint8_t>& bytes) {
     return out.str();
 }
 
+// Unsigned BCD, least significant byte first. Every nibble must be 0..9: A..F (including the
+// FFH "no data" filler some meters send) is an invalid value, never a sign or a digit.
 double decodeBcdLittleEndian(const std::vector<std::uint8_t>& bytes, double scale) {
-    std::string digits;
-    digits.reserve(bytes.size() * 2);
-    bool negative = false;
+    double value = 0.0;
     for (auto it = bytes.rbegin(); it != bytes.rend(); ++it) {
-        auto high = static_cast<std::uint8_t>((*it >> 4) & 0x0F);
-        auto low = static_cast<std::uint8_t>(*it & 0x0F);
-        if (it == bytes.rbegin() && high >= 0x0A) {
-            negative = (high == 0x0A || high == 0x0B);
-            high = 0;
-        }
+        const auto high = static_cast<std::uint8_t>((*it >> 4) & 0x0F);
+        const auto low = static_cast<std::uint8_t>(*it & 0x0F);
         if (high > 9 || low > 9) {
             throw std::runtime_error("invalid DLT645 BCD digit");
         }
-        digits.push_back(static_cast<char>('0' + high));
-        digits.push_back(static_cast<char>('0' + low));
+        value = value * 100.0 + static_cast<double>(high * 10 + low);
     }
-    while (!digits.empty() && digits.front() == '0') {
-        digits.erase(digits.begin());
-    }
-    if (digits.empty()) {
-        digits = "0";
-    }
-    const auto value = std::stod(digits) * scale;
-    return negative ? -value : value;
+    return value * scale;
 }
 
-// DL/T 645-2007 signed quantities (power, current, power factor): bit 7 of
-// the most significant byte is the sign, the remaining bits are BCD digits.
+// DL/T 645-2007 signed quantities (current, power, power factor, demand, combined energy): bit 7
+// of the most significant byte is the sign, the remaining bits are BCD digits.
 double decodeSignedBcdLittleEndian(std::vector<std::uint8_t> bytes, double scale) {
     if (bytes.empty()) {
         return 0.0;
@@ -152,20 +140,15 @@ std::uint64_t scaledInteger(double value, const WriteSpec& spec) {
 }  // namespace
 
 std::string Dlt645Codec::normalizeAddress(const std::string& meterAddress) {
-    std::string digits;
-    digits.reserve(meterAddress.size());
+    if (meterAddress.empty() || meterAddress.size() > 12) {
+        throw std::invalid_argument("DLT645 address must contain 1..12 decimal digits");
+    }
     for (const auto ch : meterAddress) {
-        if (std::isdigit(static_cast<unsigned char>(ch)) != 0) {
-            digits.push_back(ch);
+        if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+            throw std::invalid_argument("DLT645 address must contain only decimal digits");
         }
     }
-    if (digits.empty() || digits.size() > 12) {
-        throw std::invalid_argument("DLT645 address must contain 1..12 digits");
-    }
-    while (digits.size() < 12) {
-        digits.insert(digits.begin(), '0');
-    }
-    return digits;
+    return std::string(12U - meterAddress.size(), '0') + meterAddress;
 }
 
 std::vector<std::uint8_t> Dlt645Codec::parseDataId(const std::string& dataIdHex) {
@@ -208,6 +191,27 @@ std::vector<std::uint8_t> Dlt645Codec::buildReadFrame(
     for (const auto byte : dataId) {
         frame.push_back(static_cast<std::uint8_t>(byte + 0x33));
     }
+    frame.push_back(checksum(frame));
+    frame.push_back(0x16);
+    return frame;
+}
+
+std::vector<std::uint8_t> Dlt645Codec::buildReadFollowUpFrame(
+    const std::string& meterAddress,
+    const std::string& dataIdHex,
+    std::uint8_t sequence
+) {
+    const auto dataId = parseDataId(dataIdHex);
+    std::vector<std::uint8_t> frame = {0x68};
+    const auto address = encodeAddress(normalizeAddress(meterAddress));
+    frame.insert(frame.end(), address.begin(), address.end());
+    frame.push_back(0x68);
+    frame.push_back(0x12);
+    frame.push_back(0x05);
+    for (const auto byte : dataId) {
+        frame.push_back(static_cast<std::uint8_t>(byte + 0x33));
+    }
+    frame.push_back(static_cast<std::uint8_t>(sequence + 0x33));
     frame.push_back(checksum(frame));
     frame.push_back(0x16);
     return frame;
@@ -337,23 +341,6 @@ void Dlt645Codec::validateWriteResponse(
     }
 }
 
-void Dlt645Codec::validateReadResponseAddress(
-    const std::vector<std::uint8_t>& frame,
-    const std::string& meterAddress
-) {
-    if (frame.size() < 12U || frame.front() != 0x68 || frame[7] != 0x68) {
-        throw std::runtime_error("DLT645 response frame marker invalid");
-    }
-    const auto expectedAddress = encodeAddress(normalizeAddress(meterAddress));
-    if (!std::equal(expectedAddress.begin(), expectedAddress.end(), frame.begin() + 1)) {
-        throw std::runtime_error("DLT645 response address mismatch");
-    }
-    const auto control = frame[8];
-    if (control != 0x91 && control != 0xB1 && control != 0xD1) {
-        throw std::runtime_error("DLT645 read response control code invalid");
-    }
-}
-
 std::vector<std::uint8_t> Dlt645Codec::decodeFrameData(
     const std::vector<std::uint8_t>& frame,
     const std::vector<std::uint8_t>& expectedDataId
@@ -401,36 +388,38 @@ DecodedValue Dlt645Codec::decodeReadResponse(
     const std::vector<std::uint8_t>& frame,
     const PointDefinition& point
 ) {
-    const auto expectedDataId = parseDataId(point.read.dlt645Di);
-    const auto payload = decodeFrameData(frame, expectedDataId);
-    if (point.read.dlt645ByteCount > 0 && payload.size() < static_cast<std::size_t>(point.read.dlt645ByteCount)) {
+    return decodePayload(decodeFrameData(frame, parseDataId(point.read.dlt645Di)), point);
+}
+
+DecodedValue Dlt645Codec::decodePayload(
+    const std::vector<std::uint8_t>& data,
+    const PointDefinition& point
+) {
+    const auto offset = static_cast<std::size_t>(std::max(0, point.read.dlt645Offset));
+    const auto byteCount = static_cast<std::size_t>(std::max(0, point.read.dlt645ByteCount));
+    if (offset > data.size() || (byteCount > 0 && offset + byteCount > data.size())) {
         throw std::runtime_error("DLT645 payload shorter than expected byteCount");
     }
-
-    std::vector<std::uint8_t> valueBytes = payload;
-    if (point.read.dlt645ByteCount > 0) {
-        valueBytes.resize(static_cast<std::size_t>(point.read.dlt645ByteCount));
-    }
+    const auto first = data.begin() + static_cast<std::ptrdiff_t>(offset);
+    const std::vector<std::uint8_t> valueBytes(
+        first,
+        byteCount > 0 ? first + static_cast<std::ptrdiff_t>(byteCount) : data.end()
+    );
 
     DecodedValue decoded;
     decoded.rawHex = bytesToHex(valueBytes);
-    if (point.read.dataType == "dlt645_ascii") {
+    const auto& dataType = point.read.dataType;
+    if (dataType == "dlt645_ascii") {
         decoded.text.assign(valueBytes.begin(), valueBytes.end());
         decoded.value = 0.0;
         return decoded;
     }
-    if (point.read.dataType == "dlt645_datetime") {
-        decoded.text = bytesToHex(valueBytes);
-        decoded.value = 0.0;
-        return decoded;
-    }
-    if (point.read.dataType == "dlt645_hex") {
+    if (dataType == "dlt645_datetime" || dataType == "dlt645_hex") {
         decoded.text = decoded.rawHex;
         decoded.value = 0.0;
         return decoded;
     }
-    if (point.read.dataType == "dlt645_uint_le" ||
-        point.read.dataType == "dlt645_bitfield_le") {
+    if (dataType == "dlt645_uint_le" || dataType == "dlt645_bitfield_le") {
         if (point.read.bit >= 0) {
             const auto bit = static_cast<std::size_t>(point.read.bit);
             const auto byteIndex = bit / 8U;
@@ -441,23 +430,61 @@ DecodedValue Dlt645Codec::decodeReadResponse(
         } else {
             decoded.value = decodeUnsignedLittleEndian(valueBytes) * point.read.scale + point.read.offset;
         }
-        std::ostringstream text;
-        text << decoded.value;
-        decoded.text = text.str();
-        return decoded;
-    }
-    if (point.read.dataType == "dlt645_bcd_signed") {
+    } else if (dataType == "dlt645_bcd_signed") {
         decoded.value = decodeSignedBcdLittleEndian(valueBytes, point.read.scale) + point.read.offset;
-        std::ostringstream text;
-        text << decoded.value;
-        decoded.text = text.str();
-        return decoded;
+    } else if (dataType == "dlt645_bcd") {
+        decoded.value = decodeBcdLittleEndian(valueBytes, point.read.scale) + point.read.offset;
+    } else {
+        throw std::runtime_error("unsupported DLT645 read dataType: " + dataType);
     }
-    decoded.value = decodeBcdLittleEndian(valueBytes, point.read.scale) + point.read.offset;
     std::ostringstream text;
     text << decoded.value;
     decoded.text = text.str();
     return decoded;
+}
+
+bool Dlt645Codec::takeFrame(std::vector<std::uint8_t>& buffer, std::vector<std::uint8_t>& frame) {
+    std::size_t pending = buffer.size();
+    for (std::size_t start = 0; start < buffer.size(); ++start) {
+        if (buffer[start] != 0x68) {
+            continue;
+        }
+        const auto available = buffer.size() - start;
+        if (available < 10) {
+            pending = std::min(pending, start);
+            break;
+        }
+        if (buffer[start + 7] != 0x68) {
+            continue;
+        }
+        const auto size = static_cast<std::size_t>(buffer[start + 9]) + 12U;
+        if (available < size) {
+            // Either still arriving or a truncated frame; a complete frame behind it wins.
+            pending = std::min(pending, start);
+            continue;
+        }
+        const auto first = buffer.begin() + static_cast<std::ptrdiff_t>(start);
+        const auto last = first + static_cast<std::ptrdiff_t>(size);
+        if (*(last - 1) != 0x16 || checksum(std::vector<std::uint8_t>(first, last - 2)) != *(last - 2)) {
+            continue;
+        }
+        frame.assign(first, last);
+        buffer.erase(buffer.begin(), last);
+        return true;
+    }
+    buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(pending));
+    if (buffer.size() > 512U) {
+        buffer.erase(buffer.begin(), buffer.end() - 256);
+    }
+    return false;
+}
+
+bool Dlt645Codec::frameAddressMatches(const std::vector<std::uint8_t>& frame, const std::string& meterAddress) {
+    if (frame.size() < 8U) {
+        return false;
+    }
+    const auto expected = encodeAddress(normalizeAddress(meterAddress));
+    return std::equal(expected.begin(), expected.end(), frame.begin() + 1);
 }
 
 }  // namespace edge_gateway

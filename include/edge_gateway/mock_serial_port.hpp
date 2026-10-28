@@ -35,7 +35,6 @@ private:
         std::uint8_t function,
         const std::vector<std::uint8_t>& bytes
     );
-    void handleDlt645Read(const std::vector<std::uint8_t>& bytes);
 
     bool open_ = false;
     std::unordered_map<int, std::uint16_t> registers_;

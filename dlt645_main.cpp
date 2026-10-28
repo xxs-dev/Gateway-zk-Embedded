@@ -17,7 +17,7 @@
 #include "edge_gateway/dlt645_command_executor.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"
-#include "edge_gateway/mock_serial_port.hpp"
+#include "edge_gateway/dlt645_mock_serial_port.hpp"
 #ifndef _WIN32
 #include "edge_gateway/posix_serial_port.hpp"
 #endif
@@ -100,13 +100,14 @@ int main(int argc, char* argv[]) {
     serialOptions.timeoutMs = config.protocol.transport.timeoutMs;
     serialOptions.frameIntervalMs = std::max(0, config.protocol.transport.frameIntervalMs);
     serialOptions.wakeupBytes = config.protocol.transport.wakeupBytes;
+    serialOptions.localEcho = config.protocol.transport.localEcho;
 
     std::shared_ptr<ISerialPort> serialPort;
 #ifdef _WIN32
     useMock = true;
 #endif
     if (useMock) {
-        serialPort = std::make_shared<MockSerialPort>();
+        serialPort = std::make_shared<Dlt645MockSerialPort>(serialOptions.localEcho);
     }
 #ifndef _WIN32
     else {
