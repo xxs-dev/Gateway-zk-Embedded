@@ -659,7 +659,9 @@ void Iec103RecordingTransferService::handleRequest(const std::string& payload, s
     for (const auto& configFile : configFiles_) {
         try {
             const auto device = ConfigLoader::loadFromFile(configFile);
-            if (device.protocol.iec.transportMode != "am5se_passive_tcp") continue;
+            // Both AM5SE connection modes run the recording command socket in their IecDriver.
+            const auto& mode = device.protocol.iec.transportMode;
+            if (mode != "am5se_passive_tcp" && mode != "am5se_active_tcp") continue;
             bool deviceMatches = device.meterCode == task.deviceCode;
             for (const auto& meter : device.meters) deviceMatches = deviceMatches || meter.meterCode == task.deviceCode;
             if (!deviceMatches) continue;

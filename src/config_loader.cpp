@@ -449,6 +449,7 @@ IecPointSpec parseIecPointSpec(const JsonValue* value) {
     spec.commonAddress = requireInt(object, "commonAddress", spec.commonAddress);
     spec.functionType = requireInt(object, "functionType", spec.functionType);
     spec.informationNumber = requireInt(object, "informationNumber", spec.informationNumber);
+    spec.elementIndex = requireInt(object, "elementIndex", spec.elementIndex);
     spec.valueKind = requireString(object, "valueKind", spec.valueKind);
     spec.selectBeforeExecute = requireBool(object, "selectBeforeExecute", spec.selectBeforeExecute);
     spec.waitActivationTermination = requireBool(object, "waitActivationTermination", spec.waitActivationTermination);
@@ -1025,13 +1026,23 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.linkAddress = requireInt(object, "linkAddress", iec.linkAddress);
     iec.linkAddressSize = requireInt(object, "linkAddressSize", iec.linkAddressSize);
     iec.interrogationQualifier = requireInt(object, "interrogationQualifier", iec.interrogationQualifier);
-    iec.interrogationCot = requireInt(object, "interrogationCot", iec.interrogationCot);
     iec.activationTerminationCot = requireInt(object, "activationTerminationCot", iec.activationTerminationCot);
     iec.pollTimeoutMs = requireInt(object, "pollTimeoutMs", iec.pollTimeoutMs);
     iec.idleReadTimeoutMs = requireInt(object, "idleReadTimeoutMs", iec.idleReadTimeoutMs);
     iec.maxPollFrames = requireInt(object, "maxPollFrames", iec.maxPollFrames);
     iec.pollOnCollect = requireBool(object, "pollOnCollect", iec.pollOnCollect);
     iec.interrogationIntervalMs = requireInt(object, "interrogationIntervalMs", iec.interrogationIntervalMs);
+    iec.counterInterrogation = requireBool(object, "counterInterrogation", iec.counterInterrogation);
+    iec.counterInterrogationIntervalMs = requireInt(
+        object,
+        "counterInterrogationIntervalMs",
+        iec.counterInterrogationIntervalMs
+    );
+    iec.counterInterrogationQualifier = requireInt(
+        object,
+        "counterInterrogationQualifier",
+        iec.counterInterrogationQualifier
+    );
     iec.balanced = requireBool(object, "balanced", iec.balanced);
     iec.t0Ms = requireInt(object, "t0Ms", iec.t0Ms);
     iec.t1Ms = requireInt(object, "t1Ms", iec.t1Ms);
@@ -1072,14 +1083,12 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
         "recordingMaxFileBytes",
         iec.recordingMaxFileBytes
     );
-    iec.cotSize = boundedInt(iec.cotSize, 1, 2);
-    iec.caSize = boundedInt(iec.caSize, 1, 2);
-    iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
-    iec.linkAddressSize = boundedInt(iec.linkAddressSize, 0, 2);
+    // cotSize/caSize/ioaSize/linkAddressSize are checked by validateIecDeviceConfig, not clamped.
     iec.pollTimeoutMs = std::max(100, iec.pollTimeoutMs);
     iec.idleReadTimeoutMs = std::max(10, iec.idleReadTimeoutMs);
     iec.maxPollFrames = std::max(1, iec.maxPollFrames);
     iec.interrogationIntervalMs = std::max(0, iec.interrogationIntervalMs);
+    iec.counterInterrogationIntervalMs = std::max(0, iec.counterInterrogationIntervalMs);
     iec.t0Ms = boundedInt(iec.t0Ms, 1000, 120000);
     iec.t1Ms = boundedInt(iec.t1Ms, 1000, 120000);
     iec.t2Ms = boundedInt(iec.t2Ms, 1000, 120000);

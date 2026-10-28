@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -12,7 +13,9 @@
 #include <thread>
 
 #ifndef _WIN32
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 #endif
 
@@ -107,6 +110,25 @@ int main() {
     const auto client = std::make_shared<FakeRecordingClient>();
     Iec103RecordingCommandServer server(client, socketPath, base, 1000);
     server.start();
+
+    {
+        // Finding 11: a peer that connects and never sends must not block the command channel.
+        const int idle = socket(AF_UNIX, SOCK_STREAM, 0);
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        std::snprintf(address.sun_path, sizeof(address.sun_path), "%s", socketPath.c_str());
+        requireTrue(connect(idle, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0,
+            "idle test client connects");
+        auto served = std::async(std::launch::async, [&socketPath] {
+            return Iec103RecordingCommandClient::status(socketPath, "IDLE_PROBE");
+        });
+        if (served.wait_for(std::chrono::seconds(6)) != std::future_status::ready) {
+            std::cerr << "IEC103 recording command channel blocked by an idle connection" << std::endl;
+            std::_Exit(EXIT_FAILURE);
+        }
+        requireTrue(served.get().errorCode == "REQUEST_NOT_FOUND", "command served after the idle peer timed out");
+        close(idle);
+    }
 
     const auto acceptedList = Iec103RecordingCommandClient::submitList(socketPath, "LIST_001");
     requireTrue(acceptedList.stage == "accepted", "list command must be accepted asynchronously");

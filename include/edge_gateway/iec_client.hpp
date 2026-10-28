@@ -49,10 +49,11 @@ public:
     );
 };
 
-class IecTcpClient : public IecClient {
+// IEC 60870-5-104 controlling station (TCP).
+class Iec104Client : public IecClient {
 public:
-    IecTcpClient(std::string protocolType, TcpTransportConfig tcp, IecProtocolConfig iec);
-    ~IecTcpClient() override;
+    Iec104Client(TcpTransportConfig tcp, IecProtocolConfig iec);
+    ~Iec104Client() override;
 
     std::vector<IecDataValue> poll() override;
     std::vector<IecDataValue> drainBufferedValues() override;
@@ -64,6 +65,7 @@ public:
         const std::string& meterCode,
         std::int64_t nowMs
     ) override;
+    // Sends C_CS_NA_1 and waits (t1) for its ACT_CON; throws on timeout or negative reply.
     void synchronizeClock(std::int64_t nowMs) override;
     IecParameterValue readParameter(int ioa, int typeId, std::uint8_t qualifier, int timeoutMs) override;
     CommandResult writeParameter(int ioa, int typeId, double value, std::uint8_t qualifier, int timeoutMs) override;
@@ -71,6 +73,16 @@ public:
     std::vector<IecFileSegment> callFile(int ioa, int nameOfFile, int nameOfSection, std::uint8_t qualifier, int timeoutMs) override;
 
 private:
+    enum class Confirmation { Confirmed, Negative, Timeout };
+
+    // GI (C_IC_NA_1) / counter interrogation (C_CI_NA_1) progress, guarded by stateMutex_.
+    struct SystemCommandState {
+        bool inProgress = false;
+        bool confirmed = false;
+        std::int64_t sentMs = 0;
+        std::int64_t nextDueMs = 0;
+    };
+
     void ensureConnected();
     void ensureIec104Started();
     void startReceiveLoop();
@@ -79,32 +91,33 @@ private:
     void disconnect(std::uint64_t expectedGeneration = 0);
     std::intptr_t duplicateConnectedSocket(std::uint64_t& generation) const;
     void configureSocketTimeouts(std::intptr_t socketHandle) const;
-    std::uint16_t nextSendSequence();
-    std::uint16_t currentReceiveSequence() const;
-    void sendIec104IFrame(const std::vector<std::uint8_t>& bytes);
+    // *handedToSocket is set right before the frame is written, so callers can tell a frame
+    // that never left (window/t1 failure) from one that may have reached the station.
+    void sendIec104IFrame(const std::vector<std::uint8_t>& bytes, bool* handedToSocket = nullptr);
     void sendAll(const std::vector<std::uint8_t>& bytes);
     std::vector<std::uint8_t> readSome(int timeoutMs);
     void handleIec104Frame(const std::vector<std::uint8_t>& frame);
+    void handleSystemCommandReply(const IecAsdu& asdu);
+    void sendDueSystemCommands(std::int64_t steadyNowMs);
     void bufferValues(const std::vector<IecDataValue>& values);
     std::vector<IecDataValue> drainBufferedValuesLocked();
     bool waitForIec104Start(int timeoutMs);
     // expectedSelect: 1 = select (S/E=1) echo, 0 = execute echo, -1 = do not check.
-    // Throws on a matching negative confirmation (COT P/N bit set).
-    bool waitForControlConfirmation(const PointDefinition& point, double value, int expectedCause, int timeoutMs, int expectedSelect = -1);
+    // Negative: matching reply with P/N=1, or COT 44..47 (unknown type/cause/CA/IOA).
+    Confirmation waitForControlConfirmation(const PointDefinition& point, double value, int expectedCause,
+        int timeoutMs, int expectedSelect, std::string* detail);
     void clearControlConfirmations(const PointDefinition& point);
+    void sendDeselect(const PointDefinition& point, double value);
     bool waitForParameterConfirmation(int ioa, int typeId, int expectedCause, int timeoutMs, IecParameterValue* value = nullptr);
     void clearParameterConfirmations(int ioa, int typeId);
     // Returns false (and changes nothing) when N(R) acknowledges frames that
     // were never sent, i.e. it lies outside [last acknowledged, V(S)].
     bool noteRemoteAcknowledgeLocked(std::uint16_t receiveSequence);
     bool t1SupervisionExpired(std::int64_t nowMsValue);
-    bool interrogationDue(std::int64_t nowMsValue);
     std::vector<IecFileSegment> waitForFileSegments(int nameOfFile, int timeoutMs);
+    // Throws (after closing the connection) on an APCI framing error.
     std::vector<std::vector<std::uint8_t>> drainIec104Frames(int timeoutMs, int maxFrames);
-    // *sawLinkResponse: any valid FT1.2 answer (variable, fixed or E5) arrived.
-    std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames, bool* sawLinkResponse = nullptr);
 
-    std::string protocolType_;
     TcpTransportConfig tcp_;
     IecProtocolConfig iec_;
     std::intptr_t socket_ = -1;
@@ -122,7 +135,10 @@ private:
     // Send time of every unacknowledged I-frame (t1 supervision).
     std::deque<std::pair<std::uint16_t, std::int64_t>> unackedIFrames_;
     std::int64_t testFrPendingSinceMs_ = 0;
-    std::int64_t lastInterrogationMs_ = 0;
+    SystemCommandState interrogation_;
+    SystemCommandState counterInterrogation_;
+    // C_CS_NA_1 reply: 0 = none yet, 1 = positive ACT_CON, -1 = negative.
+    int clockSyncReply_ = 0;
     std::atomic<bool> receiveRunning_{false};
     std::atomic<bool> connected_{false};
     std::thread receiveThread_;
@@ -139,25 +155,6 @@ private:
     std::int64_t lastSendMs_ = 0;
     std::int64_t lastAckMs_ = 0;
     std::uint16_t unacknowledgedReceived_ = 0;
-};
-
-class IecSerialClient : public IecClient {
-public:
-    IecSerialClient(std::string protocolType, std::shared_ptr<ISerialPort> serialPort, SerialPortOptions serial, IecProtocolConfig iec);
-
-    std::vector<IecDataValue> poll() override;
-
-private:
-    void ensurePortOpen();
-    void sendAll(const std::vector<std::uint8_t>& bytes);
-    // *sawLinkResponse: any valid FT1.2 answer (variable, fixed or E5) arrived.
-    std::vector<std::vector<std::uint8_t>> drainFt12Frames(int timeoutMs, int maxFrames, bool* sawLinkResponse = nullptr);
-
-    std::string protocolType_;
-    std::shared_ptr<ISerialPort> serialPort_;
-    SerialPortOptions serial_;
-    IecProtocolConfig iec_;
-    std::vector<std::uint8_t> rxBuffer_;
 };
 
 }  // namespace edge_gateway

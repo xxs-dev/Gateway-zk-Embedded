@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <deque>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -148,12 +149,84 @@ void verifyStepQualityPropagatesToStore() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+class ScriptedIecClient final : public edge_gateway::IecClient {
+public:
+    std::vector<edge_gateway::IecDataValue> poll() override {
+        if (polls.empty()) {
+            return {};
+        }
+        auto next = polls.front();
+        polls.pop_front();
+        return next;
+    }
+
+    std::deque<std::vector<edge_gateway::IecDataValue>> polls;
+};
+
+// Finding 3/10: test transmissions never update production points, the device time tag is the
+// point time, and a double point in DPI 0/3 keeps the previous value with bad quality.
+void verifyTestFramesTimeTagsAndHeldDoublePoints() {
+    const std::string storeName = "gateway_iec_collector_semantics_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        edge_gateway::DeviceConfig config;
+        config.machineCode = "GW_IEC_TEST";
+        config.meterCode = "AM5SE_DPI_TEST";
+        config.protocol.type = "iec103";
+        config.collect.defaultIntervalMs = 100;
+        config.memoryStore.sharedMemoryName = storeName;
+        config.memoryStore.maxLatestPoints = 8;
+        config.memoryStore.maxPendingWrites = 4;
+        config.memoryStore.maxPersistentSamples = 4;
+        config.memoryStore.sqlitePath.clear();
+        config.points = {point(433001, "breaker_closed", 44, 100)};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<ScriptedIecClient>();
+
+        auto closed = value(44, 100, 1.0);
+        auto testOpen = value(1, 100, 1.0);
+        testOpen.doublePoint = true;
+        testOpen.test = true;
+        auto indeterminate = value(1, 100, 3.0);
+        indeterminate.doublePoint = true;
+        indeterminate.quality = 0;
+        indeterminate.qualityMsg = "IEC103 DPI indeterminate (DPI=3)";
+        indeterminate.timestampMs = 1700000000123LL;
+        auto open = value(1, 100, 1.0);
+        open.doublePoint = true;
+        open.timestampMs = 1700000001000LL;
+        client->polls = {{closed}, {testOpen}, {indeterminate}, {open}};
+        edge_gateway::IecCollector collector(config, store, client);
+
+        (void)collector.collectOnce(1000);
+        const auto first = store.getLatestByIndex(433001, 1000);
+        require(first && first->value == 1.0 && first->quality == 1, "ASDU44 closed state stored");
+
+        (void)collector.collectOnce(1100);
+        const auto afterTest = store.getLatestByIndex(433001, 1100);
+        require(afterTest && afterTest->value == 1.0 && afterTest->ts == first->ts,
+            "a test transmission must not update the production point");
+
+        (void)collector.collectOnce(1200);
+        const auto held = store.getLatestByIndex(433001, 1200);
+        require(held && held->value == 1.0 && held->quality == 0,
+            "DPI 3 keeps the previous value with bad quality");
+        require(held->ts == 1700000000123LL, "the device time tag dates the value");
+
+        (void)collector.collectOnce(1300);
+        const auto opened = store.getLatestByIndex(433001, 1300);
+        require(opened && opened->value == 0.0 && opened->quality == 1, "DPI 1 (OFF) stored as 0");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
     try {
         verifyIncrementalPollKeepsOtherClassValue();
         verifyStepQualityPropagatesToStore();
+        verifyTestFramesTimeTagsAndHeldDoublePoints();
         std::cout << "IEC collector incremental response test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

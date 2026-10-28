@@ -1,5 +1,6 @@
 #include "edge_gateway/iec_client.hpp"
 #include "edge_gateway/iec_codec.hpp"
+#include "edge_gateway/iec_ft12_client.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -392,7 +393,7 @@ int main() {
     tcp.timeoutMs = 200;
 
     {
-        IecTcpClient client("iec104", tcp, iec);
+        Iec104Client client(tcp, iec);
         PointDefinition signal;
         signal.index = 1;
         signal.pointCode = "signal";
@@ -460,18 +461,24 @@ int main() {
     silentTcp.timeoutMs = 1000;
     IecProtocolConfig silentIec;
     silentIec.transportMode = "tcp";
-    silentIec.pollOnCollect = false;
     silentIec.pollTimeoutMs = 40;
     silentIec.maxPollFrames = 1;
     const auto silentStartedAt = std::chrono::steady_clock::now();
+    bool silentFailed = false;
     {
-        IecTcpClient silentClient("iec103", silentTcp, silentIec);
-        requireTrue(silentClient.poll().empty(), "silent IEC103 server should return no values");
+        // A silent IEC 103 station is offline: the link reset gets no reply (3 x 40 ms).
+        IecFt12Client silentClient("iec103", silentTcp, silentIec);
+        try {
+            (void)silentClient.poll();
+        } catch (const std::exception&) {
+            silentFailed = true;
+        }
     }
     const auto silentElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - silentStartedAt
     ).count();
-    requireTrue(silentElapsedMs < 300, "IEC read must honor the per-call poll timeout");
+    requireTrue(silentFailed, "silent IEC103 station must fail the poll");
+    requireTrue(silentElapsedMs < 400, "IEC103 link reset must honor the per-request timeout");
     silentServer.stop();
 
     TcpTransportConfig unreachableTcp;
@@ -485,7 +492,7 @@ int main() {
     const auto connectStartedAt = std::chrono::steady_clock::now();
     bool connectFailed = false;
     try {
-        IecTcpClient unreachableClient("iec104", unreachableTcp, unreachableIec);
+        Iec104Client unreachableClient(unreachableTcp, unreachableIec);
         (void)unreachableClient.poll();
     } catch (const std::exception&) {
         connectFailed = true;

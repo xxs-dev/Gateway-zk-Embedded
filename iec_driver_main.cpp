@@ -17,6 +17,7 @@
 #include "edge_gateway/timing_policy.hpp"
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/iec_client.hpp"
+#include "edge_gateway/iec_ft12_client.hpp"
 #include "edge_gateway/iec103_recording_command.hpp"
 #include "edge_gateway/iec_collector.hpp"
 #include "edge_gateway/iec_command_executor.hpp"
@@ -68,6 +69,12 @@ bool isTcpIecMode(const edge_gateway::DeviceConfig& config) {
 std::int64_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
+std::int64_t steadyTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
     ).count();
 }
 
@@ -138,8 +145,10 @@ int main(int argc, char* argv[]) {
             iecClient = std::make_shared<Am5seIec103Client>(
                 config.protocol.iec,
                 config.protocol.tcp);
+        } else if (config.protocol.type == "iec104") {
+            iecClient = std::make_shared<Iec104Client>(config.protocol.tcp, config.protocol.iec);
         } else {
-            iecClient = std::make_shared<IecTcpClient>(config.protocol.type, config.protocol.tcp, config.protocol.iec);
+            iecClient = std::make_shared<IecFt12Client>(config.protocol.type, config.protocol.tcp, config.protocol.iec);
         }
     } else {
         SerialPortOptions serialOptions;
@@ -164,7 +173,7 @@ int main(int argc, char* argv[]) {
             serialPort = std::make_shared<PosixSerialPort>(serialOptions);
         }
 #endif
-        iecClient = std::make_shared<IecSerialClient>(config.protocol.type, serialPort, serialOptions, config.protocol.iec);
+        iecClient = std::make_shared<IecFt12Client>(config.protocol.type, serialPort, config.protocol.iec);
     }
 
     if (listRecordings) {
@@ -255,18 +264,20 @@ int main(int argc, char* argv[]) {
               << " mqtt=disabled"
               << std::endl;
 
+    // Interval measured on the steady clock: a wall-clock step must not stall or flood clock sync.
     std::int64_t lastClockSyncMs = 0;
+    bool clockSynced = false;
     while (g_running) {
         if (config.protocol.type == "iec104" && config.protocol.iec.clockSyncIntervalSec > 0) {
-            const auto now = currentTimeMs();
+            const auto now = steadyTimeMs();
             const auto intervalMs = static_cast<std::int64_t>(config.protocol.iec.clockSyncIntervalSec) * 1000;
-            if (lastClockSyncMs == 0 || now - lastClockSyncMs >= intervalMs) {
+            if (!clockSynced || now - lastClockSyncMs >= intervalMs) {
+                clockSynced = true;
+                lastClockSyncMs = now;
                 try {
-                    iecClient->synchronizeClock(now);
-                    lastClockSyncMs = now;
+                    iecClient->synchronizeClock(currentTimeMs());
                 } catch (const std::exception& ex) {
                     std::cerr << "IEC104 clock sync failed: " << ex.what() << std::endl;
-                    lastClockSyncMs = now;
                 }
             }
         }

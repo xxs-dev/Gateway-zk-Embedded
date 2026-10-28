@@ -39,6 +39,9 @@ struct IecPointSpec {
     int commonAddress = 0;
     int functionType = -1;
     int informationNumber = -1;
+    // Element inside a multi-element object: IEC 103 ASDU 3/9 measurand position,
+    // IEC 101/104 type 20 status bit. 0 for single-element objects.
+    int elementIndex = 0;
     std::string valueKind;
     bool selectBeforeExecute = false;
     bool waitActivationTermination = false;
@@ -487,16 +490,22 @@ struct IecProtocolConfig {
     int linkAddress = 1;
     int linkAddressSize = 1;
     int interrogationQualifier = 20;
-    int interrogationCot = 6;
     int activationTerminationCot = 10;
     int pollTimeoutMs = 1000;
     int idleReadTimeoutMs = 50;
     int maxPollFrames = 64;
     bool pollOnCollect = true;
-    // Minimum spacing between IEC104 general interrogations sent by poll().
-    // 0 keeps the legacy behaviour (a GI on every collect poll); a GI is
-    // always sent after (re)connect.
-    int interrogationIntervalMs = 0;
+    // General interrogation (pollOnCollect=true): once after the link is (re)established, then
+    // every interrogationIntervalMs; 0 = only after (re)connection. A GI that has not been
+    // terminated (ACT_TERM / IEC 103 ASDU 8) is not repeated.
+    int interrogationIntervalMs = 900000;
+    // IEC 101/104 counter interrogation (C_CI_NA_1): after the link is established and every
+    // counterInterrogationIntervalMs (0 = only after connection). QCC default 5 = general
+    // request, read without freeze/reset.
+    bool counterInterrogation = true;
+    int counterInterrogationIntervalMs = 900000;
+    int counterInterrogationQualifier = 5;
+    // Only unbalanced FT1.2 transmission is implemented; true is rejected at load time.
     bool balanced = false;
     int t0Ms = 30000;
     int t1Ms = 15000;

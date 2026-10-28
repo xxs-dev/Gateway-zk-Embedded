@@ -80,6 +80,9 @@ add_library(edge_gateway
     src/grid_friendly_dispatch.cpp
     src/iec_client.cpp
     src/iec_codec.cpp
+    src/iec103_codec.cpp
+    src/iec_ft12_link.cpp
+    src/iec_ft12_client.cpp
     src/iec103_recording_command.cpp
     src/iec103_recording_transfer_service.cpp
     src/iec_command_executor.cpp
@@ -527,6 +530,16 @@ foreach(dlt645_review_test dlt645_codec_test dlt645_link_test dlt645_collector_s
     target_link_libraries(${dlt645_review_test} PRIVATE edge_gateway)
     target_compile_options(${dlt645_review_test} PRIVATE -fdiagnostics-color=never)
 endforeach()
+# driver-review: iec
+add_executable(iec_ft12_link_test tools/iec_ft12_link_test.cpp)
+target_link_libraries(iec_ft12_link_test PRIVATE edge_gateway)
+target_compile_options(iec_ft12_link_test PRIVATE -fdiagnostics-color=never)
+add_executable(iec104_semantics_test tools/iec104_semantics_test.cpp)
+target_link_libraries(iec104_semantics_test PRIVATE edge_gateway)
+target_compile_options(iec104_semantics_test PRIVATE -fdiagnostics-color=never)
+add_executable(iec_validation_test tools/iec_validation_test.cpp)
+target_link_libraries(iec_validation_test PRIVATE edge_gateway)
+target_compile_options(iec_validation_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
@@ -900,6 +913,11 @@ if(BUILD_TESTING)
     add_test(NAME dlt645_link COMMAND dlt645_link_test)
     add_test(NAME dlt645_collector_schedule COMMAND dlt645_collector_schedule_test ${CMAKE_SOURCE_DIR})
     add_test(NAME dlt645_config COMMAND dlt645_config_test ${CMAKE_SOURCE_DIR})
+    # driver-review: iec
+    add_test(NAME iec_ft12_link COMMAND iec_ft12_link_test)
+    add_test(NAME iec104_semantics COMMAND iec104_semantics_test)
+    add_test(NAME iec_validation COMMAND iec_validation_test)
+    set_tests_properties(iec_ft12_link iec104_semantics iec_validation PROPERTIES TIMEOUT 60)
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
     add_test(NAME config_loader COMMAND config_loader_test)
