@@ -92,6 +92,12 @@ struct TxFrameDefinition {
     bool remoteRequest = false;
     std::string payloadTemplate;
     std::vector<std::pair<std::string, std::vector<int>>> signals;  // owner label, occupied bits
+    struct Pulse {
+        std::string label;
+        WriteSpec write;
+        bool signedSignal;
+    };
+    std::vector<Pulse> pulses;
 };
 
 std::vector<int> occupiedBits(const CanSignalSpec& can, int bitLength) {
@@ -127,9 +133,21 @@ void validateWriteSignal(const std::string& label, const PointDefinition& point,
     std::vector<std::uint8_t> payload;
     try {
         payload = CanSignalCodec::templatePayload(write.can);
-        CanSignalCodec::encodeInto(payload, write.offset, write, true);
+        auto layout = payload;
+        CanSignalCodec::encodeInto(layout, write.offset, write, true);
     } catch (const std::exception& ex) {
         reject(label, "write.can", ex.what());
+    }
+    if (write.can.pulse) {
+        if (write.dataType == "float32") {
+            reject(label, "write.can.pulse", "pulse signals must be bool or integer");
+        }
+        auto idle = payload;
+        try {
+            CanSignalCodec::encodeInto(idle, write.can.pulseIdleValue, write, point.read.signedFlag);
+        } catch (const std::exception& ex) {
+            reject(label, "write.can.pulseIdleValue", ex.what());
+        }
     }
     if (write.verifyAfterWrite) {
         configWarning("CAN " + label + ": write.verifyAfterWrite is not supported for CAN; a successful write "
@@ -169,6 +187,31 @@ void validateWriteSignal(const std::string& label, const PointDefinition& point,
         }
     }
     frame.signals.emplace_back(label, bits);
+    if (write.can.pulse) {
+        frame.pulses.push_back(TxFrameDefinition::Pulse{label, write, point.read.signedFlag});
+    }
+}
+
+// A template must hold every pulse signal of its frame at the idle value, or every frame would
+// repeat the pulse.
+void checkPulseTemplates(const std::map<std::uint64_t, TxFrameDefinition>& frames) {
+    for (const auto& item : frames) {
+        const auto& frame = item.second;
+        if (frame.payloadTemplate.empty()) {
+            continue;
+        }
+        for (const auto& pulse : frame.pulses) {
+            auto can = pulse.write.can;
+            can.payloadTemplate = frame.payloadTemplate;
+            const auto payload = CanSignalCodec::templatePayload(can);
+            auto idle = payload;
+            CanSignalCodec::encodeInto(idle, pulse.write.can.pulseIdleValue, pulse.write, pulse.signedSignal);
+            if (idle != payload) {
+                reject(pulse.label, "write.can.payloadTemplate",
+                       "sets this pulse signal to a value other than pulseIdleValue");
+            }
+        }
+    }
 }
 
 }  // namespace
@@ -219,6 +262,7 @@ void validateCanDeviceConfig(const DeviceConfig& config) {
         }
         validatePoints(meter.points);
     }
+    checkPulseTemplates(frames);
 }
 
 }  // namespace edge_gateway

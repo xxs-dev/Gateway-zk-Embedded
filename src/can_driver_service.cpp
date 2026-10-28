@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "can_driver_service_internal.hpp"
+#include "can_frame_state.hpp"
 #include "edge_gateway/can_signal_codec.hpp"
 #include "edge_gateway/common/persistent_flush_schedule.hpp"
 #include "edge_gateway/virtual_can_datagram.hpp"
@@ -41,9 +42,6 @@ namespace {
 constexpr int kStoreHeartbeatIntervalMs = 5000;
 constexpr int kStoreExpirySweepIntervalMs = 5000;
 constexpr std::int64_t kErrorLogIntervalMs = 60000;
-// A carrier that stays off this long (bus-off without automatic restart, restartMs=0) is recovered by
-// reconfiguring the interface when the driver manages it.
-constexpr std::int64_t kCarrierRecoveryMs = 5000;
 // linux/can/error.h: error classes carried in the can_id of an error frame, controller status in data[1].
 constexpr std::uint32_t kCanErrCrtl = 0x004U;
 constexpr std::uint32_t kCanErrBusOff = 0x040U;
@@ -216,6 +214,7 @@ void CanDriverService::initializeRuntimeDevices() {
         TxFrame frame;
         std::string templateHex;
         std::string owner;
+        std::vector<std::string> signals;  // layout signature parts, one per write signal
     };
     std::unordered_map<std::uint64_t, TxBuild> txBuilds;
     const auto wallMs = nowMs();
@@ -291,6 +290,22 @@ void CanDriverService::initializeRuntimeDevices() {
                             tx.templateHex = can.payloadTemplate;
                             tx.frame.payload = CanSignalCodec::templatePayload(can);
                         }
+                        if (can.pulse) {
+                            if (point.write.dataType == "float32") {
+                                throw std::invalid_argument("write.can.pulse needs a bool or integer signal");
+                            }
+                            // The idle value must encode (range checked here as well as at load time).
+                            auto scratch = tx.frame.payload;
+                            CanSignalCodec::encodeInto(scratch, can.pulseIdleValue, point.write, point.read.signedFlag);
+                            tx.frame.pulsePoints.push_back(runtimePoints_.size());
+                        }
+                        std::ostringstream signature;
+                        signature << point.index << ':' << can.byteOffset << '/' << can.bitOffset << '/'
+                                  << CanSignalCodec::signalBitLength(can, point.write.dataType) << '/' << can.endian
+                                  << '/' << point.write.dataType << '/' << point.write.scale << '/'
+                                  << point.write.offset << '/' << point.read.signedFlag << '/' << can.pulse << '/'
+                                  << can.pulseIdleValue;
+                        tx.signals.push_back(signature.str());
                     }
                 }
             } catch (const std::exception& ex) {
@@ -302,8 +317,29 @@ void CanDriverService::initializeRuntimeDevices() {
         publishOnlinePoint(runtimeDevices_.back(), false, wallMs, monoMs);
     }
     for (auto& entry : txBuilds) {
-        txFrames_.emplace(entry.first, entry.second.frame);
+        auto& build = entry.second;
+        std::sort(build.signals.begin(), build.signals.end());
+        std::ostringstream signature;
+        signature << "dlc=" << build.frame.payload.size() << ";fd=" << build.frame.fd << ";rtr="
+                  << build.frame.remoteRequest << ";template=" << build.templateHex;
+        for (const auto& signal : build.signals) {
+            signature << ';' << signal;
+        }
+        build.frame.layout = can_frame_state::layoutHash(signature.str());
+        txFrames_.emplace(entry.first, build.frame);
     }
+    for (auto& entry : txFrames_) {
+        // A template must not carry a pulse in its active state.
+        storeSentPayloadLocked(entry.second, entry.second.payload);
+    }
+    frameStatePath_ = config_.protocol.can.frameStateFile;
+    if (frameStatePath_.empty()) {
+        const auto& dedup = config_.memoryStore.controlDedupPath;
+        const auto slash = dedup.find_last_of('/');
+        frameStatePath_ = (slash == std::string::npos ? std::string(".") : dedup.substr(0, slash)) +
+            "/can-frame-state-" + config_.protocol.can.interfaceName + ".json";
+    }
+    loadFrameStates();
     publishInterfacePoints(wallMs, monoMs);
 }
 
@@ -514,21 +550,18 @@ void CanDriverService::checkInterfaceOnce(std::int64_t wallMs, std::int64_t mono
                 state = LinkState::Ready;
             }
             if (state == LinkState::NoCarrier) {
-                if (carrierLostMono_ <= 0) {
-                    carrierLostMono_ = monoMs;
-                }
+                // Bus-off (or no transceiver link): the driver never forces a recovery. The
+                // controller restarts on its own only when restartMs > 0; with restartMs = 0 it
+                // stays bus-off until someone runs `ip link set <if> type can restart`.
                 linkDownSeen_ = true;
-            } else {
-                carrierLostMono_ = 0;
             }
-            const auto carrierStuck = state == LinkState::NoCarrier &&
-                monoMs - carrierLostMono_ >= kCarrierRecoveryMs && config_.protocol.can.manageInterface;
-            if (state == LinkState::Down || carrierStuck) {
+            if (state == LinkState::Down) {
+                // Interface missing or administratively down: reopen the socket; with
+                // manageInterface the driver also reconfigures and brings the interface up.
                 linkDownSeen_ = true;
                 closeSocketLocked();
                 configureInterface();
                 openSocketLocked();
-                carrierLostMono_ = 0;
                 state = linkStateLocked();
             }
         } catch (const std::exception& ex) {
@@ -583,6 +616,7 @@ void CanDriverService::handleErrorFrame(std::uint32_t errorClass, const std::vec
 
 void CanDriverService::setInterfaceOnline(bool online, const std::string& reason, std::int64_t wallMs,
                                           std::int64_t monoMs) {
+    interfaceFault_.store(!online);
     if (online == interfaceOnline_) {
         return;
     }

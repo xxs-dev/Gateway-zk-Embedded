@@ -49,6 +49,7 @@ add_library(edge_gateway
     src/alarm_service.cpp
     src/can_driver_service.cpp
     src/can_driver_writeback.cpp
+    src/can_frame_state.cpp
     src/can_signal_codec.cpp
     src/collector.cpp
     src/common/collector_base.cpp

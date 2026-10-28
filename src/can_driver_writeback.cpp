@@ -3,13 +3,16 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
 #include "can_driver_service_internal.hpp"
+#include "can_frame_state.hpp"
 #include "edge_gateway/can_signal_codec.hpp"
 #include "edge_gateway/cluster_write_authorization.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
@@ -139,6 +142,7 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             if (!runtimePoint.writeSignal) {
                 throw std::invalid_argument("point has no write.can signal");
             }
+            requireInterfaceUsable();
             std::vector<std::uint8_t> scratch;
             {
                 std::lock_guard<std::mutex> lock(socketMutex_);
@@ -204,12 +208,16 @@ std::size_t CanDriverService::flushStagedWrites(std::vector<StagedWrite>& group)
                 const auto& point = runtimePoints_[staged.pointIndex].point;
                 CanSignalCodec::encodeInto(payload, staged.command.value, point.write, point.read.signedFlag);
             }
+            requireInterfaceUsable();
             openSocketLocked();
             transmitLocked(frame, payload);
-            frame.payload = payload;  // the mirror is what was last put on the bus
+            storeSentPayloadLocked(frame, payload);
         } catch (const std::exception& ex) {
             error = ex.what();
         }
+    }
+    if (error.empty()) {
+        persistFrameStates();
     }
     const auto completedAt = nowMs();
     for (auto& staged : group) {
@@ -321,13 +329,120 @@ void CanDriverService::sendSingleWrite(const RuntimePoint& runtimePoint, double 
     if (!runtimePoint.writeSignal) {
         throw std::invalid_argument("point has no write.can signal");
     }
-    std::lock_guard<std::mutex> lock(socketMutex_);
-    auto& frame = txFrames_.at(runtimePoint.writeKey);
-    auto payload = frame.payload;
-    CanSignalCodec::encodeInto(payload, value, runtimePoint.point.write, runtimePoint.point.read.signedFlag);
-    openSocketLocked();
-    transmitLocked(frame, payload);
-    frame.payload = payload;
+    {
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        auto& frame = txFrames_.at(runtimePoint.writeKey);
+        auto payload = frame.payload;
+        CanSignalCodec::encodeInto(payload, value, runtimePoint.point.write, runtimePoint.point.read.signedFlag);
+        requireInterfaceUsable();
+        openSocketLocked();
+        transmitLocked(frame, payload);
+        storeSentPayloadLocked(frame, payload);
+    }
+    persistFrameStates();
+}
+
+void CanDriverService::requireInterfaceUsable() const {
+    if (interfaceFault_.load()) {
+        // Queued frames would go out whenever the bus recovers, possibly long after the command.
+        throw std::runtime_error("CAN interface offline (bus-off or link down): frame not sent");
+    }
+}
+
+void CanDriverService::storeSentPayloadLocked(TxFrame& frame, const std::vector<std::uint8_t>& payload) {
+    auto mirror = payload;
+    for (const auto pointIndex : frame.pulsePoints) {
+        const auto& point = runtimePoints_[pointIndex].point;
+        CanSignalCodec::encodeInto(mirror, point.write.can.pulseIdleValue, point.write, point.read.signedFlag);
+    }
+    frame.payload = mirror;
+}
+
+void CanDriverService::loadFrameStates() {
+    const auto& interfaceName = config_.protocol.can.interfaceName;
+    std::string text;
+    try {
+        if (!can_frame_state::readFile(frameStatePath_, text)) {
+            if (!txFrames_.empty()) {
+                std::cerr << "CAN frame state " << frameStatePath_ << " not found: every transmit frame starts from "
+                          << "its payloadTemplate until it is written" << std::endl;
+            }
+            return;
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "CAN frame state not loaded, frames start from payloadTemplate: " << ex.what() << std::endl;
+        return;
+    }
+    std::vector<can_frame_state::Entry> entries;
+    try {
+        entries = can_frame_state::parse(text, interfaceName);
+    } catch (const std::exception& ex) {
+        std::cerr << "CAN frame state " << frameStatePath_ << " invalid, frames start from payloadTemplate: "
+                  << ex.what() << std::endl;
+        return;
+    }
+    std::size_t loaded = 0;
+    for (const auto& entry : entries) {
+        std::ostringstream id;
+        id << "0x" << std::uppercase << std::hex << entry.frameId;
+        const auto frame = txFrames_.find(CanSignalCodec::frameKey(entry.frameId, entry.extended));
+        if (frame == txFrames_.end()) {
+            std::cerr << "CAN frame state for " << id.str() << " discarded: the frame is no longer written" << std::endl;
+            continue;
+        }
+        if (entry.fd != frame->second.fd || entry.remoteRequest != frame->second.remoteRequest ||
+            entry.payload.size() != frame->second.payload.size() || entry.layout != frame->second.layout) {
+            std::cerr << "CAN frame state for " << id.str() << " discarded: frame definition changed "
+                      << "(dlc/fd/template/signal layout); it starts from payloadTemplate" << std::endl;
+            continue;
+        }
+        // Pulse signals are never restored active, whatever the file says.
+        storeSentPayloadLocked(frame->second, entry.payload);
+        ++loaded;
+    }
+    std::cerr << "CAN frame state: " << loaded << " of " << txFrames_.size() << " transmit frame(s) restored from "
+              << frameStatePath_ << "; the others start from payloadTemplate" << std::endl;
+}
+
+void CanDriverService::persistFrameStates() {
+    std::vector<std::pair<std::uint64_t, can_frame_state::Entry>> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        for (const auto& item : txFrames_) {
+            can_frame_state::Entry entry;
+            entry.frameId = item.second.frameId;
+            entry.extended = item.second.extended;
+            entry.fd = item.second.fd;
+            entry.remoteRequest = item.second.remoteRequest;
+            entry.layout = item.second.layout;
+            entry.payload = item.second.payload;
+            snapshot.emplace_back(item.first, entry);
+        }
+    }
+    std::sort(snapshot.begin(), snapshot.end(),
+              [](const std::pair<std::uint64_t, can_frame_state::Entry>& left,
+                 const std::pair<std::uint64_t, can_frame_state::Entry>& right) { return left.first < right.first; });
+    std::vector<can_frame_state::Entry> entries;
+    for (const auto& item : snapshot) {
+        entries.push_back(item.second);
+    }
+    std::lock_guard<std::mutex> lock(frameStateMutex_);
+    try {
+        can_frame_state::writeAtomically(frameStatePath_,
+                                         can_frame_state::serialize(config_.protocol.can.interfaceName, entries));
+    } catch (const std::exception& ex) {
+        // An outdated file would be applied after a restart; without it the frames start from
+        // payloadTemplate, which the operator can foresee.
+        std::remove(frameStatePath_.c_str());
+        const auto monoMs = steadyNowMs();
+        if (lastFrameStateErrorMono_ <= 0 || monoMs - lastFrameStateErrorMono_ >= 60000) {
+            lastFrameStateErrorMono_ = monoMs;
+            std::cerr << "CAN frame state not saved (file removed, a restart starts from payloadTemplate): "
+                      << ex.what() << std::endl;
+            publishStatusEvent("frame-state-save-failed", nowMs(),
+                               std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
+        }
+    }
 }
 
 void CanDriverService::transmitLocked(const TxFrame& frame, const std::vector<std::uint8_t>& payload) {
