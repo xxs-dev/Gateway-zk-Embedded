@@ -19,7 +19,7 @@
 
 ## 配套升级
 
-`PendingWriteCommand.platformControl` 是可信入口标记，使用共享内存 v11 pending slot 的保留字节，不改变布局大小。旧驱动不会识别该标记，不能仅替换显示或 MQTT 程序。维护时先暂停入口、确认队列为空，再同步替换实际使用的物理执行程序并恢复服务。不得靠修改 `source` 字符串实现权限区分。
+`PendingWriteCommand.platformControl` 是可信入口标记，使用共享内存 v11 pending slot 的保留字节，不改变布局大小。旧驱动不会识别该标记，不能仅替换显示或 MQTT 程序。维护时先暂停入口、确认队列为空，再同步替换实际使用的物理执行程序并恢复服务，步骤见[共享待写队列升级规程](../部署运维/共享待写队列升级规程.md)。不得靠修改 `source` 字符串实现权限区分。
 
 相关回归：`ems_control_mode_test`、`mqtt_driver_service_test`、`mqtt_forwarder_service_test`、`gateway_daemon_realtime_priority_test`、`memory_point_store_shm11_test`、`local_display_qt_access_test`、`local_display_qt_lanhu_test`。现场验证不应发送真实电气控制命令；权限转换与拒绝测试使用隔离共享内存和模拟执行器。
 
