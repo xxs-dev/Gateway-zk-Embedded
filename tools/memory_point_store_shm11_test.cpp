@@ -1,5 +1,6 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "../src/memory_point_store_layout_v10.hpp"
+#include "../src/memory_point_store_layout.hpp"
 
 #include <iostream>
 #include <memory>
@@ -214,10 +215,44 @@ void monotonicStampCrossesSharedQueue() {
             "a stamp ahead of now by more than maxAge (not this boot) expires");
 }
 
+// A slot queued by a release that does not stamp has occupied=1 and arbitrary padding where the stamp
+// now lives. Even a padding value that looks like a fresh stamp must never make such a command run.
+void unstampedSlotIsNeverTrusted() {
+    using namespace edge_gateway;
+    namespace layout = edge_gateway::memory_layout;
+    const auto name = "shm11_unstamped_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/" + name).c_str()); } } cleanup{name};
+    MemoryPointStore store(name);
+    PendingWriteCommand command;
+    command.index = 78;
+    command.cmdId = "queued-by-old-release";
+    store.submitWriteCommand(command);
+    const int fd = shm_open(("/" + name).c_str(), O_RDWR, 0);
+    require(fd >= 0, "map segment");
+    void* base = mmap(nullptr, sizeof(layout::SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    require(base != MAP_FAILED, "mmap segment");
+    auto* mapped = static_cast<layout::SharedStoreLayout*>(base);
+    auto& slot = mapped->pendingWrites[mapped->header.pendingWriteHead];
+    require(slot.occupied == layout::kPendingSlotStamped && slot.acceptedMonotonicMs != 0,
+            "a stamping producer marks its slot stamped");
+    const auto freshLooking = pendingWriteMonotonicNowMs();
+    slot.occupied = layout::kPendingSlotUnstamped;  // what every earlier release writes
+    slot.acceptedMonotonicMs = freshLooking;       // padding that happens to look fresh
+    const auto peeked = store.peekPendingWriteCommands();
+    require(peeked.size() == 1 && peeked.front().acceptedMonotonicMs == 0,
+            "the padding of an unstamped slot must never be read as a stamp");
+    require(isPendingWriteExpired(peeked.front(), freshLooking, 10000), "an unstamped write must expire");
+    munmap(base, sizeof(layout::SharedStoreLayout));
+    const auto drained = store.drainPendingWriteCommands();
+    require(drained.size() == 1 && drained.front().acceptedMonotonicMs == 0, "drain decodes the same way as peek");
+}
+
 int main() {
     try {
 #ifndef _WIN32
         monotonicStampCrossesSharedQueue();
+        unstampedSlotIsNeverTrusted();
         incompatibleSegmentIsNeverResized();
         legacySegmentIsRejectedWithoutMutation();
         authorizationSurvivesSharedQueue();
