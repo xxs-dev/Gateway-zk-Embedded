@@ -81,7 +81,7 @@ void verifyFullTelemetryRequiresExistingStores() {
     const auto name = root.substr(root.find_last_of('/') + 1);
     const auto app = root + "/monitor.json";
     const auto device = root + "/device.cfg";
-    const auto identity = root + "/identity.json";
+    const auto identity = root + "/device_identity.json";
     const auto cleanup = [&] {
         ::shm_unlink(("/" + name).c_str());
         std::remove(app.c_str());
