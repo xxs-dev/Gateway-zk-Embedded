@@ -449,8 +449,15 @@ function Ref-TopologyCard($Widgets,$Id,$Title,$Source,$Image,$X,$Y,$Storage=$fal
     }
 }
 function Ref-SingleBand($Widgets,$Id,$X,$Y,$Width,$Height) {
+    $w.Add((Ref-Button 'alarm-soe' 'SOE 事件' 'Info-Soe' 1220 196 182 32))
     $Widgets.Add((New-LanhuPanel $Id $X $Y $Width $Height '#F7F7F7' 1))
     $Widgets.Add((New-Frame "$Id-bottom" $X ($Y+8) $Width ($Height-8) '#F7F7F7' 1))
+function Build-RefSoe {
+    $w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w 'Info-Soe' 'Alarms'
+    Ref-Tabs $w @(@{Id='Active';T='当前告警';Target='Info-Alarms'},@{Id='Soe';T='SOE 事件';Target='Info-Soe'}) 'Soe' 562 80 308
+    $w.Add((New-Widget 'soe-history' 'qtSoeTable' '' 152 160 1230 600 3 @() @() $null ([ordered]@{soeDatabase='/opt/modbus-gateway/data/iec103-soe.db'})))
+    return New-RefScreen 'Info-Soe' $w
+}
 }
 function Ref-SingleSummary($Widgets,$Id,$Meter,$X,$Y,$Width,$Offsets=@(0,138,285),$Dividers=@(99,246)) {
     $items=@(@{T='P总';K='TotalP';U='kW'},@{T='Q总';K='TotalQ';U='kvar'},@{T='功率因数';K='Factor';U=''})
@@ -592,3 +599,4 @@ function Get-LanhuScreens {
     foreach($meter in $lanhuMeters){if($meter.Target-notin$XMindV2ExpectedScreens){Build-RefMeter $meter.Target $meter.Source}}
     Get-MonitorScreens
 }
+    Build-RefSoe

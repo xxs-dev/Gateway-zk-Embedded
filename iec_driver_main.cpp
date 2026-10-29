@@ -19,6 +19,7 @@
 #include "edge_gateway/iec_client.hpp"
 #include "edge_gateway/iec103_recording_command.hpp"
 #include "edge_gateway/iec_collector.hpp"
+#include "edge_gateway/soe_store.hpp"
 #include "edge_gateway/iec_command_executor.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/mock_serial_port.hpp"
@@ -165,6 +166,17 @@ int main(int argc, char* argv[]) {
         }
 #endif
         iecClient = std::make_shared<IecSerialClient>(config.protocol.type, serialPort, serialOptions, config.protocol.iec);
+    }
+
+    if (config.protocol.iec.soe.enabled) {
+        auto am5 = std::dynamic_pointer_cast<Am5seIec103Client>(iecClient);
+        if (!am5) throw std::runtime_error("SOE requires an AM5SE client");
+        auto history = std::make_shared<SoeStore>(config.protocol.iec.soe.sqlitePath);
+        am5->setSoeSink([history, config](const std::vector<Iec103SoeEvent>& incoming) {
+            auto events = incoming;
+            for (auto& event : events) describeIec103Soe(event, config);
+            history->append(events);
+        });
     }
 
     if (listRecordings) {

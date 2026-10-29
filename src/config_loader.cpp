@@ -992,6 +992,39 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     }
     const auto& object = value->asObject();
     iec.transportMode = requireString(object, "transportMode", iec.transportMode);
+    if (const auto* soe = value->find("soe")) {
+        const auto& settings = soe->asObject();
+        iec.soe.enabled = requireBool(settings, "enabled", false);
+        iec.soe.sqlitePath = requireString(settings, "sqlitePath", iec.soe.sqlitePath);
+        iec.soe.utcOffsetMinutes = requireInt(settings, "utcOffsetMinutes", 480);
+        if (iec.soe.sqlitePath.empty() || iec.soe.utcOffsetMinutes < -720 || iec.soe.utcOffsetMinutes > 840)
+            throw std::invalid_argument("invalid IEC103 SOE path/timezone");
+        if (iec.soe.enabled && iec.transportMode != "am5se_active_tcp" && iec.transportMode != "am5se_passive_tcp")
+            throw std::invalid_argument("SOE currently requires the AM5SE IEC103 transport");
+        if (const auto* mappings = soe->find("mappings")) {
+            for (const auto& item : mappings->asArray().values) {
+                const auto& entry = item->asObject();
+                Iec103SoeMapping m;
+                m.commonAddress = requireInt(entry, "commonAddress", -1);
+                m.typeId = requireInt(entry, "typeId", -1);
+                m.functionType = requireInt(entry, "functionType", -1);
+                m.informationNumber = requireInt(entry, "informationNumber", -1);
+                m.name = requireString(entry, "name", "");
+                m.state1 = requireString(entry, "state1", "");
+                m.state2 = requireString(entry, "state2", "");
+                if (!requireBool(entry, "confirmed", false) || m.commonAddress < 0 || m.commonAddress > 255 ||
+                    (m.typeId != 1 && m.typeId != 2) || m.functionType < 0 || m.functionType > 255 ||
+                    m.informationNumber < 0 || m.informationNumber > 255 || m.name.empty() || m.name.size() > 256 ||
+                    m.state1.empty() || m.state2.empty() || m.state1.size() > 128 || m.state2.size() > 128)
+                    throw std::invalid_argument("IEC103 SOE mapping must be explicit and firmware-confirmed");
+                for (const auto& old : iec.soe.mappings)
+                    if (old.commonAddress == m.commonAddress && old.typeId == m.typeId && old.functionType == m.functionType &&
+                        old.informationNumber == m.informationNumber) throw std::invalid_argument("duplicate IEC103 SOE mapping");
+                iec.soe.mappings.push_back(std::move(m));
+                if (iec.soe.mappings.size() > 4096) throw std::invalid_argument("too many IEC103 SOE mappings");
+            }
+        }
+    }
     iec.commonAddress = requireInt(object, "commonAddress", iec.commonAddress);
     iec.originatorAddress = requireInt(object, "originatorAddress", iec.originatorAddress);
     iec.cotSize = requireInt(object, "cotSize", iec.cotSize);

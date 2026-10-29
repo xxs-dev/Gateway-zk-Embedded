@@ -1,4 +1,5 @@
 #include "edge_gateway/am5se_iec103_client.hpp"
+#include <random>
 #include "edge_gateway/channel_trace.hpp"
 
 #include <algorithm>
@@ -246,6 +247,43 @@ Am5seIec103Client::Am5seIec103Client(IecProtocolConfig config, TcpTransportConfi
 Am5seIec103Client::~Am5seIec103Client() {
     disconnect();
     closeListener();
+}
+
+void Am5seIec103Client::setSoeSink(std::function<void(const std::vector<Iec103SoeEvent>&)> sink) {
+    std::lock_guard<std::mutex> lock(operationMutex_);
+    if (!pendingSoe_.empty()) throw std::runtime_error("cannot replace SOE sink with uncommitted events");
+    soeSink_ = std::move(sink);
+    std::random_device random;
+    soeSession_ = std::to_string(random()) + "-" + std::to_string(random()) + "-" +
+        std::to_string(random()) + "-" + std::to_string(random());
+}
+
+void Am5seIec103Client::flushSoe() {
+    if (pendingSoe_.empty()) return;
+    soeSink_(pendingSoe_);
+    pendingSoe_.clear();
+}
+
+void Am5seIec103Client::captureSoe(const std::vector<std::vector<std::uint8_t>>& frames) {
+    if (!soeSink_) return;
+    flushSoe();
+    for (const auto& frame : frames) {
+        if (!IecCodec::isFt12VariableFrame(frame)) continue;
+        const auto data = IecCodec::ft12UserData(frame, config_.linkAddressSize);
+        int linkAddress = 0;
+        for (int b = 0; b < config_.linkAddressSize; ++b) linkAddress |= data.at(1 + b) << (8 * b);
+        if (linkAddress != config_.linkAddress) continue;
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        const auto events = decodeIec103Soe(data, config_, now);
+        for (auto event : events) {
+            event.eventId = soeSession_ + ":" + std::to_string(++soeSequence_);
+            pendingSoe_.push_back(std::move(event));
+        }
+        // Commit before asking the relay for another event. On storage failure
+        // the same IDs remain pending and all subsequent sends retry this batch.
+        flushSoe();
+    }
 }
 
 std::vector<IecDataValue> Am5seIec103Client::poll() {
@@ -585,6 +623,7 @@ void Am5seIec103Client::sendDiscoveryIfDue(bool force) {
 }
 
 void Am5seIec103Client::sendAll(const std::vector<std::uint8_t>& bytes) {
+    flushSoe();
     std::size_t sent = 0;
     while (sent < bytes.size()) {
 #ifdef _WIN32
@@ -703,6 +742,7 @@ std::vector<std::vector<std::uint8_t>> Am5seIec103Client::exchange(
     if (frames.empty()) {
         throw std::runtime_error("AM5SE IEC103 response timeout");
     }
+    captureSoe(frames);
     return frames;
 }
 
@@ -813,6 +853,7 @@ std::vector<std::vector<std::uint8_t>> Am5seIec103Client::exchangeWithFrameCount
     // identical frame (same FCB), so a relay whose answer was lost resends its
     // buffered response (e.g. a class 1 trip event) instead of discarding it.
     constexpr int kRetransmissions = 2;
+    flushSoe();
     const auto request = build(nextFrameCountBit());
     for (int attempt = 0; attempt <= kRetransmissions; ++attempt) {
         // Transport errors (send/recv failure) disconnect and propagate; the
@@ -820,6 +861,7 @@ std::vector<std::vector<std::uint8_t>> Am5seIec103Client::exchangeWithFrameCount
         sendAll(request);
         auto frames = readFrames(timeoutMs, maxFrames);
         if (!frames.empty()) {
+            captureSoe(frames);
             return frames;
         }
     }

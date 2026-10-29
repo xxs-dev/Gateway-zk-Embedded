@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "edge_gateway/iec_client.hpp"
+#include "edge_gateway/iec103_soe.hpp"
 
 namespace edge_gateway {
 
@@ -19,6 +20,7 @@ public:
     ~Am5seIec103Client() override;
 
     std::vector<IecDataValue> poll() override;
+    void setSoeSink(std::function<void(const std::vector<Iec103SoeEvent>&)> sink);
     std::vector<Iec103DisturbanceRecord> listDisturbanceRecords(int timeoutMs) override;
     Iec103ComtradeFiles pullComtradeRecording(
         int fan,
@@ -59,6 +61,8 @@ private:
     );
     void disconnect();
     void closeListener();
+    void captureSoe(const std::vector<std::vector<std::uint8_t>>& frames);
+    void flushSoe();
 
     IecProtocolConfig config_;
     TcpTransportConfig tcp_;
@@ -71,6 +75,10 @@ private:
     std::int64_t lastDiscoveryMs_ = 0;
     std::function<void(const std::string&)> recordingProgressCallback_;
     mutable std::mutex operationMutex_;
+    std::function<void(const std::vector<Iec103SoeEvent>&)> soeSink_;
+    std::vector<Iec103SoeEvent> pendingSoe_;
+    std::string soeSession_;
+    std::uint64_t soeSequence_ = 0;
 };
 
 }  // namespace edge_gateway

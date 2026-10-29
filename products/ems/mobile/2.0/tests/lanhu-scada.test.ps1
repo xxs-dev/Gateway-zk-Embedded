@@ -36,6 +36,9 @@ try {
     foreach($screen in $screens){
         $modeButtons=@($screen.widgets|Where-Object {$null-ne$_.properties.PSObject.Properties['emsControlModeTarget']})
         if($modeButtons.Count -and $screen.screenId -notlike 'Control-*'){throw 'EMS mode switch must stay on authenticated control pages'}
+    $soe=$screens|Where-Object screenId -eq 'Info-Soe'
+    if(@($soe.widgets|Where-Object type -eq 'qtSoeTable').Count-ne1){throw 'Native SOE history missing'}
+    if(@($soe.widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count){throw 'SOE must be read-only'}
         if($modeButtons.Count -and (($modeButtons.properties.emsControlModeTarget|Sort-Object)-join',')-ne'local,remote'){throw 'EMS control mode selector must contain both choices'}
     }
     if(@(($screens|Where-Object screenId -eq 'Control-Pcs').widgets|Where-Object {$null-ne$_.properties.PSObject.Properties['emsControlModeTarget']}).Count-ne2){throw 'EMS control mode selector missing'}

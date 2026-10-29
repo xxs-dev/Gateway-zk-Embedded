@@ -470,7 +470,20 @@ struct CanProtocolConfig {
     bool preserveFrameSignals = false;
 };
 
+struct Iec103SoeMapping {
+    int commonAddress = 1, typeId = 1, functionType = 0, informationNumber = 0;
+    std::string name, state1, state2;
+};
+
+struct Iec103SoeConfig {
+    bool enabled = false;
+    std::string sqlitePath = "/opt/modbus-gateway/data/iec103-soe.db";
+    int utcOffsetMinutes = 480;
+    std::vector<Iec103SoeMapping> mappings;
+};
+
 struct IecProtocolConfig {
+    Iec103SoeConfig soe;
     std::string transportMode;
     int commonAddress = 1;
     int originatorAddress = 0;

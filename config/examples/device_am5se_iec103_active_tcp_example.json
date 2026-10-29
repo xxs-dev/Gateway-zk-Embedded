@@ -11,6 +11,12 @@
     },
     "iec": {
       "transportMode": "am5se_active_tcp",
+      "soe": {
+        "enabled": false,
+        "sqlitePath": "/opt/modbus-gateway/data/iec103-soe.db",
+        "utcOffsetMinutes": 480,
+        "mappings": []
+      },
       "linkAddress": 1,
       "linkAddressSize": 1,
       "commonAddress": 1,

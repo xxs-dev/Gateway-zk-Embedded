@@ -1,6 +1,6 @@
 # Shared primitives for the approved 1440 x 810 Lanhu boards.
 $LanhuExpectedScreens = @($XMindV2ExpectedScreens) + @(
-    'Topology-Single', 'Control-Bms', 'Control-Thermal', 'Control-Mccb', 'Control-Diesel'
+    'Topology-Single', 'Info-Soe', 'Control-Bms', 'Control-Thermal', 'Control-Mccb', 'Control-Diesel'
     'Monitor-Network', 'Monitor-Strategy', 'Devices-Emu', 'Devices-Mccb',
     'Devices-Meters', 'Devices-Meters-Page2', 'Devices-Diesel', 'Devices-Cells', 'Devices-Cells-2'
     'Devices-Cells-Page2', 'Devices-Cells-Page3', 'Devices-Cells-Page4', 'Devices-Cells-Page5',

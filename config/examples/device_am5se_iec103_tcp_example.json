@@ -11,6 +11,12 @@
     },
     "iec": {
       "transportMode": "am5se_passive_tcp",
+      "soe": {
+        "enabled": false,
+        "sqlitePath": "/opt/modbus-gateway/data/iec103-soe.db",
+        "utcOffsetMinutes": 480,
+        "mappings": []
+      },
       "listenAddress": "0.0.0.0",
       "listenPort": 1048,
       "allowedDeviceIp": "192.168.1.101",

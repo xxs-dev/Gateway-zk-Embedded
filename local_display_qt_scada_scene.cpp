@@ -1,5 +1,6 @@
 #include "local_display_qt_scada_scene.hpp"
 #include "local_display_qt_parallel_topology.hpp"
+#include "local_display_qt_soe.hpp"
 
 #include "edge_gateway/scada_project_loader.hpp"
 #include "local_display_qt_pcs_power_control.hpp"
@@ -264,6 +265,16 @@ void ScadaSceneView::buildScene() {
         const auto imageHasTextOverlay =
             (widget.type == "qtImage" || widget.type == "image") && !imageOverlayText.empty();
 
+        if (widget.type == "qtSoeTable") {
+            auto path = property(widget, "soeDatabase");
+            if (path.empty()) path = "/opt/modbus-gateway/data/iec103-soe.db";
+            auto* history = new SoeHistoryView(path, runtime_.machineCode());
+            history->setFixedSize(qRound(geometry.width()), qRound(geometry.height()));
+            auto* proxy = scene_->addWidget(history);
+            proxy->setPos(geometry.topLeft());
+            proxy->setZValue(widget.zIndex);
+            continue;
+        }
         if (widget.type == "qtParallelTopology") {
             const auto localTags = QJsonDocument::fromJson(
                 QByteArray::fromStdString(property(widget, "localTelemetryTagsJson"))).object();

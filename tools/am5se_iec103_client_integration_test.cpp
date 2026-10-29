@@ -226,6 +226,13 @@ void mockDevice(int port) {
     receiveFrame(socketHandle);  // DAT ASDU68.
     sendAll(socketHandle, acknowledge);
     for (int packet = 0; packet < 12; ++packet) {
+        if (packet == 1) {
+            for (int dpi : {2, 1}) {
+                receiveFrame(socketHandle);
+                sendAll(socketHandle, variableFrame({0x28,1,1,0x81,1,1,1,100,
+                    static_cast<std::uint8_t>(dpi),0x88,0x13,0,0,0}));
+            }
+        }
         receiveFrame(socketHandle);  // DAT class 1 response.
         sendAll(socketHandle, variableFrame({
             0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x52,
@@ -275,8 +282,22 @@ void mockActiveDevice(int port) {
         0x01, 0x00, 0x00, 0x00, 0x00, 0xE9
     }));
 
+    receiveFrame(socketHandle);  // Class 2, ACD advertises an event.
+    sendAll(socketHandle, acknowledge);
+    const auto lostRequest = receiveFrame(socketHandle);
+    const auto retryRequest = receiveFrame(socketHandle);
+    requireTrue(lostRequest == retryRequest, "lost event response must retry identical FCB");
+    sendAll(socketHandle, variableFrame({0x08,1,1,0x81,1,1,1,100,2,0x88,0x13,0,0,0}));
+    // The sink fails once. A later poll must flush that event before this request.
+    receiveFrame(socketHandle);
+    sendAll(socketHandle, acknowledge);
+    receiveFrame(socketHandle);
+    sendAll(socketHandle, variableFrame({0x08,1,1,0x81,1,1,1,100,1,0x89,0x13,0,0,0}));
+
     receiveFrame(socketHandle);  // Directory ASDU24.
     sendAll(socketHandle, acknowledge);
+    receiveFrame(socketHandle);  // SOE interleaved in directory transfer.
+    sendAll(socketHandle, variableFrame({0x28,1,1,0x81,1,1,1,100,2,0x90,0x13,0,0,0}));
     receiveFrame(socketHandle);  // Class 1 directory response.
     sendAll(socketHandle, variableFrame({
         0x08, 0x01, 0x17, 0x01, 0x1F, 0x01, 0xFF, 0x00,
@@ -341,7 +362,10 @@ int main() {
         config.recordingMaxFileBytes = 1024;
 
         Am5seIec103Client client(config);
+        std::vector<Iec103SoeEvent> soe;
+        client.setSoeSink([&](const std::vector<Iec103SoeEvent>& events){soe.insert(soe.end(),events.begin(),events.end());});
         const auto values = client.poll();
+        requireTrue(soe.empty(), "general interrogation must not create SOE");
         requireTrue(values.size() == 16, "passive TCP general interrogation values");
         requireTrue(values.front().informationNumber == 100 && values.front().value == 1.0,
             "passive TCP ASDU44 value");
@@ -354,6 +378,8 @@ int main() {
             "passive TCP COMTRADE should continue beyond maxPollFrames");
         requireTrue(fileExists(files.cfgPath) && fileExists(files.datPath),
             "passive TCP COMTRADE files");
+        requireTrue(soe.size()==2 && soe[0].dpi==2 && soe[1].dpi==1 && soe[0].eventId!=soe[1].eventId,
+            "SOE action/return during recording must be retained in order");
     } catch (...) {
         if (device.joinable()) {
             device.join();
@@ -396,13 +422,33 @@ int main() {
         tcp.connectTimeoutMs = 1000;
 
         Am5seIec103Client client(config, tcp);
+        std::vector<Iec103SoeEvent> soe;
+        std::string failedId;
+        int sinkAttempts = 0;
+        client.setSoeSink([&](const std::vector<Iec103SoeEvent>& events) {
+            if (++sinkAttempts == 1) {
+                failedId = events.at(0).eventId;
+                throw std::runtime_error("injected storage failure");
+            }
+            if (sinkAttempts == 2) requireTrue(events.at(0).eventId == failedId, "pending SOE ID retained");
+            soe.insert(soe.end(), events.begin(), events.end());
+        });
         const auto values = client.poll();
         requireTrue(values.size() == 16, "active TCP general interrogation values");
         requireTrue(values.front().informationNumber == 100 && values.front().value == 1.0,
             "active TCP ASDU44 value");
 
+        bool storageFailed = false;
+        try { client.poll(); } catch (const std::runtime_error& error) {
+            storageFailed = std::string(error.what()) == "injected storage failure";
+        }
+        requireTrue(storageFailed && soe.empty(), "storage failure surfaced");
+        client.poll();
+        requireTrue(soe.size() == 2 && soe[0].dpi == 2 && soe[1].dpi == 1,
+            "ACD events and pending storage recovered in order");
         const auto records = client.listDisturbanceRecords(1000);
         requireTrue(records.size() == 1 && records.front().fan == 15, "active TCP recording directory");
+        requireTrue(soe.size() == 3, "SOE during directory transfer retained");
 
         const auto files = client.pullComtradeRecording(15, activeOutput, 1000);
         requireTrue(files.cfgBytes == 3 && files.datBytes == 3, "active TCP COMTRADE sizes");

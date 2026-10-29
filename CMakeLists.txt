@@ -39,6 +39,8 @@ add_library(edge_gateway
     src/agc_avc_command_mailbox.cpp
     src/agc_avc_service.cpp
     src/am5se_iec103_client.cpp
+    src/iec103_soe.cpp
+    src/soe_store.cpp
     src/alarm_service.cpp
     src/can_driver_service.cpp
     src/can_signal_codec.cpp
@@ -391,6 +393,15 @@ else()
 endif()
 
 if(BUILD_TESTING AND TARGET LocalDisplayQtEms)
+    add_executable(local_display_qt_soe_test tools/local_display_qt_soe_test.cpp)
+    target_include_directories(local_display_qt_soe_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(Qt6Widgets_FOUND)
+        target_link_libraries(local_display_qt_soe_test PRIVATE edge_gateway Qt6::Widgets)
+    else()
+        target_link_libraries(local_display_qt_soe_test PRIVATE edge_gateway Qt5::Widgets)
+    endif()
+    add_test(NAME local_display_qt_soe COMMAND local_display_qt_soe_test)
+    set_tests_properties(local_display_qt_soe PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
     add_executable(local_display_qt_lanhu_test
         tools/local_display_qt_lanhu_test.cpp
         local_display_qt_scada_scene.cpp
@@ -463,6 +474,9 @@ target_link_libraries(iec_codec_test PRIVATE edge_gateway)
 target_compile_options(iec_codec_test PRIVATE -fdiagnostics-color=never)
 
 add_executable(am5se_iec103_codec_test tools/am5se_iec103_codec_test.cpp)
+add_executable(am5se_soe_test tools/am5se_soe_test.cpp)
+target_link_libraries(am5se_soe_test PRIVATE edge_gateway)
+add_test(NAME am5se_soe COMMAND am5se_soe_test)
 target_link_libraries(am5se_iec103_codec_test PRIVATE edge_gateway)
 target_compile_options(am5se_iec103_codec_test PRIVATE -fdiagnostics-color=never)
 
