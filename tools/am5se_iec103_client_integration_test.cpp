@@ -322,6 +322,75 @@ void mockActiveDevice(int port) {
     closeSocket(socketHandle);
 }
 
+void testRecordingAssociation(int scenario) {
+    using namespace edge_gateway;
+    const int port=availablePort();std::exception_ptr error;
+    std::thread device([&]{try{
+        const auto listener=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
+        sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);address.sin_port=htons(port);
+        requireTrue(bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))==0 && listen(listener,1)==0,"association mock listen");
+        const auto s=accept(listener,nullptr,nullptr);closeSocket(listener);
+        const std::vector<std::uint8_t> ack={0x10,0x20,1,0x21,0x16};
+        receiveFrame(s);sendAll(s,ack);receiveFrame(s);sendAll(s,ack);
+        receiveFrame(s);sendAll(s,variableFrame({0x08,1,0x2c,1,9,1,1,100,1,0,0,0,0,0xe9}));
+        auto directory=[&](bool recycled,bool partial){
+            auto f=receiveFrame(s);requireTrue(f.size()>6&&f[6]==24,"directory uses existing connection");sendAll(s,ack);
+            f=receiveFrame(s);requireTrue(f[0]==0x10&&(f[1]&15)==10,"class1 directory read");
+            if(scenario==3){std::this_thread::sleep_for(std::chrono::milliseconds(750));return;}
+            std::vector<std::uint8_t> reply={static_cast<std::uint8_t>(partial?0x28:0x08),1,23,1,31,1,255,0,
+                15,0,6,0x88,0x13,0,0,static_cast<std::uint8_t>(recycled?30:29),10,26};
+            if(scenario==4)reply[1]=2;
+            if(scenario==5)reply.push_back(0);
+            if(scenario==6)reply[5]=2;
+            if(scenario==7)reply[4]|=0x40;
+            sendAll(s,variableFrame(reply));
+        };
+        directory(false,scenario==2);
+        if(scenario>=2){closeSocket(s);return;}
+        auto f=receiveFrame(s);requireTrue(f[0]==0x10&&(f[1]&15)==11,"automatic directory refresh is throttled");
+        sendAll(s,variableFrame({0x08,1,2,0x81,1,1,1,101,2,25,0,15,0,0x88,0x13,0,0}));
+        directory(false,false);
+        for(int kind:{0x51,0x52}){
+            f=receiveFrame(s);requireTrue(f[6]==0x44,"only recording file request");sendAll(s,ack);
+            receiveFrame(s);sendAll(s,variableFrame({0x08,1,0x50,0x81,0x14,1,1,static_cast<std::uint8_t>(kind),0,0x80,1,2,3}));
+        }
+        directory(scenario==1,false);closeSocket(s);
+    }catch(...){error=std::current_exception();}});
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const auto output=temporaryDirectory(port);
+    std::string cfg,dat;
+    try{
+        IecProtocolConfig c;c.transportMode="am5se_active_tcp";c.linkAddress=c.commonAddress=c.linkAddressSize=1;
+        c.deviceFunctionType=1;c.interrogationCot=9;c.pollTimeoutMs=1000;c.maxPollFrames=scenario==2?1:8;
+        c.soe.enabled=true;c.soe.recordingLinkEnabled=true;c.soe.recordingDirectoryTimeoutMs=500;c.soe.utcOffsetMinutes=0;
+        TcpTransportConfig tcp;tcp.host="127.0.0.1";tcp.port=port;tcp.connectTimeoutMs=1000;
+        Am5seIec103Client client(c,tcp);int snapshots=0,downloads=0;bool complete=false,success=true;
+        client.setSoeSink([](const std::vector<Iec103SoeEvent>&){});
+        client.setSoeRecordingSinks([&](const std::vector<Iec103DisturbanceRecord>&,bool done,bool ok,std::int64_t){++snapshots;complete=done;success=ok;},
+            [&](const Iec103DisturbanceRecord& r,const Iec103ComtradeFiles& files,std::int64_t){requireTrue(r.fan==15&&fileExists(files.cfgPath)&&fileExists(files.datPath),"download callback only after files exist");++downloads;});
+        const auto start=std::chrono::steady_clock::now();bool failed=false;
+        try{client.poll();}catch(...){failed=true;}
+        if(scenario>=4){
+            requireTrue(failed&&!success&&!complete&&snapshots==1,"invalid directory cannot certify a complete catalogue");
+        }else if(scenario==3){
+            requireTrue(failed&&!success&&snapshots==1,"directory timeout surfaced without negative association");
+            requireTrue(std::chrono::steady_clock::now()-start<std::chrono::milliseconds(1000),"directory has a total deadline including retries");
+        }else{
+            requireTrue(!failed&&snapshots==1&&success,"automatic startup directory snapshot");
+            requireTrue(complete==(scenario!=2),"directory completeness retained");
+            if(scenario<2){
+                client.poll();requireTrue(snapshots==1,"no repeated immediate automatic query");
+                const auto files=client.pullComtradeRecording(15,output,1000);cfg=files.cfgPath;dat=files.datPath;
+                requireTrue(snapshots==3,"download checks directory before and after");
+                requireTrue(downloads==(scenario==0?1:0),"recycled FAN cannot attach downloaded files");
+                requireTrue(cfg.find("FAN00015_")!=std::string::npos,"associated downloads use unique names");
+            }
+        }
+    }catch(...){device.join();if(!cfg.empty())std::remove(cfg.c_str());if(!dat.empty())std::remove(dat.c_str());removeTestOutput(output);throw;}
+    device.join();if(error)std::rethrow_exception(error);
+    if(!cfg.empty())std::remove(cfg.c_str());if(!dat.empty())std::remove(dat.c_str());removeTestOutput(output);
+}
+
 }  // namespace
 
 int main() {
@@ -466,6 +535,7 @@ int main() {
         std::rethrow_exception(activeMockError);
     }
     removeTestOutput(activeOutput);
+    for(int scenario=0;scenario<8;++scenario)testRecordingAssociation(scenario);
     std::cout << "AM5SE IEC103 passive and active TCP integration tests passed" << std::endl;
     return EXIT_SUCCESS;
 }

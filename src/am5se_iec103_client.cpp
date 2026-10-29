@@ -264,6 +264,23 @@ void Am5seIec103Client::flushSoe() {
     pendingSoe_.clear();
 }
 
+void Am5seIec103Client::setSoeRecordingSinks(
+    std::function<void(const std::vector<Iec103DisturbanceRecord>&,bool,bool,std::int64_t)> directory,
+    std::function<void(const Iec103DisturbanceRecord&,const Iec103ComtradeFiles&,std::int64_t)> downloaded) {
+    std::lock_guard<std::mutex> lock(operationMutex_);
+    directorySink_=std::move(directory);downloadSink_=std::move(downloaded);
+    recordingChecksRemaining_=directorySink_?3:0;
+}
+
+void Am5seIec103Client::checkRecordingsIfDue() {
+    const auto now=std::chrono::steady_clock::now();
+    if(!directorySink_ || !config_.soe.recordingLinkEnabled || recordingChecksRemaining_<=0 || now<nextRecordingCheck_)return;
+    --recordingChecksRemaining_;
+    nextRecordingCheck_=now+std::chrono::milliseconds(config_.soe.recordingRefreshIntervalMs);
+    bool complete=false;
+    listRecordingsLocked(config_.soe.recordingDirectoryTimeoutMs,complete);
+}
+
 void Am5seIec103Client::captureSoe(const std::vector<std::vector<std::uint8_t>>& frames) {
     if (!soeSink_) return;
     flushSoe();
@@ -277,6 +294,7 @@ void Am5seIec103Client::captureSoe(const std::vector<std::vector<std::uint8_t>>&
             std::chrono::system_clock::now().time_since_epoch()).count();
         const auto events = decodeIec103Soe(data, config_, now);
         for (auto event : events) {
+            if(event.typeId==2 && directorySink_)recordingChecksRemaining_=3;
             event.eventId = soeSession_ + ":" + std::to_string(++soeSequence_);
             pendingSoe_.push_back(std::move(event));
         }
@@ -292,6 +310,7 @@ std::vector<IecDataValue> Am5seIec103Client::poll() {
     if (!generalInterrogationDone_) {
         auto values = performGeneralInterrogation(config_.pollTimeoutMs);
         generalInterrogationDone_ = true;
+        checkRecordingsIfDue();
         return values;
     }
 
@@ -308,40 +327,74 @@ std::vector<IecDataValue> Am5seIec103Client::poll() {
             return IecCodec::ft12AccessDemand(frame);
         });
     }
+    checkRecordingsIfDue();
     return values;
 }
 
 std::vector<Iec103DisturbanceRecord> Am5seIec103Client::listDisturbanceRecords(int timeoutMs) {
     std::lock_guard<std::mutex> lock(operationMutex_);
     ensureConnected();
-    exchangeWithFrameCount(
+    bool complete=false;
+    return listRecordingsLocked(timeoutMs,complete);
+}
+
+std::vector<Iec103DisturbanceRecord> Am5seIec103Client::listRecordingsLocked(int timeoutMs,bool& complete) {
+    complete=false;
+    directoryDeadline_=std::chrono::steady_clock::now()+std::chrono::milliseconds(std::max(1,timeoutMs));
+    struct Reset { std::chrono::steady_clock::time_point& deadline;~Reset(){deadline={};} } reset{directoryDeadline_};
+    std::vector<Iec103DisturbanceRecord> result;
+    bool directorySeen=false;
+    auto consume=[&](const std::vector<std::vector<std::uint8_t>>& frames) {
+        bool accessDemand=false;
+        for(const auto& frame:frames){
+            const bool variable=IecCodec::isFt12VariableFrame(frame);
+            if(!variable && !IecCodec::isFt12FixedFrame(frame,config_.linkAddressSize))
+                throw std::runtime_error("invalid IEC103 directory reply frame");
+            const auto addressOffset=variable?5U:2U;
+            int address=0;for(int b=0;b<config_.linkAddressSize;++b)address|=frame.at(addressOffset+b)<<(8*b);
+            if(address!=config_.linkAddress)
+                throw std::runtime_error("IEC103 directory reply link address mismatch");
+            accessDemand=accessDemand||IecCodec::ft12AccessDemand(frame);
+            if(!variable)continue;
+            const auto data=IecCodec::ft12UserData(frame,config_.linkAddressSize);
+            const auto h=static_cast<std::size_t>(1+config_.linkAddressSize);
+            if(data.size()<=h || data[h]!=23)continue;
+            if(data.size()<h+6 || data[h+3]!=config_.commonAddress || data[h+2]!=31 ||
+                data.size()!=h+6+10U*(data[h+1]&127U))
+                throw std::runtime_error("invalid IEC103 ASDU23 directory identity or length");
+            const auto records=IecCodec::decodeIec103RecordingDirectory(data,config_);
+            directorySeen=true;result.insert(result.end(),records.begin(),records.end());
+        }
+        return accessDemand;
+    };
+    try {
+    const auto initial=exchangeWithFrameCount(
         [this](bool fcb) { return IecCodec::buildIec103RecordingDirectoryFrame(config_, fcb); },
         timeoutMs,
         1);
-
-    std::vector<Iec103DisturbanceRecord> result;
-    for (int i = 0; i < config_.maxPollFrames && result.size() < 50U; ++i) {
+    const bool initialDemand=consume(initial);
+    complete=directorySeen&&!initialDemand;
+    for (int i = 0; !complete && i < config_.maxPollFrames && result.size() < 50U; ++i) {
         const auto frames = requestClassData(1, timeoutMs);
-        bool accessDemand = false;
-        for (const auto& frame : frames) {
-            accessDemand = accessDemand || IecCodec::ft12AccessDemand(frame);
-            if (!IecCodec::isFt12VariableFrame(frame)) {
-                continue;
-            }
-            const auto userData = IecCodec::ft12UserData(frame, config_.linkAddressSize);
-            const auto records = IecCodec::decodeIec103RecordingDirectory(userData, config_);
-            result.insert(result.end(), records.begin(), records.end());
-        }
+        const bool accessDemand=consume(frames);
         if (!accessDemand) {
+            complete=directorySeen;
             break;
         }
     }
+    }catch(...){
+        if(directorySink_)directorySink_(result,false,false,nowMs());
+        throw;
+    }
     std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
-        return left.fan < right.fan;
+        if(left.fan!=right.fan)return left.fan<right.fan;
+        if(left.rawTimeHex!=right.rawTimeHex)return left.rawTimeHex<right.rawTimeHex;
+        return left.state<right.state;
     });
     result.erase(std::unique(result.begin(), result.end(), [](const auto& left, const auto& right) {
-        return left.fan == right.fan;
+        return left.fan==right.fan && left.rawTimeHex==right.rawTimeHex && left.state==right.state;
     }), result.end());
+    if(directorySink_)directorySink_(result,complete,true,nowMs());
     return result;
 }
 
@@ -352,6 +405,9 @@ Iec103ComtradeFiles Am5seIec103Client::pullComtradeRecording(
 ) {
     std::lock_guard<std::mutex> lock(operationMutex_);
     ensureConnected();
+    std::vector<Iec103DisturbanceRecord> before;
+    bool beforeComplete=false;
+    if(downloadSink_)before=listRecordingsLocked(config_.soe.recordingDirectoryTimeoutMs,beforeComplete);
     if (recordingProgressCallback_) {
         recordingProgressCallback_("pulling_cfg");
     }
@@ -365,6 +421,7 @@ Iec103ComtradeFiles Am5seIec103Client::pullComtradeRecording(
     ensureDirectory(directory);
     std::ostringstream baseName;
     baseName << "FAN" << std::setw(5) << std::setfill('0') << fan;
+    if(downloadSink_){std::random_device random;baseName<<"_"<<nowMs()<<"_"<<random();}
     const auto cfgPath = joinPath(directory, baseName.str() + ".CFG");
     const auto datPath = joinPath(directory, baseName.str() + ".DAT");
     const auto token = std::to_string(nowMs());
@@ -394,6 +451,17 @@ Iec103ComtradeFiles Am5seIec103Client::pullComtradeRecording(
     result.datPath = datPath;
     result.cfgBytes = cfg.size();
     result.datBytes = dat.size();
+    if(downloadSink_){
+        bool afterComplete=false;
+        const auto after=listRecordingsLocked(config_.soe.recordingDirectoryTimeoutMs,afterComplete);
+        std::vector<Iec103DisturbanceRecord> a,b;
+        for(const auto& r:before)if(r.fan==fan)a.push_back(r);
+        for(const auto& r:after)if(r.fan==fan)b.push_back(r);
+        // A recycled FAN or incomplete directory must not attach a file to an old event.
+        if(beforeComplete && afterComplete && a.size()==1 && b.size()==1 && a[0].rawTimeHex==b[0].rawTimeHex &&
+            a[0].state==b[0].state && soeRecordingTimeUtc(a[0].rawTimeHex,config_.soe.utcOffsetMinutes)>0)
+            downloadSink_(b[0],result,nowMs());
+    }
     return result;
 }
 
@@ -623,6 +691,8 @@ void Am5seIec103Client::sendDiscoveryIfDue(bool force) {
 }
 
 void Am5seIec103Client::sendAll(const std::vector<std::uint8_t>& bytes) {
+    if(directoryDeadline_!=std::chrono::steady_clock::time_point{} && std::chrono::steady_clock::now()>=directoryDeadline_)
+        throw std::runtime_error("AM5SE recording directory deadline exceeded");
     flushSoe();
     std::size_t sent = 0;
     while (sent < bytes.size()) {
@@ -654,8 +724,9 @@ void Am5seIec103Client::sendAll(const std::vector<std::uint8_t>& bytes) {
 
 std::vector<std::vector<std::uint8_t>> Am5seIec103Client::readFrames(int timeoutMs, int maxFrames) {
     std::vector<std::vector<std::uint8_t>> frames;
-    const auto deadline = std::chrono::steady_clock::now() +
+    auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(std::max(1, timeoutMs));
+    if(directoryDeadline_!=std::chrono::steady_clock::time_point{})deadline=std::min(deadline,directoryDeadline_);
     while (std::chrono::steady_clock::now() < deadline &&
         static_cast<int>(frames.size()) < std::max(1, maxFrames)) {
         const auto remaining = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(

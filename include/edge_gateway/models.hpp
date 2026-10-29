@@ -479,6 +479,10 @@ struct Iec103SoeConfig {
     bool enabled = false;
     std::string sqlitePath = "/opt/modbus-gateway/data/iec103-soe.db";
     int utcOffsetMinutes = 480;
+    bool recordingLinkEnabled = false;
+    int recordingRefreshIntervalMs = 30000;
+    int recordingDirectoryTimeoutMs = 2000;
+    int recordingMatchWindowMs = 1000;
     std::vector<Iec103SoeMapping> mappings;
 };
 

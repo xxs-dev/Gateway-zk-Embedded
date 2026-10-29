@@ -2,8 +2,33 @@
 #include "edge_gateway/iec_codec.hpp"
 #include <cstdlib>
 #include <stdexcept>
+#include <ctime>
+#include <sstream>
 
 namespace edge_gateway {
+std::int64_t soeRecordingTimeUtc(const std::string& hex, int offset) {
+    if (hex.size() != 14 || offset < -720 || offset > 840) return 0;
+    std::vector<int> b;
+    for (std::size_t i=0; i<hex.size(); i+=2) {
+        const auto pair=hex.substr(i,2);
+        if (pair.find_first_not_of("0123456789abcdefABCDEF")!=std::string::npos) return 0;
+        b.push_back(std::stoi(pair,nullptr,16));
+    }
+    const int ms=b[0]|(b[1]<<8), minute=b[2]&63, hour=b[3]&31;
+    const int day=b[4]&31, month=b[5]&15, year=2000+(b[6]&127);
+    if (ms>=60000 || minute>=60 || hour>=24 || day<1 || day>31 || month<1 || month>12 ||
+        year>2099 || (b[2]&0xc0) || (b[3]&0xe0) || (b[5]&0xf0) || (b[6]&0x80)) return 0;
+    std::tm tm{};tm.tm_year=year-1900;tm.tm_mon=month-1;tm.tm_mday=day;
+    tm.tm_hour=hour;tm.tm_min=minute;tm.tm_sec=ms/1000;
+#ifdef _WIN32
+    const auto seconds=_mkgmtime(&tm);
+#else
+    const auto seconds=timegm(&tm);
+#endif
+    if (seconds<0 || tm.tm_year!=year-1900 || tm.tm_mon!=month-1 || tm.tm_mday!=day) return 0;
+    return static_cast<std::int64_t>(seconds)*1000+ms%1000-static_cast<std::int64_t>(offset)*60000;
+}
+
 std::vector<Iec103SoeEvent> decodeIec103Soe(const std::vector<std::uint8_t>& data,
     const IecProtocolConfig& config, std::int64_t receivedMs) {
     const auto h = static_cast<std::size_t>(1 + config.linkAddressSize);

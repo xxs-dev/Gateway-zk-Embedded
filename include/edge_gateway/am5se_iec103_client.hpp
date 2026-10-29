@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -21,6 +22,9 @@ public:
 
     std::vector<IecDataValue> poll() override;
     void setSoeSink(std::function<void(const std::vector<Iec103SoeEvent>&)> sink);
+    void setSoeRecordingSinks(
+        std::function<void(const std::vector<Iec103DisturbanceRecord>&, bool, bool, std::int64_t)> directory,
+        std::function<void(const Iec103DisturbanceRecord&, const Iec103ComtradeFiles&, std::int64_t)> downloaded);
     std::vector<Iec103DisturbanceRecord> listDisturbanceRecords(int timeoutMs) override;
     Iec103ComtradeFiles pullComtradeRecording(
         int fan,
@@ -63,6 +67,8 @@ private:
     void closeListener();
     void captureSoe(const std::vector<std::vector<std::uint8_t>>& frames);
     void flushSoe();
+    std::vector<Iec103DisturbanceRecord> listRecordingsLocked(int timeoutMs, bool& complete);
+    void checkRecordingsIfDue();
 
     IecProtocolConfig config_;
     TcpTransportConfig tcp_;
@@ -79,6 +85,10 @@ private:
     std::vector<Iec103SoeEvent> pendingSoe_;
     std::string soeSession_;
     std::uint64_t soeSequence_ = 0;
+    std::function<void(const std::vector<Iec103DisturbanceRecord>&, bool, bool, std::int64_t)> directorySink_;
+    std::function<void(const Iec103DisturbanceRecord&, const Iec103ComtradeFiles&, std::int64_t)> downloadSink_;
+    int recordingChecksRemaining_ = 0;
+    std::chrono::steady_clock::time_point nextRecordingCheck_{}, directoryDeadline_{};
 };
 
 }  // namespace edge_gateway

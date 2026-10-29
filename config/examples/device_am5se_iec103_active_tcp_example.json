@@ -15,6 +15,12 @@
         "enabled": false,
         "sqlitePath": "/opt/modbus-gateway/data/iec103-soe.db",
         "utcOffsetMinutes": 480,
+        "recordings": {
+          "enabled": false,
+          "refreshIntervalMs": 30000,
+          "directoryTimeoutMs": 2000,
+          "matchWindowMs": 1000
+        },
         "mappings": []
       },
       "linkAddress": 1,

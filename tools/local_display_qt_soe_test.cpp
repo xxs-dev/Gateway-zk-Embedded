@@ -29,9 +29,14 @@ int main(int argc, char** argv) {
         e.timeValid = e.valueValid = e.mapped = true;
         if (n == 54) { e.state = "DPI=2"; e.mapped = false; }
         if (n == 53) { e.timeValid = false; e.valueValid = false; e.state = "DPI=3"; }
+        if(n>=52){e.typeId=2;e.faultNumber=n==52?16:15;e.deviceTimeMs=1793232005000LL;}
         events.push_back(e);
     }
     writer.append(events);
+    edge_gateway::DeviceConfig config;config.machineCode="SIMULATED";config.meterCode="AM5SE-F";
+    config.protocol.iec.commonAddress=1;config.protocol.iec.soe.utcOffsetMinutes=0;
+    edge_gateway::Iec103DisturbanceRecord record;record.fan=15;record.state=6;record.rawTimeHex="881300001d0a1a";
+    writer.recordDirectory(config,{record},true,true,QDateTime::currentMSecsSinceEpoch());
     SoeHistoryView view(path, "SIMULATED");
     view.resize(1230, 600); view.show(); app.processEvents();
     auto* table = view.findChild<QTableWidget*>("soeTable");
@@ -41,6 +46,14 @@ int main(int argc, char** argv) {
     require(table->rowCount() == 50 && next->isEnabled() && !previous->isEnabled(), "first page");
     require(table->item(0, 6)->text().contains(QString::fromUtf8("含义待确认")), "unknown semantics marked");
     require(table->item(1, 1)->text() == "--", "invalid time not fabricated");
+    require(table->columnCount()==8 && table->item(0,7)->text()==QString::fromUtf8("目录已关联"),"recording association visible");
+    require(table->item(1,7)->text()==QString::fromUtf8("关联不确定"),"bad event time cannot link");
+    require(table->item(2,7)->text().contains(QString::fromUtf8("未找到")),"missing directory state visible");
+    table->selectRow(0);view.findChild<QPushButton*>("soeRecordingDetails")->click();app.processEvents();
+    auto* details=view.findChild<QDialog*>("soeRecordingDialog");
+    require(details&&details->findChild<QTextEdit*>()->isReadOnly(),"recording details are read-only");
+    require(details->findChild<QTextEdit*>()->toPlainText().contains("FAN: 15"),"details include original FAN");
+    details->close();app.processEvents();
     require(table->editTriggers() == QAbstractItemView::NoEditTriggers, "history read-only");
     for (int c = 0; c < table->columnCount(); ++c) {
         require(table->columnWidth(c) >= 40, "column collapsed");

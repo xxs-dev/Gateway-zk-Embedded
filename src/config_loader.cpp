@@ -997,6 +997,18 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
         iec.soe.enabled = requireBool(settings, "enabled", false);
         iec.soe.sqlitePath = requireString(settings, "sqlitePath", iec.soe.sqlitePath);
         iec.soe.utcOffsetMinutes = requireInt(settings, "utcOffsetMinutes", 480);
+        if (const auto* recording = soe->find("recordings")) {
+            const auto& options = recording->asObject();
+            iec.soe.recordingLinkEnabled = requireBool(options, "enabled", false);
+            iec.soe.recordingRefreshIntervalMs = requireInt(options, "refreshIntervalMs", 30000);
+            iec.soe.recordingDirectoryTimeoutMs = requireInt(options, "directoryTimeoutMs", 2000);
+            iec.soe.recordingMatchWindowMs = requireInt(options, "matchWindowMs", 1000);
+            if (iec.soe.recordingRefreshIntervalMs < 10000 || iec.soe.recordingRefreshIntervalMs > 600000 ||
+                iec.soe.recordingDirectoryTimeoutMs < 500 || iec.soe.recordingDirectoryTimeoutMs > 10000 ||
+                iec.soe.recordingMatchWindowMs < 0 || iec.soe.recordingMatchWindowMs > 5000 ||
+                (iec.soe.recordingLinkEnabled && !iec.soe.enabled))
+                throw std::invalid_argument("invalid IEC103 SOE recording association settings");
+        }
         if (iec.soe.sqlitePath.empty() || iec.soe.utcOffsetMinutes < -720 || iec.soe.utcOffsetMinutes > 840)
             throw std::invalid_argument("invalid IEC103 SOE path/timezone");
         if (iec.soe.enabled && iec.transportMode != "am5se_active_tcp" && iec.transportMode != "am5se_passive_tcp")

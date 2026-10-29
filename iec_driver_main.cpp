@@ -177,6 +177,15 @@ int main(int argc, char* argv[]) {
             for (auto& event : events) describeIec103Soe(event, config);
             history->append(events);
         });
+        if(config.protocol.iec.soe.recordingLinkEnabled) {
+            am5->setSoeRecordingSinks(
+                [history,config](const std::vector<Iec103DisturbanceRecord>& records,bool complete,bool success,std::int64_t checked) {
+                    history->recordDirectory(config,records,complete,success,checked);
+                },
+                [history,config](const Iec103DisturbanceRecord& record,const Iec103ComtradeFiles& files,std::int64_t downloaded) {
+                    history->recordDownload(config,record,files,downloaded);
+                });
+        }
     }
 
     if (listRecordings) {
