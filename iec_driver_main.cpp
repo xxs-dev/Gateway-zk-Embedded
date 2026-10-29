@@ -169,6 +169,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (config.protocol.iec.soe.enabled) {
+        if (config.protocol.iec.soe.recordingLinkEnabled &&
+            (config.machineCode.empty() || config.meterCode.empty()))
+            throw std::invalid_argument("SOE recording association requires machineCode and meterCode");
         auto am5 = std::dynamic_pointer_cast<Am5seIec103Client>(iecClient);
         if (!am5) throw std::runtime_error("SOE requires an AM5SE client");
         auto history = std::make_shared<SoeStore>(config.protocol.iec.soe.sqlitePath);

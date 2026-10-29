@@ -1,5 +1,6 @@
 {
   "schemaVersion": "1.0.0",
+  "meterCode": "AM5SE_F_ACTIVE",
   "enabled": true,
   "protocol": {
     "type": "iec103",
