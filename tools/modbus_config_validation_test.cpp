@@ -65,10 +65,40 @@ void rs485Config() {
     require(rs485.enabled && !rs485.rtsOnSend && rs485.rtsAfterSend && rs485.delayRtsBeforeSendMs == 1 &&
                 rs485.delayRtsAfterSendMs == 100,
             "rs485 fields must be loaded as configured");
-    expectTransportRejected("{\"rs485\":{\"enabled\":true,\"delayRtsAfterSendMs\":101}}", "0 and 100");
+    expectTransportRejected("{\"rs485\":{\"enabled\":true,\"delayRtsAfterSendMs\":101}}", "delayRtsAfterSendMs must be an integer between 0 and 100");
     expectTransportRejected("{\"rs485\":{\"delayRtsBeforeSendMs\":-1}}", "0 and 100");
     expectTransportRejected("{\"rs485\":{\"enabled\":true,\"rtsAfterSend\":true}}", "must differ");
     expectTransportRejected("{\"rs485\":{\"enable\":true}}", "transport.rs485.enable is not a known field");
+    // Types: exact JSON types only; nothing is coerced.
+    expectTransportRejected("{\"rs485\":true}", "transport.rs485 must be an object");
+    expectTransportRejected("{\"rs485\":null}", "transport.rs485 must be an object");
+    expectTransportRejected("{\"rs485\":{\"enabled\":\"true\"}}", "transport.rs485.enabled must be true or false");
+    expectTransportRejected("{\"rs485\":{\"enabled\":1}}", "transport.rs485.enabled must be true or false");
+    expectTransportRejected("{\"rs485\":{\"rtsOnSend\":null}}", "transport.rs485.rtsOnSend must be true or false");
+    expectTransportRejected("{\"rs485\":{\"delayRtsBeforeSendMs\":1.5}}", "delayRtsBeforeSendMs must be an integer");
+    expectTransportRejected("{\"rs485\":{\"delayRtsAfterSendMs\":\"2\"}}", "delayRtsAfterSendMs must be an integer");
+    // Mutually exclusive: the RTS level while sending and after sending must differ.
+    expectTransportRejected("{\"rs485\":{\"rtsOnSend\":false}}", "must differ");
+    // Disabled with other fields is accepted (nothing is applied).
+    const auto disabled = load(withTransport("{\"rs485\":{\"enabled\":false,\"rtsOnSend\":false,\"rtsAfterSend\":true}}"));
+    require(!disabled.protocol.transport.rs485.enabled, "an explicitly disabled rs485 stays disabled");
+    // Kernel direction control only exists on a local serial line.
+    for (const auto* protocol : {"{\"type\":\"modbus_tcp\",\"tcp\":{\"host\":\"127.0.0.1\",\"port\":502},",
+                                 "{\"type\":\"iec104\",\"tcp\":{\"host\":\"127.0.0.1\",\"port\":2404},",
+                                 "{\"type\":\"iec103\",\"iec\":{\"transportMode\":\"tcp\"},\"tcp\":{\"host\":\"127.0.0.1\",\"port\":2404},"}) {
+        const auto text = std::string("{\"protocol\":") + protocol + "\"transport\":{\"rs485\":{\"enabled\":true}}},\"points\":[],\"meters\":[]}";
+        bool rejected = false;
+        try {
+            (void)load(text);
+        } catch (const std::invalid_argument& error) {
+            rejected = std::string(error.what()).find("transport.rs485.enabled needs a serial line") != std::string::npos;
+            require(rejected, std::string("unexpected rejection: ") + error.what());
+        }
+        require(rejected, "rs485 on a network protocol must be rejected: " + text);
+    }
+    const auto iecSerial = load("{\"protocol\":{\"type\":\"iec101\",\"iec\":{\"transportMode\":\"serial\"},"
+                                "\"transport\":{\"serialPort\":\"/dev/ttyX\",\"rs485\":{\"enabled\":true}}},\"points\":[],\"meters\":[]}");
+    require(iecSerial.protocol.transport.rs485.enabled, "an IEC serial line accepts rs485");
 }
 
 }  // namespace
