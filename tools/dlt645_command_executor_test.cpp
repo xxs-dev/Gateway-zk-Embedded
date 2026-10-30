@@ -1,5 +1,6 @@
 // DL/T 645 command executor: write gates, trip/close with position check before and read-back after
-// execution, outcomeUnknown on lost replies, no retries.
+// execution, outcomeUnknown on lost replies, feedbackMismatch when the acknowledged command's
+// read-back shows another value, no retries.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -145,7 +146,7 @@ void gatesRejectWithoutSending() {
 
     port->alive = false;  // position cannot be read: nothing is switched blind
     const auto blind = executor.executeByIndex("c4", 200001, 0, 1000);
-    require(!blind.success && !blind.outcomeUnknown && writes(*port, "06010101") == 0,
+    require(!blind.success && !blind.outcomeUnknown && !blind.feedbackMismatch && writes(*port, "06010101") == 0,
             "unreadable position: command not sent: " + blind.message);
 }
 
@@ -157,11 +158,25 @@ void lostReplyIsOutcomeUnknown() {
     auto client = std::make_shared<Dlt645Client>(port, options());
     Dlt645CommandExecutor executor(breakerConfig(), store, client);
     const auto result = executor.executeByIndex("cmd-lost", 200001, 0, 1000);
-    require(!result.success && result.outcomeUnknown, "lost 94H reply must report outcomeUnknown: " + result.message);
+    require(!result.success && result.outcomeUnknown && !result.feedbackMismatch,
+            "lost 94H reply must report outcomeUnknown: " + result.message);
     require(writes(*port, "06010101") == 1, "the write is not retried");
 }
 
-void readBackMismatchFails() {
+// Acknowledged, but the read-back shows another position: the meter may have acted (relay or
+// contact fault), so this is a feedback mismatch, not a definite failure and not "not executed".
+void requireFeedbackMismatch(const CommandResult& result, const std::string& what) {
+    require(!result.success && result.verifyAttempted && !result.verifyPassed && result.feedbackMismatch &&
+                !result.outcomeUnknown,
+            what + ": success=false, feedbackMismatch=true, outcomeUnknown=false: " + result.message);
+    for (const auto* word : {"fail", "not executed", "not sent", "rejected"}) {
+        require(result.message.find(word) == std::string::npos,
+                what + ": the receipt must not call it '" + word + "': " + result.message);
+    }
+    require(result.message.find("feedback mismatch") != std::string::npos, what + ": " + result.message);
+}
+
+void readBackMismatchIsFeedbackMismatch() {
     MemoryPointStore::cleanupOrphanedSegment(kStore);
     MemoryPointStore store(kStore);
     auto port = std::make_shared<MeterPort>();
@@ -171,8 +186,7 @@ void readBackMismatchFails() {
     config.points[1].write.dlt645.di = "06010301";
     Dlt645CommandExecutor executor(config, store, client);
     const auto result = executor.executeByIndex("cmd-stuck", 200001, 0, 1000);
-    require(!result.success && result.verifyAttempted && !result.verifyPassed && !result.outcomeUnknown,
-            "position unchanged after 94H must fail verification: " + result.message);
+    requireFeedbackMismatch(result, "position unchanged after 94H");
     require(writes(*port, "06010301") == 1, "one command, no retry");
 }
 
@@ -260,8 +274,33 @@ void readBackFromAnotherDevice() {
     putAux(store, 1.0);
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     const auto frozen = executor.executeByIndex("aux-frozen", 200001, 0, 1004);
-    require(!frozen.success && frozen.outcomeUnknown && writes(*port, "06010101") == 2,
+    require(!frozen.success && frozen.outcomeUnknown && !frozen.feedbackMismatch && writes(*port, "06010101") == 2,
             "no contact value collected after the command: outcome unknown: " + frozen.message);
+}
+
+// The DIO keeps publishing fresh samples, but the contact stays closed after the 94H trip.
+void readBackFromAnotherDeviceMismatch() {
+    MemoryPointStore::cleanupOrphanedSegment(kStore);
+    MemoryPointStore store(kStore);
+    store.registerPoint("COMM_TEST", "DIO", auxContactPoint());
+    auto port = std::make_shared<AuxContactPort>();
+    auto client = std::make_shared<Dlt645Client>(port, options());
+    auto config = auxBreakerConfig();
+    config.points[0].write.dlt645.di = "06010301";  // acknowledged, the simulated breaker does not move
+    Dlt645CommandExecutor executor(config, store, client);
+    std::atomic<bool> running{true};
+    std::thread dio([&] {
+        while (running) {
+            putAux(store, 1.0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto stuck = executor.executeByIndex("aux-stuck", 200001, 0, 1000);
+    running = false;
+    dio.join();
+    requireFeedbackMismatch(stuck, "fresh DIO contact still closed after the trip");
+    require(writes(*port, "06010301") == 1, "one command, no retry");
 }
 
 // DL/T 645-2007 C=1CH remote control on a meter whose relay state is status word 3 bit 4.
@@ -347,7 +386,23 @@ void remoteControlUsesC1CAndReadBack() {
 
     port->acknowledgeWrites = false;
     const auto lost = executor.executeByIndex("rc-lost", 700001, 1, 1005);
-    require(!lost.success && lost.outcomeUnknown, "lost 9CH: outcome unknown: " + lost.message);
+    require(!lost.success && lost.outcomeUnknown && !lost.feedbackMismatch, "lost 9CH: outcome unknown: " + lost.message);
+}
+
+// 9CH acknowledged, the relay bit keeps reporting "closed".
+void remoteControlFeedbackMismatch() {
+    MemoryPointStore::cleanupOrphanedSegment(kStore);
+    MemoryPointStore store(kStore);
+    auto port = std::make_shared<dlt645_test::ScriptPort>();
+    port->onWrite = [](const std::vector<std::uint8_t>& request) {
+        if (dlt645_test::requestControl(request) == 0x11) {
+            return std::vector<std::vector<std::uint8_t>>{dlt645_test::readReply("7", "04000503", {0x00, 0x00})};
+        }
+        return std::vector<std::vector<std::uint8_t>>{dlt645_test::replyFrame("7", 0x9C, {})};
+    };
+    auto client = std::make_shared<Dlt645Client>(port, options());
+    Dlt645CommandExecutor executor(meterWithRelay(), store, client);
+    requireFeedbackMismatch(executor.executeByIndex("rc-stuck", 700001, 1, 1000), "relay still closed after 9CH");
 }
 
 void remoteControlRejectionIsReported() {
@@ -363,7 +418,7 @@ void remoteControlRejectionIsReported() {
     auto client = std::make_shared<Dlt645Client>(port, options());
     Dlt645CommandExecutor executor(meterWithRelay(), store, client);
     const auto result = executor.executeByIndex("rc-denied", 700001, 1, 1000);
-    require(!result.success && !result.outcomeUnknown &&
+    require(!result.success && !result.outcomeUnknown && !result.feedbackMismatch &&
             result.message.find("remote control rejected ERR=0x04 (password error/unauthorized)") != std::string::npos,
             "DCH must be a definite rejection with the decoded error word: " + result.message);
 }
@@ -401,9 +456,11 @@ int main() {
         tripAndCloseAreConfirmedByReadBack();
         gatesRejectWithoutSending();
         lostReplyIsOutcomeUnknown();
-        readBackMismatchFails();
+        readBackMismatchIsFeedbackMismatch();
         readBackFromAnotherDevice();
+        readBackFromAnotherDeviceMismatch();
         remoteControlUsesC1CAndReadBack();
+        remoteControlFeedbackMismatch();
         remoteControlRejectionIsReported();
         dlt1997WriteHasNoOperatorCode();
         MemoryPointStore::cleanupOrphanedSegment(kStore);

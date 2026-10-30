@@ -19,8 +19,9 @@ namespace edge_gateway {
 //  - before: unreadable (store: missing, stale or bad quality) -> rejected, nothing sent; already at
 //    the target value -> success without sending;
 //  - after the acknowledgement (94H/84H/9CH): polled until it shows the target value (verifyPassed) or
-//    write.dlt645.verifyTimeoutMs passes (failure; outcomeUnknown when nothing could be read; for
-//    the store only values collected after the command count).
+//    write.dlt645.verifyTimeoutMs passes: another value read -> feedbackMismatch (the meter may have
+//    acted; not a definite failure), nothing read -> outcomeUnknown; for the store only values
+//    collected after the command count. Both report success=false.
 // A sent request without a conclusive reply reports outcomeUnknown. Nothing is retried.
 class Dlt645CommandExecutor : public ICommandExecutor {
 public:
