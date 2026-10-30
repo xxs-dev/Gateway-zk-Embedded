@@ -236,7 +236,7 @@ CAN 配置文件使用现有设备配置体系：
 | `fdEnabled` | 接口启用 CAN FD：可接收 FD 帧，并允许 `write.can.fd=true` 的发送帧；默认 `false` |
 | `dataBitrate` | CAN-FD 数据段波特率，`fdEnabled=true` 时生效 |
 | `manageInterface` | 驱动启动时、以及发现接口不存在或被置为 down 时，配置并拉起接口；不处理 bus-off（bus-off 恢复只取决于 `restartMs` 或人工重启） |
-| `frameStateFile` | 发送帧镜像的保存文件，见“写入与帧镜像”；不填为 `memoryStore.controlDedupPath` 同目录下的 `can-frame-state-<interfaceName>.json`（默认 `/opt/modbus-gateway/data/`） |
+| `frameStateFile` | 发送帧“已请求状态”日志文件，见“已请求状态与帧初始化”；不填为 `memoryStore.controlDedupPath` 同目录下的 `can-frame-state-<interfaceName>.json`（默认 `/opt/modbus-gateway/data/`） |
 | `rxQueueSize` | 仅 `udp_test` 测试传输使用（UDP 接收缓冲）；SocketCAN 使用内核队列 |
 | `txQueueSize` | 仅 `udp_test` 测试传输使用（UDP 发送缓冲）；SocketCAN 使用内核队列 |
 
@@ -470,7 +470,7 @@ CAN 点位保留通用字段，CAN 特有字段放入 `read.can` 和 `write.can`
 
 - 启动写入只用于上传周期、状态订阅、采集开关等不会触发现场动作的参数。
 - 消防阀门控制、复位、PCS 功率下发等真实动作点不得默认加入 `startupWrites`。
-- 启动写入同样经过发送帧镜像（见“写入与帧镜像”），不会清零同帧其他信号；同帧其他信号取保存的镜像，没有可用的保存状态时取模板值。
+- 启动写入同样经过发送帧镜像和“已请求状态”日志（见“已请求状态与帧初始化”）；目标帧没有可信状态且未声明 `templateSafe` 时，只改一个信号的启动写入被拒绝（发布 `startup-write-failed`）。
 
 ### `read.can` 字段
 
@@ -520,23 +520,45 @@ COMM202600103 正华探测器的浓度点（`endian=big, bitOffset=0, bitLength=
 | `payloadTemplate` | 发送帧初始内容，正好 `dlc` 字节的十六进制、不带分隔符，例如 `"0000000000000000"`；不填为全 0 |
 | `pulse` | 脉冲型命令信号（启动、复位、清故障）：写入值只随这一帧发出，发送后镜像里立即回到 `pulseIdleValue`，之后的帧不会再带出；只用于 `bool` / 整数信号 |
 | `pulseIdleValue` | 脉冲信号的空闲值（工程值，按本信号的倍率/偏移编码），默认 `0`；`payloadTemplate` 中该信号必须是空闲值 |
+| `templateSafe` | 声明本帧的 `payloadTemplate` 是该设备的安全状态，没有可信的已请求状态时允许从模板开始；默认 `false`。同一帧的所有写点必须一致。只有逐帧核实过模板（零值不天然安全）才可声明 |
 | `byteOffset` / `bitOffset` / `bitLength` / `endian` | 信号位置，规则同 `read.can` |
 
 写入值按 `write.dataType` 编码：整数类型先 `round((value - offset) / scale)`，超出位宽（无符号负数、有符号越界）直接拒绝，不截断；`read.signed=true` 的 `uintN` 信号按补码写入；非有限值拒绝。
 
 ### 写入与帧镜像
 
-- 每个发送帧（`frameId` + `extended`）在驱动内维护一份“最后发送的载荷”镜像，初值取保存的状态文件（见下），没有可用的保存状态时为 `payloadTemplate`（不填为全 0）。写某个信号时只改它自己的位，再整帧发送，同帧其他信号保持最后一次下发的值。
+- 每个发送帧（`frameId` + `extended`）在驱动内维护一份镜像：网关最后一次请求发出的载荷（“已请求状态”）。写某个信号时只改它自己的位，再整帧发送，同帧其他信号保持最后一次请求的值。已请求状态不等于设备实际状态：设备可能没收到、拒绝执行或被就地操作改过。
 - 同一批待写命令中，连续写同一帧不同信号的命令合并成一帧发送；同一信号在一批里出现两次（例如脉冲 1→0）时按顺序分两帧发出，不会被合并吞掉。
-- 共用一个发送帧的所有写点必须一致：`dlc`、`fd`、`remoteRequest` 相同，非空的 `payloadTemplate` 相同，否则加载报错。写信号位重叠时加载给出警告。
-- 脉冲信号（`write.can.pulse=true`）只在写它的那一帧里带写入值；与同批其他信号合并时也只在这一帧带 `1`。发送后镜像立即回到 `pulseIdleValue`，之后写同帧其他信号不会重复触发启动/复位。
-- 镜像跨重启保存：每次发送成功后，把全部发送帧的镜像原子写入 `protocol.can.frameStateFile`（临时文件、`fsync`、`rename`）。脉冲信号在文件里总是空闲值。
-- 启动时加载该文件，逐帧核对：`frameId`/扩展帧、`dlc`、`fd`、`remoteRequest` 一致，且帧定义指纹一致（`payloadTemplate`、该帧所有写信号的位置、数据类型、倍率/偏移、符号、脉冲设置）才恢复；不一致的帧丢弃保存值并写日志，从 `payloadTemplate` 开始。加载时也强制把脉冲信号置回空闲值。
-- 文件不存在、读不出或格式无效时，所有发送帧从 `payloadTemplate` 开始（日志会写明）。这一刻的含义：驱动不知道总线上这些帧最后发出的内容，下一次写某个信号时，同帧其他信号按模板值发出——例如写功率设定值会把“运行”位按模板值（通常为 0）发出。因此模板必须是该设备的安全状态；首次投运、更换配置或删除状态文件后，应先把同帧各信号逐一按现场状态下发一遍。
-- 状态文件写入失败时，写命令本身仍按发送结果返回，驱动删除旧状态文件（避免下次重启套用过期内容）、写日志并发布状态事件 `frame-state-save-failed`；此时重启即回到模板值。
+- 共用一个发送帧的所有写点必须一致：`dlc`、`fd`、`remoteRequest`、`templateSafe` 相同，非空的 `payloadTemplate` 相同，否则加载报错。写信号位重叠时加载给出警告。
+- 脉冲信号（`write.can.pulse=true`）只在写它的那一帧里带写入值；与同批其他信号合并时也只在这一帧带 `1`。发送后镜像立即回到 `pulseIdleValue`，之后写同帧其他信号不会重复触发启动/复位；脉冲位从不以激活值写入日志文件，重启后也不会重放。
 - 写入成功只表示帧已进入内核发送队列（`write()` 成功），CAN 没有接收方确认；需要确认结果时应由设备的状态反馈点判断。CAN 写点不支持 `verifyAfterWrite`（配置了会给出警告并忽略）。
 - 接口离线（bus-off、链路 down）期间写命令直接失败（`writeback-failed`，消息 `CAN interface offline ... frame not sent`），不把帧排进内核队列——否则总线恢复时这些过期命令会被补发。
 - 原 `mode`、`mergePolicy`、`sendRepeat`、`sendIntervalMs`、`protocol.can.preserveFrameSignals` 均未实现/已删除，不要再配置。
+
+### 已请求状态与帧初始化
+
+每个帧在驱动内是“可信”或“不可信”：
+
+| 帧的来源 | 是否可信 |
+| --- | --- |
+| 日志文件里该帧有已提交记录，且帧定义指纹一致 | 可信，镜像取该记录（脉冲位强制为空闲值） |
+| 日志缺失、读不出、格式/校验和不对，或该帧无记录、定义已变、记录处于“待发送” | 不可信 |
+| 不可信但该帧声明了 `write.can.templateSafe=true` | 可信，镜像取 `payloadTemplate` |
+| 发送成功并提交了新记录 | 可信 |
+| 发送成功但提交记录写盘失败 | 不可信（内存中立即标记） |
+
+不可信的帧：只改部分信号的写入直接拒绝（`writeback-failed`，消息 `CAN frame 0x… not sent: no trusted state, write all signals together (missing <缺少的点>); <原因>`，日志另行提示可声明 `templateSafe`），不发送任何内容——否则其余信号会按模板或过期值发出（例如写功率设定值把“运行”位按模板 0 发出）。唯一允许的写入是同一批里写齐该帧全部非脉冲信号；发送成功后该帧变为可信。只有一个非脉冲信号的帧，写该信号就是“写齐”；单独写同帧的脉冲信号仍被拒绝（脉冲帧会带上其他信号的模板值）。没有非脉冲信号的帧不受此限制。
+
+日志文件（`protocol.can.frameStateFile`）：
+
+- 内容：格式版本 `format=2`、接口名、每帧的 `frameId`/扩展帧/`fd`/`remoteRequest`/`dlc`、帧定义指纹（`payloadTemplate`、`templateSafe`、各写信号的位置、数据类型、倍率/偏移、符号、脉冲设置）、`pending` 标记和已提交的已请求载荷，整文件带 SHA-256 校验和。格式版本、校验和、接口名任一不符，整个文件作废（所有帧不可信）；单帧指纹不符，该帧不可信。
+- 每次写命令（同一帧的一次发送）按写前日志执行：
+  1. 原子写入日志：该帧标记 `pending`（已请求载荷仍为上一次已提交的值）。失败则不发送，写命令确定失败（`writeback-failed`，`requested-state journal write failed`）。
+  2. 发送。发送失败（`write()` 出错，或步骤 1 期间接口刚离线）时帧未进入内核队列，再写一次日志撤销 `pending`，写命令确定失败；撤销失败时文件仍是 `pending`，重启后该帧不可信。
+  3. 原子写入日志：新的已请求载荷、`pending` 清除。失败时帧已发出，写命令仍报成功，但回执写明 `ok; requested state not recorded, CAN frame 0x… untrusted until written whole (…)`，该帧在内存中改为不可信，并发布状态事件 `frame-state-commit-failed`。
+- 每次原子写入 = 写临时文件、`fsync` 文件、`rename`、`fsync` 目录。正常一次写命令写盘 2 次（步骤 1、3），发送失败也是 2 次；在步骤 1 之前就被拒绝的写命令（帧不可信、编码越界、接口已离线）不写盘；同一批合并成一帧的多个命令只算一次发送。不为减少闪存写入合并或跳过这些步骤；控制命令频率高的现场需按此估算写入量。
+- 掉电窗口：步骤 1 完成前掉电，日志仍是旧的已提交记录、帧未发送，一致；步骤 1 之后、步骤 3 完成前掉电，日志里该帧是 `pending`，重启后不知道是否已发出，按不可信处理；步骤 3 之后掉电，日志是新的已提交记录。`rename` 是原子的，文件只会是旧版本或新版本，不会是半写内容（半写或被改动的内容由校验和拒绝）。
+- 日志缺失或作废时（首次投运、删除文件、换存储、配置改动），声明了 `templateSafe` 的帧从模板开始，其余多信号帧必须先整帧下发一遍；投运检查应包括这一步。
 
 ## 数据类型
 

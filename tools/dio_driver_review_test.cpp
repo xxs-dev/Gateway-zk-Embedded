@@ -354,7 +354,7 @@ void outputStateWording(const std::string& base) {
             const auto result = executor.executeByIndex("W1", 1240, 1.0, wallNow());
             check(result.success && !result.verifyAttempted &&
                   result.message.find("输出状态已置为 1") != std::string::npos &&
-                  result.message.find("未确认继电器触点") != std::string::npos, "unverified write: " + result.message);
+                  result.message.find("未配置反馈") != std::string::npos, "unverified write: " + result.message);
         }
         config.points[0].write.verifyAfterWrite = true;
         config.points[0].write.verifyByRead = true;
@@ -364,7 +364,8 @@ void outputStateWording(const std::string& base) {
             const auto result = executor.executeByIndex("W2", 1240, 0.0, wallNow());
             check(result.success && result.verifyPassed &&
                   result.message.find("输出状态回读=0") != std::string::npos &&
-                  result.message.find("输出锁存") != std::string::npos, "latch read-back: " + result.message);
+                  result.message.find("输出锁存") != std::string::npos &&
+                  result.message.find("未配置反馈") != std::string::npos, "latch read-back: " + result.message);
         }
     }
     MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -436,18 +437,22 @@ void feedbackConfirmation(const std::string& base) {
         });
         auto result = executor.executeByIndex("F1", 1300, 1.0, wallNow());
         contact.join();
-        check(result.success && result.verifyPassed && result.message.find("动作已由反馈 DI(index 1301)=1 确认") != std::string::npos,
+        check(result.success && result.verifyPassed && result.message.find("输出状态") != std::string::npos &&
+              result.message.find("触点反馈(index 1301)=1，动作已确认") != std::string::npos,
               "contact confirms the action: " + result.message);
 
         // Off command, but the contact stays closed: a definite failure.
         result = executor.executeByIndex("F2", 1300, 0.0, wallNow());
-        check(!result.success && !result.outcomeUnknown && result.message.find("反馈不一致") != std::string::npos,
-              "feedback mismatch: " + result.message);
+        check(!result.success && !result.outcomeUnknown && result.feedbackMismatch &&
+              result.message.find("反馈不一致") != std::string::npos &&
+              result.message.find("触点反馈(index 1301)=1") != std::string::npos &&
+              result.message.find("未执行") == std::string::npos, "feedback mismatch: " + result.message);
         check(slurp(sysfs.file(300, "value"))[0] == '1', "the output stays as commanded on a mismatch");
 
         // The contact cannot be read: output set, action not confirmed, outcome unknown.
         result = executor.executeByIndex("F3", 1303, 1.0, wallNow());
-        check(!result.success && result.outcomeUnknown && result.message.find("结果未知") != std::string::npos,
+        check(!result.success && result.outcomeUnknown && !result.feedbackMismatch &&
+              result.message.find("结果未知") != std::string::npos,
               "unreadable feedback: " + result.message);
 
         // Feedback from another device through the point store: only values stored after the command.
@@ -467,10 +472,141 @@ void feedbackConfirmation(const std::string& base) {
         });
         result = executor.executeByIndex("F6", 1302, 1.0, wallNow());
         wrong.join();
-        check(!result.success && !result.outcomeUnknown && result.message.find("反馈不一致") != std::string::npos,
+        check(!result.success && !result.outcomeUnknown && result.feedbackMismatch &&
+              result.message.find("反馈不一致") != std::string::npos,
               "a fresh wrong store value is a mismatch: " + result.message);
     }
     MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+// A GPIO whose output latch reads back the opposite of what was written (stuck/damaged output stage).
+class InvertingLatchPort : public IGpioPort {
+public:
+    void exportGpio(int) override {}
+    void setDirection(int, const std::string&) override {}
+    bool readValue(int) override { return !written_; }
+    void writeValue(int, bool high) override { written_ = high; }
+    bool ensureOutput(int, bool) override { return false; }
+
+private:
+    bool written_ = false;
+};
+
+// Round 3, item 3: a latch read back with the other value is a feedback mismatch, not "not executed".
+void latchMismatchIsFeedbackMismatch() {
+    const auto storeName = "dio_review_latch_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = dioConfig(storeName, "/nonexistent");
+        auto relay = doPoint(1500, 500, false);
+        relay.write.verifyAfterWrite = true;
+        relay.write.verifyByRead = true;
+        relay.write.verifyDelayMs = 0;
+        config.points.push_back(relay);
+        MemoryPointStore store(config.memoryStore);
+        DioCommandExecutor executor(config, store, std::make_shared<InvertingLatchPort>());
+        const auto result = executor.executeByIndex("L1", 1500, 1.0, wallNow());
+        check(!result.success && result.feedbackMismatch && !result.outcomeUnknown &&
+              result.message.find("输出状态回读不一致") != std::string::npos &&
+              result.message.find("未执行") == std::string::npos, "latch mismatch: " + result.message);
+    }
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+// Round 3, item 5: continuous output-state vs contact-feedback supervision with grace, delay and recovery.
+void feedbackSupervision(const std::string& base) {
+    FakeSysfs sysfs(base + "/supervision");
+    sysfs.addGpio(400, "out\n", "1\n");  // DO, active low, logical 0
+    sysfs.addGpio(401, "in\n", "1\n");   // auxiliary contact, active low, open (logical 0)
+    const auto storeName = "dio_review_supervision_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = dioConfig(storeName, sysfs.root);
+        auto relay = doPoint(1400, 400, false);
+        relay.write.verifyIndex = 1401;
+        // Grace much longer than the debounce, so a missing grace would alarm long before the check.
+        relay.write.verifyTimeoutMs = 500;
+        relay.write.feedbackAlarmDelayMs = 150;
+        relay.write.feedbackRecoveryMs = 150;
+        relay.write.feedbackAlarmIndex = 1402;
+        config.points.push_back(relay);
+        config.points.push_back(diPoint(1401, 401, 0));
+        PointDefinition alarm;
+        alarm.index = 1402;
+        alarm.pointCode = "do_1400_feedback_alarm";
+        alarm.enabled = true;
+        alarm.read.enable = true;
+        alarm.read.dataType = "feedback_alarm";
+        alarm.read.intervalMs = 1;
+        alarm.read.cachePolicy.ttlMs = 600000;
+        config.points.push_back(alarm);
+        MemoryPointStore store(config.memoryStore);
+        auto port = std::make_shared<SysfsGpioPort>(sysfs.root);
+        DioCollector collector(config, store, port);
+        const auto alarmValue = [&]() {
+            const auto stored = store.getLatestByIndex(1402, wallNow());
+            return stored ? stored->value : -1.0;
+        };
+        const auto runFor = [&](int ms) {
+            const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+            while (std::chrono::steady_clock::now() < until) {
+                (void)collector.collectOnce(wallNow());
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        };
+        runFor(80);
+        check(alarmValue() == 0.0, "output and contact agree: no alarm");
+        spit(sysfs.file(400, "value"), "0\n");  // output switched on, the contact does not follow
+        runFor(350);
+        check(alarmValue() == 0.0, "no alarm within the action grace time");
+        runFor(600);
+        check(alarmValue() == 1.0, "persistent mismatch raises the alarm after grace and debounce");
+        std::string alarmText;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        for (const auto& value : collector.collectOnce(wallNow()).values) {
+            if (value.index == 1402) alarmText = value.text;
+        }
+        check(alarmText.find("触点反馈不一致") != std::string::npos && alarmText.find("index 1401") != std::string::npos,
+              "alarm point text names output state and contact feedback: " + alarmText);
+        check(slurp(sysfs.file(400, "value"))[0] == '0', "the supervision never re-sends or changes the output");
+        spit(sysfs.file(401, "value"), "0\n");  // contact closes
+        runFor(60);
+        check(alarmValue() == 1.0, "recovery needs agreement for feedbackRecoveryMs");
+        runFor(300);
+        check(alarmValue() == 0.0, "agreement clears the alarm");
+        // No output change, so no grace: a contact glitch shorter than the debounce raises nothing...
+        spit(sysfs.file(401, "value"), "1\n");
+        runFor(60);
+        spit(sysfs.file(401, "value"), "0\n");
+        runFor(100);
+        check(alarmValue() == 0.0, "a glitch shorter than feedbackAlarmDelayMs raises no alarm");
+        // ...a lasting contact drop-out does, once it outlasts the debounce.
+        spit(sysfs.file(401, "value"), "1\n");
+        runFor(60);
+        check(alarmValue() == 0.0, "a drop-out is debounced");
+        runFor(300);
+        check(alarmValue() == 1.0, "a lasting contact drop-out raises the alarm");
+        check(slurp(sysfs.file(400, "value"))[0] == '0', "the output is still never changed");
+    }
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
+void feedbackAlarmValidation() {
+    const std::string di = R"({"index":1,"pointCode":"di_1","enabled":true,"read":{"enable":true,"dataType":"digital_input","gpio":134,"debounceMs":20},"write":{"enable":false}})";
+    const std::string alarm = R"({"index":3,"pointCode":"do_1_alarm","enabled":true,"read":{"enable":true,"dataType":"feedback_alarm"},"write":{"enable":false}})";
+    const auto relay = [](const std::string& extra) {
+        return R"({"index":2,"pointCode":"do_1","enabled":true,"read":{"enable":true,"dataType":"digital_output","gpio":231,"activeHigh":false},"write":{"enable":true,"dataType":"digital_output","allowedValues":[0,1])" +
+            extra + "}}";
+    };
+    (void)ConfigLoader::loadFromText(dioJson(di + "," + relay(R"(,"verifyIndex":1,"feedbackAlarmIndex":3)") + "," + alarm));
+    expectRejected(dioJson(di + "," + relay(R"(,"feedbackAlarmIndex":3)") + "," + alarm), "needs write.verifyIndex",
+                   "alarm without feedback");
+    expectRejected(dioJson(di + "," + relay(R"(,"verifyIndex":1,"feedbackAlarmIndex":1)")), "feedback_alarm point",
+                   "alarm index is not a feedback_alarm point");
+    expectRejected(dioJson(di + "," + relay(R"(,"verifyIndex":1)") + "," + alarm), "not the write.feedbackAlarmIndex",
+                   "orphan feedback_alarm point");
+    expectRejected(dioJson(di + "," + relay(R"(,"verifyIndex":1,"feedbackAlarmDelayMs":-1)")), "feedbackAlarmDelayMs",
+                   "negative alarm delay");
 }
 
 }  // namespace
@@ -489,6 +625,9 @@ int main() {
         loadTimeValidation();
         outputStateWording(base);
         feedbackConfirmation(base);
+        latchMismatchIsFeedbackMismatch();
+        feedbackSupervision(base);
+        feedbackAlarmValidation();
     } catch (const std::exception& ex) {
         std::cerr << "dio_driver_review_test exception: " << ex.what() << std::endl;
         ++failures;

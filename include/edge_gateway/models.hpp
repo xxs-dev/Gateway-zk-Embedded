@@ -42,6 +42,10 @@ struct CanSignalSpec {
     // frame only; the frame mirror then holds pulseIdleValue, so later frames never repeat it.
     bool pulse = false;
     double pulseIdleValue = 0.0;
+    // Write: payloadTemplate is a safe state of the device, so the frame may start from it when no
+    // trusted requested state exists. Default false: such a frame only accepts a write of all its
+    // non-pulse signals together until a requested state is recorded. Same on every signal of a frame.
+    bool templateSafe = false;
 };
 
 struct IecPointSpec {
@@ -126,10 +130,18 @@ struct WriteSpec {
     int verifyDelayMs = 200;
     bool verifyByRead = true;
     // local_dio DO: action confirmed by a feedback DI (auxiliary contact) at gateway index
-    // verifyIndex, which must read verifyValue (unset: the written value) within verifyTimeoutMs.
+    // verifyIndex within verifyTimeoutMs. verifyValue: feedback value while the output state is 1
+    // (unset: 1, a normally-open contact; 0: normally closed); output 0 expects the opposite.
     std::uint32_t verifyIndex = 0;
     Optional<double> verifyValue;
     int verifyTimeoutMs = 3000;
+    // Continuous "output state vs contact feedback" supervision of a DO with verifyIndex: after a
+    // change of the output (grace: verifyTimeoutMs) a mismatch lasting feedbackAlarmDelayMs raises
+    // the alarm, agreement lasting feedbackRecoveryMs clears it. feedbackAlarmIndex: optional
+    // local_dio point (read.dataType "feedback_alarm") carrying the alarm state 0/1.
+    int feedbackAlarmDelayMs = 2000;
+    int feedbackRecoveryMs = 2000;
+    std::uint32_t feedbackAlarmIndex = 0;
     Dlt645WriteSpec dlt645;
     CanSignalSpec can;
     IecPointSpec iec;

@@ -456,6 +456,7 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     spec.fd = requireBool(object, "fd", spec.fd);
     spec.pulse = requireBool(object, "pulse", spec.pulse);
     spec.pulseIdleValue = requireDouble(object, "pulseIdleValue", spec.pulseIdleValue);
+    spec.templateSafe = requireBool(object, "templateSafe", spec.templateSafe);
     if (const auto* invalid = value->find("invalidRawValues")) {
         if (!invalid->isNull()) {
             for (const auto& item : invalid->asArray().values) {
@@ -583,6 +584,15 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
         }
     }
     spec.verifyTimeoutMs = requireInt(object, "verifyTimeoutMs", spec.verifyTimeoutMs);
+    spec.feedbackAlarmDelayMs = requireInt(object, "feedbackAlarmDelayMs", spec.feedbackAlarmDelayMs);
+    spec.feedbackRecoveryMs = requireInt(object, "feedbackRecoveryMs", spec.feedbackRecoveryMs);
+    {
+        const auto alarmIndex = requireInt(object, "feedbackAlarmIndex", 0);
+        if (alarmIndex < 0) {
+            throw std::invalid_argument("write.feedbackAlarmIndex must be a point index");
+        }
+        spec.feedbackAlarmIndex = static_cast<std::uint32_t>(alarmIndex);
+    }
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
         spec.dlt645.di = requireString(dlt645Object, "di", spec.dlt645.di);

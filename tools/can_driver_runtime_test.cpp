@@ -12,12 +12,14 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "can_frame_state.hpp"
 #include "edge_gateway/can_driver_service.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
@@ -204,15 +206,19 @@ DeviceConfig makeConfig(const Bus& bus, const std::string& name, const std::stri
     auto broken = readPoint(kBroken, "broken", "float32", "0x18FF50E5", 4);
     broken.read.can.bitLength = 16;
     meter.points.push_back(broken);
+    // Frame 0x321: its template is declared a safe state (templateSafe on every signal of the frame).
     auto run = writePoint(310201, "run_cmd", "bool", "0x321", 0, 1);
     run.write.can.payloadTemplate = "00000000000000AA";
+    run.write.can.templateSafe = true;
     meter.points.push_back(run);
-    meter.points.push_back(writePoint(310202, "power_sp", "uint8", "0x321", 1, 8));
+    auto power = writePoint(310202, "power_sp", "uint8", "0x321", 1, 8);
+    power.write.can.templateSafe = true;
+    meter.points.push_back(power);
     auto fd = writePoint(310203, "fd_sp", "uint8", "0x322", 11, 8);
     fd.write.can.fd = true;
     fd.write.can.dlc = 12;
     meter.points.push_back(fd);
-    // Frame 0x323: a one-shot reset bit next to a setpoint.
+    // Frame 0x323: a one-shot reset bit next to a setpoint; the template is not declared safe.
     auto reset = writePoint(310204, "reset_cmd", "bool", "0x323", 0, 1);
     reset.write.can.pulse = true;
     meter.points.push_back(reset);
@@ -407,11 +413,34 @@ VirtualCanFrame writeAndReceive(Bus& bus, MemoryPointStore& store, CanDriverServ
     VirtualCanFrame frame;
     if (!bus.receive(frame)) {
         check(false, tag + ": no frame sent");
+        frame.payload.assign(8, 0xEE);  // keeps the caller's payload checks failing, not crashing
     }
     return frame;
 }
 
-// Round 2, item 1: a pulse bit goes out in one frame only.
+// The write is refused before anything goes out; returns the receipt message.
+std::string expectRefused(Bus& bus, MemoryPointStore& store, CanDriverService& service,
+                          const std::vector<std::pair<std::uint32_t, double>>& writes, const std::string& tag) {
+    int n = 0;
+    for (const auto& write : writes) {
+        submit(store, tag + std::to_string(n++), write.first, write.second);
+    }
+    service.processWritebackOnce(wallNow());
+    VirtualCanFrame frame;
+    check(!bus.receive(frame), tag + ": nothing may be sent");
+    const auto receipt = store.getWritebackResult(tag + "0");
+    check(receipt && !receipt->success && receipt->stage == "writeback-failed", tag + ": definite failure receipt");
+    return receipt ? receipt->message : std::string();
+}
+
+std::string slurpFile(const std::string& path) {
+    std::ifstream input(path.c_str());
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+}
+
+// Round 2/3: a pulse bit goes out in one frame only; an untrusted frame accepts only a full write.
 void pulseSignals(const std::string& directory) {
     Bus bus;
     const auto name = "can_runtime_pulse_" + std::to_string(getpid());
@@ -420,77 +449,136 @@ void pulseSignals(const std::string& directory) {
         auto config = makeConfig(bus, name, directory);
         MemoryPointStore store(config.memoryStore);
         CanDriverService service(config, store);
-        auto frame = writeAndReceive(bus, store, service, {{310204, 1}}, "P1");
-        check(frame.frameId == 0x323 && frame.payload[0] == 1, "reset pulse sent");
-        frame = writeAndReceive(bus, store, service, {{310205, 55}}, "P2");
+        // No requested state and no safe template: the reset alone would send limit_sp from the template.
+        const auto refused = expectRefused(bus, store, service, {{310204, 1}}, "P0");
+        check(refused.find("no trusted state") != std::string::npos &&
+              refused.find("limit_sp") != std::string::npos, "untrusted frame refusal names the missing signal: " + refused);
+        auto frame = writeAndReceive(bus, store, service, {{310205, 7}}, "P1");  // all non-pulse signals
+        check(frame.frameId == 0x323 && frame.payload[0] == 0 && frame.payload[1] == 7, "full write establishes the state");
+        frame = writeAndReceive(bus, store, service, {{310204, 1}}, "P2");
+        check(frame.payload[0] == 1 && frame.payload[1] == 7, "reset pulse sent with the requested setpoint");
+        frame = writeAndReceive(bus, store, service, {{310205, 55}}, "P3");
         check(frame.payload[0] == 0 && frame.payload[1] == 55, "the next write of the frame does not repeat the pulse");
-        frame = writeAndReceive(bus, store, service, {{310204, 1}, {310205, 60}}, "P3");
+        frame = writeAndReceive(bus, store, service, {{310204, 1}, {310205, 60}}, "P4");
         check(frame.payload[0] == 1 && frame.payload[1] == 60, "pulse merged with a setpoint in one frame");
         check(!bus.receive(frame), "merged batch is one frame");
-        frame = writeAndReceive(bus, store, service, {{310205, 61}}, "P4");
+        frame = writeAndReceive(bus, store, service, {{310205, 61}}, "P5");
         check(frame.payload[0] == 0 && frame.payload[1] == 61, "pulse back to idle after the merged frame");
     }
     MemoryPointStore::cleanupOrphanedSegment(name);
 }
 
-// Round 2, item 2: the frame mirrors survive a restart; a changed definition starts from the template.
-void frameStatePersistence(const std::string& directory) {
+// Round 3: the journal holds the requested state with a checksum and a write-ahead pending mark.
+void frameStateJournal(const std::string& directory) {
     Bus bus;
     const auto name = "can_runtime_state_" + std::to_string(getpid());
     MemoryPointStore::cleanupOrphanedSegment(name);
     auto config = makeConfig(bus, name, directory);
-    const auto& stateFile = config.protocol.can.frameStateFile;
+    const auto stateFile = config.protocol.can.frameStateFile;
     std::remove(stateFile.c_str());
     {
         MemoryPointStore store(config.memoryStore);
         {
             CanDriverService service(config, store);
-            writeAndReceive(bus, store, service, {{310201, 1}}, "S1");      // run_cmd = 1
-            writeAndReceive(bus, store, service, {{310204, 1}}, "S2");      // reset pulse
+            writeAndReceive(bus, store, service, {{310201, 1}}, "S1");   // run_cmd = 1 (0x321, template safe)
+            writeAndReceive(bus, store, service, {{310205, 3}}, "S2");   // limit_sp = 3 (0x323)
+            writeAndReceive(bus, store, service, {{310204, 1}}, "S3");   // reset pulse
         }
-        std::ifstream saved(stateFile.c_str());
-        check(saved.good(), "frame state written after a successful send");
+        const auto saved = slurpFile(stateFile);
+        check(saved.find("\"sha256\":\"") != std::string::npos && saved.find("\"pending\":true") == std::string::npos &&
+              saved.find("\"requested\":\"0003") != std::string::npos,
+              "journal committed, checksummed, pulse stored idle");
         {
             CanDriverService restarted(config, store);
-            auto frame = writeAndReceive(bus, store, restarted, {{310202, 10}}, "S3");
-            check(frame.payload == Bytes({0x01, 10, 0, 0, 0, 0, 0, 0xAA}),
-                  "after a restart a setpoint write keeps run_cmd=1 (not the template's 0)");
-            frame = writeAndReceive(bus, store, restarted, {{310205, 5}}, "S4");
-            check(frame.payload[0] == 0 && frame.payload[1] == 5, "a pulse is never restored active");
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 10}}, "S4");
+            check(frame.payload == Bytes({0x01, 10, 0, 0, 0, 0, 0, 0xAA}), "restart keeps the requested run_cmd=1");
+            frame = writeAndReceive(bus, store, restarted, {{310204, 1}}, "S5");
+            check(frame.payload[0] == 1 && frame.payload[1] == 3, "restored frame accepts a partial write");
+            frame = writeAndReceive(bus, store, restarted, {{310205, 5}}, "S6");
+            check(frame.payload[0] == 0 && frame.payload[1] == 5, "a pulse is never restored or replayed");
         }
-        // The layout of frame 0x321 changes (power_sp scale): its saved state no longer applies.
+        const auto good = slurpFile(stateFile);
+
+        // Changed definitions: the template-safe frame starts from its template, the other is refused.
         auto changed = config;
-        changed.meters[0].points[7].write.scale = 0.5;
+        changed.meters[0].points[7].write.scale = 0.5;   // power_sp (0x321)
+        changed.meters[0].points[10].write.scale = 2.0;  // limit_sp (0x323)
         {
             CanDriverService restarted(changed, store);
-            auto frame = writeAndReceive(bus, store, restarted, {{310202, 10}}, "S5");
-            check(frame.payload == Bytes({0x00, 20, 0, 0, 0, 0, 0, 0xAA}),
-                  "a changed frame definition discards the saved state and starts from the template");
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 10}}, "S7");
+            check(frame.payload == Bytes({0x00, 20, 0, 0, 0, 0, 0, 0xAA}), "changed safe frame: template");
+            const auto refused = expectRefused(bus, store, restarted, {{310204, 1}}, "S8");
+            check(refused.find("definition changed") != std::string::npos, "changed frame refused: " + refused);
         }
-        // Missing and corrupt files: start from the template, no failure.
-        std::remove(stateFile.c_str());
-        {
+        const auto checkUntrusted = [&](const std::string& tag, const std::string& what, const std::string& reason) {
             CanDriverService restarted(config, store);
-            auto frame = writeAndReceive(bus, store, restarted, {{310202, 11}}, "S6");
-            check(frame.payload == Bytes({0x00, 11, 0, 0, 0, 0, 0, 0xAA}), "no state file: template");
-        }
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 11}}, tag + "a");
+            check(frame.payload == Bytes({0x00, 11, 0, 0, 0, 0, 0, 0xAA}), what + ": safe frame from its template");
+            const auto refused = expectRefused(bus, store, restarted, {{310204, 1}}, tag + "b");
+            check(refused.find("(missing limit_sp)") != std::string::npos && refused.find(reason) != std::string::npos,
+                  what + ": refusal names the signal and the reason: " + refused);
+            frame = writeAndReceive(bus, store, restarted, {{310205, 4}}, tag + "c");
+            check(frame.payload[1] == 4, what + ": a full write is accepted");
+        };
+        std::remove(stateFile.c_str());
+        checkUntrusted("M", "missing journal", "no journal");
         {
             std::ofstream corrupt(stateFile.c_str(), std::ios::trunc);
-            corrupt << "{\"version\":1,\"interfaceName\":\"can0\",\"frames\":[{\"frameId\":";
+            corrupt << good.substr(0, good.size() / 2);
         }
+        checkUntrusted("C", "truncated journal", "journal rejected");
+        {
+            auto tampered = good;
+            const auto at = tampered.find("\"requested\":\"01");
+            check(at != std::string::npos, "fixture: run_cmd entry");
+            tampered.replace(at, 15, "\"requested\":\"02");
+            std::ofstream out(stateFile.c_str(), std::ios::trunc);
+            out << tampered;
+        }
+        checkUntrusted("K", "checksum mismatch", "journal rejected: checksum mismatch");
+        {
+            auto older = good;
+            const auto at = older.find("\"format\":2");
+            check(at != std::string::npos, "fixture: format field");
+            older.replace(at, 10, "\"format\":1");
+            std::ofstream out(stateFile.c_str(), std::ios::trunc);
+            out << older;
+        }
+        checkUntrusted("V", "other format version", "journal rejected: unknown format");
+
+        // Power loss after the pending record (the commit write fails like a crash before it).
+        {
+            std::ofstream out(stateFile.c_str(), std::ios::trunc);
+            out << good;
+        }
+        {
+            CanDriverService service(config, store);
+            can_frame_state::setWriteFailureForTest([](const std::string& content) {
+                return content.find("\"pending\":true") == std::string::npos;  // commit fails
+            });
+            auto frame = writeAndReceive(bus, store, service, {{310205, 9}}, "W1");
+            can_frame_state::setWriteFailureForTest(nullptr);
+            const auto receipt = store.getWritebackResult("W10");
+            check(frame.payload[1] == 9 && receipt && receipt->success &&
+                  receipt->message.find("not recorded") != std::string::npos, "sent; receipt says the state was not recorded");
+            const auto refused = expectRefused(bus, store, service, {{310204, 1}}, "W2");
+            check(refused.find("not recorded") != std::string::npos, "frame untrusted in memory after a failed commit");
+        }
+        check(slurpFile(stateFile).find("\"pending\":true") != std::string::npos, "journal left pending");
         {
             CanDriverService restarted(config, store);
-            auto frame = writeAndReceive(bus, store, restarted, {{310202, 12}}, "S7");
-            check(frame.payload == Bytes({0x00, 12, 0, 0, 0, 0, 0, 0xAA}), "corrupt state file: template");
+            const auto refused = expectRefused(bus, store, restarted, {{310204, 1}}, "W3");
+            check(refused.find("in flight") != std::string::npos, "pending residue: frame untrusted after restart");
+            auto frame = writeAndReceive(bus, store, restarted, {{310202, 12}}, "W4");
+            check(frame.payload[0] == 1 && frame.payload[1] == 12, "other frames keep their committed state");
         }
-        // A state that cannot be saved is removed, so a restart cannot apply an outdated one.
-        auto unsaved = config;
-        unsaved.protocol.can.frameStateFile = directory + "/missing-dir/state.json";
+        // The journal cannot be written before the send: nothing goes out, definite failure.
         {
-            CanDriverService service(unsaved, store);
-            auto frame = writeAndReceive(bus, store, service, {{310201, 1}}, "S8");
-            check(frame.payload[0] == 1 && store.getWritebackResult("S80")->success,
-                  "a failed state save does not fail the write");
+            CanDriverService service(config, store);
+            can_frame_state::setWriteFailureForTest([](const std::string&) { return true; });
+            const auto refused = expectRefused(bus, store, service, {{310202, 13}}, "J1");
+            can_frame_state::setWriteFailureForTest(nullptr);
+            check(refused.find("journal write failed") != std::string::npos, "pre-send journal failure: " + refused);
         }
     }
     MemoryPointStore::cleanupOrphanedSegment(name);
@@ -510,7 +598,7 @@ int main() {
         typoFrameIdFailsAtStartup(directory);
         receptionIgnoresPriorityLease(directory);
         pulseSignals(directory);
-        frameStatePersistence(directory);
+        frameStateJournal(directory);
     } catch (const std::exception& ex) {
         std::cerr << "can_driver_runtime_test exception: " << ex.what() << std::endl;
         ++failures;

@@ -326,6 +326,14 @@ void loadTimeValidation() {
         writePoint(11, "sig", "bool", R"("frameId":"0x321","bitLength":1,"pulse":true)") + "," +
         writePoint(12, "other", "uint8", R"("frameId":"0x321","byteOffset":1,"payloadTemplate":"0100000000000000")")),
                    "pulse", "template holding the pulse active");
+    // templateSafe is a frame property: every signal of the frame must declare the same.
+    expectRejected(canConfig("", "",
+        writePoint(10, "run", "bool", R"("frameId":"0x321","bitLength":1,"templateSafe":true)") + "," +
+        writePoint(11, "sig", "uint8", R"("frameId":"0x321","byteOffset":1)")),
+                   "templateSafe", "templateSafe declared on part of a frame");
+    (void)edge_gateway::ConfigLoader::loadFromText(canConfig("", "",
+        writePoint(10, "run", "bool", R"("frameId":"0x321","bitLength":1,"templateSafe":true)") + "," +
+        writePoint(11, "sig", "uint8", R"("frameId":"0x321","byteOffset":1,"templateSafe":true)")));
     expectRejected(canConfig("", "", R"({"index":1,"pointCode":"sig","enabled":true,"read":{"enable":true,"dataType":"interface_online"},"write":{"enable":true,"dataType":"bool","can":{"frameId":"0x1"}}})"),
                    "read-only", "writable online point");
 }

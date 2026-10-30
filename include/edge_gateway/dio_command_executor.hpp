@@ -13,6 +13,9 @@ namespace edge_gateway {
 
 // A DO the gateway drives: write.enable with write.dataType "digital_output".
 bool isDioOutputPoint(const PointDefinition& point);
+// Contact feedback expected for a DO output state: write.verifyValue is the feedback while the output
+// is 1 (unset: 1, normally-open auxiliary contact); output 0 expects the opposite.
+double dioExpectedFeedback(const PointDefinition& point, double outputState);
 // GPIO level of a DO's startup state: write.startupValue (0/1) when configured, else 0 (inactive);
 // activeHigh=false inverts it.
 bool dioStartupGpioHigh(const PointDefinition& point);

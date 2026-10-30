@@ -32,6 +32,21 @@ namespace edge_gateway {
 
 using namespace can_driver_detail;
 
+namespace {
+
+// Matches the control ledger: a durable control that was reserved (claimed) but whose result was not
+// recorded is replayed as "writeback-unconfirmed" (see writeback_outcome.hpp), so the first receipt
+// says the same.
+constexpr const char* kStageUnconfirmed = "writeback-unconfirmed";
+
+std::string frameName(std::uint32_t frameId) {
+    std::ostringstream id;
+    id << "0x" << std::uppercase << std::hex << frameId;
+    return id.str();
+}
+
+}  // namespace
+
 // A write that passed every check and waits to be sent together with the other signals of its frame.
 struct CanDriverService::StagedWrite {
     PendingWriteCommand command;
@@ -182,10 +197,8 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
                 throw std::runtime_error("pending write expired before physical send");
             }
         } catch (const std::exception& ex) {
-            // A reserved durable control stays reserved (outcome unknown), as ControlDedupStore::dispatch does.
-            completeWritebackResult(staged.result, false, ex.what(),
-                                    staged.claimed ? "writeback-timeout" : expiredBeforeSend ? "expired" : "writeback-failed",
-                                    nowMs());
+            // Nothing was sent: a definite result, recorded in the control ledger when reserved.
+            completeNotSent(staged, ex.what(), expiredBeforeSend ? "expired" : "writeback-failed");
             finishWrite(staged, processed);
             continue;
         }
@@ -198,51 +211,57 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
 
 std::size_t CanDriverService::flushStagedWrites(std::vector<StagedWrite>& group) {
     const auto key = runtimePoints_[group.front().pointIndex].writeKey;
-    std::string error;
-    {
-        std::lock_guard<std::mutex> lock(socketMutex_);
-        auto& frame = txFrames_.at(key);
-        auto payload = frame.payload;
-        try {
-            for (const auto& staged : group) {
-                const auto& point = runtimePoints_[staged.pointIndex].point;
-                CanSignalCodec::encodeInto(payload, staged.command.value, point.write, point.read.signedFlag);
-            }
-            requireInterfaceUsable();
-            openSocketLocked();
-            transmitLocked(frame, payload);
-            storeSentPayloadLocked(frame, payload);
-        } catch (const std::exception& ex) {
-            error = ex.what();
-        }
+    std::vector<std::pair<std::size_t, double>> writes;
+    for (const auto& staged : group) {
+        writes.emplace_back(staged.pointIndex, staged.command.value);
     }
-    if (error.empty()) {
-        persistFrameStates();
-    }
+    std::string note;
+    const auto error = transmitJournaled(key, writes, note);
     const auto completedAt = nowMs();
     for (auto& staged : group) {
         staged.modePermit.reset();
         if (!error.empty()) {
-            // Not sent; a reserved durable control is reported like ControlDedupStore::dispatch does.
-            completeWritebackResult(staged.result, false, error,
-                                    staged.claimed ? "writeback-timeout" : "writeback-failed", completedAt);
+            completeNotSent(staged, error, "writeback-failed");
             continue;
         }
         // Success means the kernel queued the frame; CAN has no acknowledgement from the receiver.
         auto receipt = beginWritebackResult(staged.command, staged.startedAt);
-        completeWritebackResult(receipt, true, "ok", "writeback-succeeded", completedAt);
+        completeWritebackResult(receipt, true, note.empty() ? "ok" : "ok; " + note, "writeback-succeeded", completedAt);
         if (staged.claimed) {
             const auto& device = runtimeDevices_[runtimePoints_[staged.pointIndex].deviceIndex].config;
             try {
                 ControlDedupStore(config_.memoryStore.controlDedupPath).finish(device.machineCode, device.meterCode, receipt);
             } catch (const std::exception& ex) {
                 receipt = beginWritebackResult(staged.command, staged.startedAt);
-                completeWritebackResult(receipt, false, ex.what(), "writeback-timeout", nowMs());
+                completeWritebackResult(receipt, false,
+                    std::string("CAN frame sent but the control ledger result was not recorded: ") + ex.what(),
+                    kStageUnconfirmed, nowMs());
+                receipt.outcomeUnknown = true;
             }
         }
         staged.result = receipt;
     }
     return group.size();
+}
+
+void CanDriverService::completeNotSent(StagedWrite& staged, const std::string& message, const std::string& stage) {
+    completeWritebackResult(staged.result, false, message, stage, nowMs());
+    if (!staged.claimed) {
+        return;
+    }
+    // The command was reserved in the control ledger and is known not to have been sent: record that
+    // definite result so a replay of the cmdId reports it instead of an open reservation.
+    const auto& device = runtimeDevices_[runtimePoints_[staged.pointIndex].deviceIndex].config;
+    try {
+        ControlDedupStore(config_.memoryStore.controlDedupPath).finish(device.machineCode, device.meterCode, staged.result);
+    } catch (const std::exception& ex) {
+        auto receipt = beginWritebackResult(staged.command, staged.startedAt);
+        completeWritebackResult(receipt, false,
+                                std::string("not sent, control ledger result not recorded (") + ex.what() + "): " + message,
+                                kStageUnconfirmed, nowMs());
+        receipt.outcomeUnknown = true;
+        staged.result = receipt;
+    }
 }
 
 void CanDriverService::finishWrite(StagedWrite& staged, std::size_t& processed) {
@@ -329,17 +348,12 @@ void CanDriverService::sendSingleWrite(const RuntimePoint& runtimePoint, double 
     if (!runtimePoint.writeSignal) {
         throw std::invalid_argument("point has no write.can signal");
     }
-    {
-        std::lock_guard<std::mutex> lock(socketMutex_);
-        auto& frame = txFrames_.at(runtimePoint.writeKey);
-        auto payload = frame.payload;
-        CanSignalCodec::encodeInto(payload, value, runtimePoint.point.write, runtimePoint.point.read.signedFlag);
-        requireInterfaceUsable();
-        openSocketLocked();
-        transmitLocked(frame, payload);
-        storeSentPayloadLocked(frame, payload);
+    const auto pointIndex = static_cast<std::size_t>(&runtimePoint - runtimePoints_.data());
+    std::string note;
+    const auto error = transmitJournaled(runtimePoint.writeKey, {std::make_pair(pointIndex, value)}, note);
+    if (!error.empty()) {
+        throw std::runtime_error(error);
     }
-    persistFrameStates();
 }
 
 void CanDriverService::requireInterfaceUsable() const {
@@ -347,6 +361,99 @@ void CanDriverService::requireInterfaceUsable() const {
         // Queued frames would go out whenever the bus recovers, possibly long after the command.
         throw std::runtime_error("CAN interface offline (bus-off or link down): frame not sent");
     }
+}
+
+std::string CanDriverService::transmitJournaled(std::uint64_t key,
+                                                const std::vector<std::pair<std::size_t, double>>& writes,
+                                                std::string& note) {
+    note.clear();
+    std::vector<std::uint8_t> payload;
+    std::string name;
+    {
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        const auto& frame = txFrames_.at(key);
+        name = frameName(frame.frameId);
+        if (!frame.trusted) {
+            std::string missing;
+            for (const auto pointIndex : frame.signalPoints) {
+                const bool written = std::find_if(writes.begin(), writes.end(),
+                    [pointIndex](const std::pair<std::size_t, double>& write) { return write.first == pointIndex; }) !=
+                    writes.end();
+                if (!written) {
+                    missing += (missing.empty() ? "" : ", ") + runtimePoints_[pointIndex].point.pointCode;
+                }
+            }
+            if (!missing.empty()) {
+                // Writing one signal would send the template (or stale) values of the others. The receipt
+                // message holds 127 bytes: the missing signals come before the reason.
+                const auto refusal = "CAN frame " + name + " not sent: no trusted state, write all signals together"
+                    " (missing " + missing + "); " + frame.untrustedReason;
+                std::cerr << refusal << " (or declare write.can.templateSafe if its payloadTemplate is a safe state)"
+                          << std::endl;
+                return refusal;
+            }
+        }
+        payload = frame.payload;
+        try {
+            for (const auto& write : writes) {
+                const auto& point = runtimePoints_[write.first].point;
+                CanSignalCodec::encodeInto(payload, write.second, point.write, point.read.signedFlag);
+            }
+            requireInterfaceUsable();
+        } catch (const std::exception& ex) {
+            return ex.what();
+        }
+    }
+    // 1. Write-ahead: the journal marks the frame pending before anything goes out. A crash or power
+    //    loss from here until step 3 leaves it pending, i.e. untrusted after the restart.
+    try {
+        persistFrameStates(key);
+    } catch (const std::exception& ex) {
+        return "CAN frame " + name + " not sent: requested-state journal write failed (" + std::string(ex.what()) +
+            ")";
+    }
+    // 2. Send.
+    std::string sendError;
+    {
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        auto& frame = txFrames_.at(key);
+        try {
+            requireInterfaceUsable();
+            openSocketLocked();
+            transmitLocked(frame, payload);
+            storeSentPayloadLocked(frame, payload);
+            frame.trusted = true;
+            frame.untrustedReason.clear();
+        } catch (const std::exception& ex) {
+            sendError = ex.what();
+        }
+    }
+    if (!sendError.empty()) {
+        try {
+            persistFrameStates(0);  // not sent: the previous requested state stands
+        } catch (const std::exception& ex) {
+            std::cerr << "CAN requested-state journal still marks " << name << " pending (" << ex.what()
+                      << "); it is untrusted after a restart" << std::endl;
+        }
+        return sendError;
+    }
+    // 3. Commit the new requested state.
+    try {
+        persistFrameStates(0);
+    } catch (const std::exception& ex) {
+        {
+            std::lock_guard<std::mutex> lock(socketMutex_);
+            auto& frame = txFrames_.at(key);
+            frame.trusted = false;
+            frame.untrustedReason = std::string("state not recorded after a send: ") + ex.what();
+        }
+        note = "requested state not recorded, CAN frame " + name + " untrusted until written whole (" + ex.what() +
+            ")";
+        std::cerr << note << std::endl;
+        publishStatusEvent("frame-state-commit-failed", nowMs(),
+                           std::string(R"("frameId":")") + name + R"(","message":")" + escapeJson(ex.what()) + R"(")");
+    }
+    return std::string();
 }
 
 void CanDriverService::storeSentPayloadLocked(TxFrame& frame, const std::vector<std::uint8_t>& payload) {
@@ -360,51 +467,66 @@ void CanDriverService::storeSentPayloadLocked(TxFrame& frame, const std::vector<
 
 void CanDriverService::loadFrameStates() {
     const auto& interfaceName = config_.protocol.can.interfaceName;
+    std::string fileProblem;
+    std::vector<can_frame_state::Entry> entries;
     std::string text;
     try {
         if (!can_frame_state::readFile(frameStatePath_, text)) {
-            if (!txFrames_.empty()) {
-                std::cerr << "CAN frame state " << frameStatePath_ << " not found: every transmit frame starts from "
-                          << "its payloadTemplate until it is written" << std::endl;
-            }
-            return;
+            fileProblem = "no journal";
+        } else {
+            entries = can_frame_state::parse(text, interfaceName);
         }
     } catch (const std::exception& ex) {
-        std::cerr << "CAN frame state not loaded, frames start from payloadTemplate: " << ex.what() << std::endl;
-        return;
+        fileProblem = std::string("journal rejected: ") + ex.what();
+        entries.clear();
     }
-    std::vector<can_frame_state::Entry> entries;
-    try {
-        entries = can_frame_state::parse(text, interfaceName);
-    } catch (const std::exception& ex) {
-        std::cerr << "CAN frame state " << frameStatePath_ << " invalid, frames start from payloadTemplate: "
-                  << ex.what() << std::endl;
-        return;
+    if (!fileProblem.empty() && !txFrames_.empty()) {
+        std::cerr << "CAN requested-state journal " << frameStatePath_ << ": " << fileProblem << std::endl;
     }
-    std::size_t loaded = 0;
+    for (auto& item : txFrames_) {
+        auto& frame = item.second;
+        frame.trusted = false;
+        frame.untrustedReason = fileProblem.empty() ? "no journal entry" : fileProblem;
+    }
     for (const auto& entry : entries) {
-        std::ostringstream id;
-        id << "0x" << std::uppercase << std::hex << entry.frameId;
-        const auto frame = txFrames_.find(CanSignalCodec::frameKey(entry.frameId, entry.extended));
-        if (frame == txFrames_.end()) {
-            std::cerr << "CAN frame state for " << id.str() << " discarded: the frame is no longer written" << std::endl;
+        const auto found = txFrames_.find(CanSignalCodec::frameKey(entry.frameId, entry.extended));
+        if (found == txFrames_.end()) {
             continue;
         }
-        if (entry.fd != frame->second.fd || entry.remoteRequest != frame->second.remoteRequest ||
-            entry.payload.size() != frame->second.payload.size() || entry.layout != frame->second.layout) {
-            std::cerr << "CAN frame state for " << id.str() << " discarded: frame definition changed "
-                      << "(dlc/fd/template/signal layout); it starts from payloadTemplate" << std::endl;
-            continue;
+        auto& frame = found->second;
+        if (entry.fd != frame.fd || entry.remoteRequest != frame.remoteRequest ||
+            entry.dlc != static_cast<int>(frame.payload.size()) || entry.layout != frame.layout) {
+            frame.untrustedReason = "frame definition changed since recorded";
+        } else if (entry.pending) {
+            frame.untrustedReason = "send in flight at power loss/crash";
+        } else if (entry.requested.empty()) {
+            frame.untrustedReason = "no state recorded";
+        } else {
+            // Pulse signals are never restored active, whatever the journal says.
+            storeSentPayloadLocked(frame, entry.requested);
+            frame.trusted = true;
+            frame.untrustedReason.clear();
         }
-        // Pulse signals are never restored active, whatever the file says.
-        storeSentPayloadLocked(frame->second, entry.payload);
-        ++loaded;
     }
-    std::cerr << "CAN frame state: " << loaded << " of " << txFrames_.size() << " transmit frame(s) restored from "
-              << frameStatePath_ << "; the others start from payloadTemplate" << std::endl;
+    for (auto& item : txFrames_) {
+        auto& frame = item.second;
+        const auto name = frameName(frame.frameId);
+        if (frame.trusted) {
+            std::cerr << "CAN frame " << name << ": last requested state restored (gateway request, not the "
+                      << "device state)" << std::endl;
+        } else if (frame.templateSafe) {
+            frame.trusted = true;
+            std::cerr << "CAN frame " << name << ": " << frame.untrustedReason
+                      << "; starts from its payloadTemplate (declared templateSafe)" << std::endl;
+            frame.untrustedReason.clear();
+        } else if (frame.signalPoints.size() > 1 || !frame.pulsePoints.empty()) {
+            std::cerr << "CAN frame " << name << ": " << frame.untrustedReason
+                      << "; writes are refused until all its signals are written together" << std::endl;
+        }
+    }
 }
 
-void CanDriverService::persistFrameStates() {
+void CanDriverService::persistFrameStates(std::uint64_t pendingKey) {
     std::vector<std::pair<std::uint64_t, can_frame_state::Entry>> snapshot;
     {
         std::lock_guard<std::mutex> lock(socketMutex_);
@@ -414,8 +536,12 @@ void CanDriverService::persistFrameStates() {
             entry.extended = item.second.extended;
             entry.fd = item.second.fd;
             entry.remoteRequest = item.second.remoteRequest;
+            entry.dlc = static_cast<int>(item.second.payload.size());
             entry.layout = item.second.layout;
-            entry.payload = item.second.payload;
+            entry.pending = item.first == pendingKey;
+            if (item.second.trusted) {
+                entry.requested = item.second.payload;  // pulse signals already idle
+            }
             snapshot.emplace_back(item.first, entry);
         }
     }
@@ -427,22 +553,8 @@ void CanDriverService::persistFrameStates() {
         entries.push_back(item.second);
     }
     std::lock_guard<std::mutex> lock(frameStateMutex_);
-    try {
-        can_frame_state::writeAtomically(frameStatePath_,
-                                         can_frame_state::serialize(config_.protocol.can.interfaceName, entries));
-    } catch (const std::exception& ex) {
-        // An outdated file would be applied after a restart; without it the frames start from
-        // payloadTemplate, which the operator can foresee.
-        std::remove(frameStatePath_.c_str());
-        const auto monoMs = steadyNowMs();
-        if (lastFrameStateErrorMono_ <= 0 || monoMs - lastFrameStateErrorMono_ >= 60000) {
-            lastFrameStateErrorMono_ = monoMs;
-            std::cerr << "CAN frame state not saved (file removed, a restart starts from payloadTemplate): "
-                      << ex.what() << std::endl;
-            publishStatusEvent("frame-state-save-failed", nowMs(),
-                               std::string(R"("message":")") + escapeJson(ex.what()) + R"(")");
-        }
-    }
+    can_frame_state::writeAtomically(frameStatePath_,
+                                     can_frame_state::serialize(config_.protocol.can.interfaceName, entries));
 }
 
 void CanDriverService::transmitLocked(const TxFrame& frame, const std::vector<std::uint8_t>& payload) {

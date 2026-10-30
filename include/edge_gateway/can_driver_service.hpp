@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "edge_gateway/interfaces.hpp"
@@ -69,10 +70,11 @@ private:
         std::size_t suppressedErrors = 0;
     };
 
-    // One transmitted frame: its layout and the last payload sent (mirror), so writing one signal
-    // keeps the other signals of the frame. Starts from the persisted state (frameStateFile) when it
-    // matches the current definition, else from write.can.payloadTemplate (or zeros). Pulse signals
-    // are back at their idle value in the mirror right after every send.
+    // One transmitted frame: its layout and the last requested payload (mirror), so writing one
+    // signal keeps the other signals of the frame. The mirror is the gateway's requested state, not
+    // the device state. It starts from the journal (frameStateFile) when that holds a committed entry
+    // for the current definition, else from write.can.payloadTemplate (trusted only when the frame
+    // declares templateSafe). Pulse signals are back at their idle value right after every send.
     struct TxFrame {
         std::uint32_t frameId = 0;
         bool extended = false;
@@ -81,6 +83,12 @@ private:
         std::vector<std::uint8_t> payload;
         std::string layout;                    // definition fingerprint (can_frame_state::layoutHash)
         std::vector<std::size_t> pulsePoints;  // runtimePoints_ indexes of pulse signals
+        std::vector<std::size_t> signalPoints; // runtimePoints_ indexes of the other write signals
+        bool templateSafe = false;             // write.can.templateSafe
+        // payload is the gateway's trusted requested state (restored, sent, or a declared-safe
+        // template). Without it only a write of every non-pulse signal together is sent.
+        bool trusted = false;
+        std::string untrustedReason;
     };
 
     struct StagedWrite;
@@ -103,13 +111,21 @@ private:
     void logPointError(RuntimePoint& runtimePoint, const std::string& message, std::int64_t monoMs);
     void runStartupWrites();
     void sendSingleWrite(const RuntimePoint& runtimePoint, double value);
+    // Encodes writes (runtimePoints_ index, value) into frame key and sends it with the write-ahead
+    // journal: pending record, send, committed record. Returns an empty string when the frame went
+    // out (note: remark for the receipt), else why it was not sent.
+    std::string transmitJournaled(std::uint64_t key, const std::vector<std::pair<std::size_t, double>>& writes,
+                                  std::string& note);
     void transmitLocked(const TxFrame& frame, const std::vector<std::uint8_t>& payload);
     // After a successful send: the mirror becomes payload with every pulse signal back at idle.
     void storeSentPayloadLocked(TxFrame& frame, const std::vector<std::uint8_t>& payload);
     void loadFrameStates();
-    void persistFrameStates();
+    // Writes the requested-state journal (pendingKey: the frame about to be sent, 0 = none). Throws.
+    void persistFrameStates(std::uint64_t pendingKey);
     void requireInterfaceUsable() const;
     std::size_t flushStagedWrites(std::vector<StagedWrite>& group);
+    // Fails a write that was not sent; a reserved durable control gets that definite result in the ledger.
+    void completeNotSent(StagedWrite& staged, const std::string& message, const std::string& stage);
     void finishWrite(StagedWrite& staged, std::size_t& processed);
     void receiveLoop();
     void writebackLoop();
@@ -142,7 +158,6 @@ private:
     std::unordered_map<std::uint64_t, TxFrame> txFrames_;  // guarded by socketMutex_
     std::string frameStatePath_;
     std::mutex frameStateMutex_;
-    std::int64_t lastFrameStateErrorMono_ = 0;  // guarded by frameStateMutex_
     // Set while the interface is known down / bus-off: writes are refused instead of being queued
     // in the kernel and sent whenever the bus recovers.
     std::atomic<bool> interfaceFault_{false};
