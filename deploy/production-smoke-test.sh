@@ -470,9 +470,9 @@ def readable(path):
 def cert_expiry(path, label):
     try:
         expired = subprocess.run(["openssl", "x509", "-in", path, "-noout", "-checkend", "0"],
-                                 capture_output=True, timeout=10).returncode != 0
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10).returncode != 0
         soon = subprocess.run(["openssl", "x509", "-in", path, "-noout", "-checkend", "2592000"],
-                              capture_output=True, timeout=10).returncode != 0
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10).returncode != 0
     except (OSError, subprocess.SubprocessError):
         emit("WARN", f"{label} validity not checked (openssl CLI unavailable): {path}")
         return

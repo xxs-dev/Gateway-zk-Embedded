@@ -78,7 +78,7 @@ smoke() {
 out=$(smoke "$ROOT/config/factory/runtime/apps/mqtt-service.json"); rc=$?
 expect "smoke: factory template is refused until a broker is deployed" 1 "broker not configured" "$rc" "$out"
 out=$(smoke "$WORK/deployed.json"); rc=$?
-expect "smoke: deployed TLS broker with CA passes" 0 "TLS CA file exists" "$rc" "$out"
+expect "smoke: deployed TLS broker with CA passes" 0 "TLS CA is valid for more than 30 days" "$rc" "$out"
 out=$(smoke "$WORK/missing-ca.json"); rc=$?
 expect "smoke: TLS without deployed CA fails" 1 "TLS CA file missing or unreadable" "$rc" "$out"
 out=$(smoke "$WORK/plain.json"); rc=$?
