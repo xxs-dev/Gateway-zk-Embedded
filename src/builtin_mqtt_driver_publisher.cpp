@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -33,6 +34,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -81,11 +83,8 @@ std::string scopedTopic(const std::string& topic, const std::string& machineCode
     return topic + suffix;
 }
 
-struct BrokerEndpoint {
-    std::string host = "127.0.0.1";
-    int port = 1883;
-    bool tls = false;
-};
+constexpr int kMqttPlainDefaultPort = 1883;
+constexpr int kMqttTlsDefaultPort = 8883;  // IANA "secure-mqtt"
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -100,28 +99,91 @@ std::string escapeJson(const std::string& value) {
     return escapeDiagnosticOutputJson(value);
 }
 
-BrokerEndpoint parseBroker(const std::string& broker) {
-    BrokerEndpoint endpoint;
-    auto address = broker;
+struct BrokerAddress {
+    bool valid = false;
+    bool schemeTls = false;
+    bool plaintextScheme = false;
+    std::string host;
+    int port = 0;
+    std::string error;
+};
+
+// Never echoes the raw broker string: a malformed URL may carry credentials.
+BrokerAddress parseBrokerAddress(const std::string& broker) {
+    BrokerAddress result;
+    std::string address = broker;
     const auto schemePos = address.find("://");
     if (schemePos != std::string::npos) {
-        const auto scheme = address.substr(0, schemePos);
-        endpoint.tls = scheme == "ssl" || scheme == "tls" || scheme == "mqtts";
+        std::string scheme = address.substr(0, schemePos);
+        std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (scheme == "ssl" || scheme == "tls" || scheme == "mqtts") {
+            result.schemeTls = true;
+        } else if (scheme == "tcp" || scheme == "mqtt") {
+            result.plaintextScheme = true;
+        } else {
+            result.error = "unsupported broker scheme (use ssl://<host>:8883)";
+            return result;
+        }
         address = address.substr(schemePos + 3);
     }
-    const auto colonPos = address.rfind(':');
-    if (colonPos != std::string::npos) {
-        endpoint.host = address.substr(0, colonPos);
-        endpoint.port = std::stoi(address.substr(colonPos + 1));
-    } else if (!address.empty()) {
-        endpoint.host = address;
-        endpoint.port = endpoint.tls ? 8883 : 1883;
+    std::string portText;
+    bool hasPort = false;
+    if (!address.empty() && address[0] == '[') {
+        const auto close = address.find(']');
+        if (close == std::string::npos) {
+            result.error = "unterminated IPv6 broker address";
+            return result;
+        }
+        result.host = address.substr(1, close - 1);
+        const auto rest = address.substr(close + 1);
+        if (!rest.empty()) {
+            if (rest[0] != ':') {
+                result.error = "unexpected characters after IPv6 broker address";
+                return result;
+            }
+            hasPort = true;
+            portText = rest.substr(1);
+        }
+    } else {
+        const auto colonPos = address.rfind(':');
+        if (colonPos != std::string::npos) {
+            hasPort = true;
+            result.host = address.substr(0, colonPos);
+            portText = address.substr(colonPos + 1);
+        } else {
+            result.host = address;
+        }
+        if (result.host.find(':') != std::string::npos) {
+            result.error = "IPv6 broker address must be written as [address]:port";
+            return result;
+        }
     }
-    return endpoint;
+    if (result.host.empty()) {
+        result.error = "broker host is empty";
+        return result;
+    }
+    if (result.host.find_first_of("@/ \t\r\n") != std::string::npos) {
+        result.error = "broker host contains invalid characters (credentials or paths are not supported)";
+        return result;
+    }
+    if (hasPort) {
+        if (portText.empty() || portText.size() > 5 ||
+            portText.find_first_not_of("0123456789") != std::string::npos ||
+            std::stoi(portText) < 1 || std::stoi(portText) > 65535) {
+            result.error = "broker port must be 1..65535";
+            return result;
+        }
+        result.port = std::stoi(portText);
+    }
+    result.valid = true;
+    return result;
 }
 
-bool configUsesTls(const MqttConfig& config, const BrokerEndpoint& endpoint) {
-    return config.tls.enabled || endpoint.tls;
+std::string brokerLabel(const char* scheme, const std::string& host, int port) {
+    const bool ipv6 = host.find(':') != std::string::npos;
+    return std::string(scheme) + (ipv6 ? "[" + host + "]" : host) + ":" + std::to_string(port);
 }
 
 void appendString(std::vector<std::uint8_t>& bytes, const std::string& value) {
@@ -772,8 +834,11 @@ void closeSocket(SocketHandle sock) {
 struct SSL;
 struct SSL_CTX;
 struct SSL_METHOD;
+struct X509;
 struct X509_VERIFY_PARAM;
 
+// OpenSSL 1.1 / 3.x loaded at run time. Macros of the C API (SNI, minimum
+// protocol) are reached through SSL_ctrl / SSL_CTX_ctrl, which both export.
 struct TlsApi {
     void* sslLib = nullptr;
     void* cryptoLib = nullptr;
@@ -782,6 +847,7 @@ struct TlsApi {
     using TLS_client_method_fn = const SSL_METHOD* (*)();
     using SSL_CTX_new_fn = SSL_CTX* (*)(const SSL_METHOD*);
     using SSL_CTX_free_fn = void (*)(SSL_CTX*);
+    using SSL_CTX_ctrl_fn = long (*)(SSL_CTX*, int, long, void*);
     using SSL_CTX_set_verify_fn = void (*)(SSL_CTX*, int, void*);
     using SSL_CTX_load_verify_locations_fn = int (*)(SSL_CTX*, const char*, const char*);
     using SSL_CTX_set_default_verify_paths_fn = int (*)(SSL_CTX*);
@@ -791,9 +857,10 @@ struct TlsApi {
     using SSL_new_fn = SSL* (*)(SSL_CTX*);
     using SSL_free_fn = void (*)(SSL*);
     using SSL_set_fd_fn = int (*)(SSL*, int);
-    using SSL_set_tlsext_host_name_fn = int (*)(SSL*, const char*);
+    using SSL_ctrl_fn = long (*)(SSL*, int, long, void*);
     using SSL_get0_param_fn = X509_VERIFY_PARAM* (*)(SSL*);
     using X509_VERIFY_PARAM_set1_host_fn = int (*)(X509_VERIFY_PARAM*, const char*, std::size_t);
+    using X509_VERIFY_PARAM_set1_ip_asc_fn = int (*)(X509_VERIFY_PARAM*, const char*);
     using SSL_connect_fn = int (*)(SSL*);
     using SSL_get_error_fn = int (*)(const SSL*, int);
     using SSL_write_fn = int (*)(SSL*, const void*, int);
@@ -801,11 +868,19 @@ struct TlsApi {
     using SSL_shutdown_fn = int (*)(SSL*);
     using SSL_get_verify_result_fn = long (*)(const SSL*);
     using SSL_pending_fn = int (*)(const SSL*);
+    using SSL_get_peer_certificate_fn = X509* (*)(const SSL*);
+    using X509_free_fn = void (*)(X509*);
+    using X509_verify_cert_error_string_fn = const char* (*)(long);
+    using ERR_get_error_fn = unsigned long (*)();
+    using ERR_error_string_n_fn = void (*)(unsigned long, char*, std::size_t);
+    using ERR_clear_error_fn = void (*)();
+    using X509_get_default_path_fn = const char* (*)();
 
     OPENSSL_init_ssl_fn initSsl = nullptr;
     TLS_client_method_fn clientMethod = nullptr;
     SSL_CTX_new_fn ctxNew = nullptr;
     SSL_CTX_free_fn ctxFree = nullptr;
+    SSL_CTX_ctrl_fn ctxCtrl = nullptr;
     SSL_CTX_set_verify_fn ctxSetVerify = nullptr;
     SSL_CTX_load_verify_locations_fn ctxLoadVerifyLocations = nullptr;
     SSL_CTX_set_default_verify_paths_fn ctxSetDefaultVerifyPaths = nullptr;
@@ -815,9 +890,10 @@ struct TlsApi {
     SSL_new_fn sslNew = nullptr;
     SSL_free_fn sslFree = nullptr;
     SSL_set_fd_fn sslSetFd = nullptr;
-    SSL_set_tlsext_host_name_fn sslSetSni = nullptr;
+    SSL_ctrl_fn sslCtrl = nullptr;
     SSL_get0_param_fn sslGet0Param = nullptr;
     X509_VERIFY_PARAM_set1_host_fn verifyParamSetHost = nullptr;
+    X509_VERIFY_PARAM_set1_ip_asc_fn verifyParamSetIp = nullptr;
     SSL_connect_fn sslConnect = nullptr;
     SSL_get_error_fn sslGetError = nullptr;
     SSL_write_fn sslWrite = nullptr;
@@ -825,24 +901,30 @@ struct TlsApi {
     SSL_shutdown_fn sslShutdown = nullptr;
     SSL_get_verify_result_fn sslGetVerifyResult = nullptr;
     SSL_pending_fn sslPending = nullptr;
+    SSL_get_peer_certificate_fn sslPeerCertificate = nullptr;
+    X509_free_fn x509Free = nullptr;
+    X509_verify_cert_error_string_fn verifyErrorString = nullptr;
+    ERR_get_error_fn errGetError = nullptr;
+    ERR_error_string_n_fn errErrorString = nullptr;
+    ERR_clear_error_fn errClear = nullptr;
+    X509_get_default_path_fn defaultCertFile = nullptr;
+    X509_get_default_path_fn defaultCertFileEnv = nullptr;
+    X509_get_default_path_fn defaultCertDir = nullptr;
+    X509_get_default_path_fn defaultCertDirEnv = nullptr;
 };
 
-void* loadDynamicLibrary(const std::vector<std::string>& names) {
-    for (const auto& name : names) {
+void* loadDynamicLibrary(const char* name) {
 #ifdef _WIN32
-        if (auto* handle = LoadLibraryA(name.c_str())) {
-            return handle;
-        }
+    return LoadLibraryA(name);
 #else
-        if (auto* handle = dlopen(name.c_str(), RTLD_NOW | RTLD_LOCAL)) {
-            return handle;
-        }
+    return dlopen(name, RTLD_NOW | RTLD_LOCAL);
 #endif
-    }
-    return nullptr;
 }
 
 void* loadDynamicSymbol(void* handle, const char* name) {
+    if (handle == nullptr) {
+        return nullptr;
+    }
 #ifdef _WIN32
     return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name));
 #else
@@ -850,63 +932,95 @@ void* loadDynamicSymbol(void* handle, const char* name) {
 #endif
 }
 
+template <typename Fn>
+void loadTlsSymbol(const TlsApi& api, Fn& target, const char* name) {
+    void* symbol = loadDynamicSymbol(api.sslLib, name);
+    if (symbol == nullptr) {
+        symbol = loadDynamicSymbol(api.cryptoLib, name);
+    }
+    target = reinterpret_cast<Fn>(symbol);
+}
+
 TlsApi& tlsApi() {
+    static std::mutex mutex;
     static TlsApi api;
     static bool loaded = false;
+    std::lock_guard<std::mutex> lock(mutex);
     if (loaded) {
         return api;
     }
 
-    api.sslLib = loadDynamicLibrary({
-        "libssl.so.1.1",
-        "libssl.so.3",
-        "libssl.so",
-        "libssl-1_1-x64.dll",
-        "libssl-3-x64.dll"
-    });
-    api.cryptoLib = loadDynamicLibrary({
-        "libcrypto.so.1.1",
-        "libcrypto.so.3",
-        "libcrypto.so",
-        "libcrypto-1_1-x64.dll",
-        "libcrypto-3-x64.dll"
-    });
+    // libssl and libcrypto must come from the same OpenSSL release.
+    static const char* const kLibraryPairs[][2] = {
+        {"libssl.so.1.1", "libcrypto.so.1.1"},
+        {"libssl.so.3", "libcrypto.so.3"},
+        {"libssl.so", "libcrypto.so"},
+        {"libssl-1_1-x64.dll", "libcrypto-1_1-x64.dll"},
+        {"libssl-3-x64.dll", "libcrypto-3-x64.dll"}
+    };
+    for (const auto& pair : kLibraryPairs) {
+        api.sslLib = loadDynamicLibrary(pair[0]);
+        if (api.sslLib != nullptr) {
+            api.cryptoLib = loadDynamicLibrary(pair[1]);
+            break;
+        }
+    }
     if (api.sslLib == nullptr) {
-        throw std::runtime_error("mqtt tls requested but libssl is not available");
+        throw std::runtime_error(
+            "mqtt tls requested but libssl is not available (install OpenSSL 1.1 or 3.x); "
+            "no plaintext fallback is attempted");
     }
 
-    api.initSsl = reinterpret_cast<TlsApi::OPENSSL_init_ssl_fn>(loadDynamicSymbol(api.sslLib, "OPENSSL_init_ssl"));
-    api.clientMethod = reinterpret_cast<TlsApi::TLS_client_method_fn>(loadDynamicSymbol(api.sslLib, "TLS_client_method"));
-    api.ctxNew = reinterpret_cast<TlsApi::SSL_CTX_new_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_new"));
-    api.ctxFree = reinterpret_cast<TlsApi::SSL_CTX_free_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_free"));
-    api.ctxSetVerify = reinterpret_cast<TlsApi::SSL_CTX_set_verify_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_set_verify"));
-    api.ctxLoadVerifyLocations = reinterpret_cast<TlsApi::SSL_CTX_load_verify_locations_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_load_verify_locations"));
-    api.ctxSetDefaultVerifyPaths = reinterpret_cast<TlsApi::SSL_CTX_set_default_verify_paths_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_set_default_verify_paths"));
-    api.ctxUseCertificateFile = reinterpret_cast<TlsApi::SSL_CTX_use_certificate_file_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_use_certificate_file"));
-    api.ctxUsePrivateKeyFile = reinterpret_cast<TlsApi::SSL_CTX_use_PrivateKey_file_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_use_PrivateKey_file"));
-    api.ctxCheckPrivateKey = reinterpret_cast<TlsApi::SSL_CTX_check_private_key_fn>(loadDynamicSymbol(api.sslLib, "SSL_CTX_check_private_key"));
-    api.sslNew = reinterpret_cast<TlsApi::SSL_new_fn>(loadDynamicSymbol(api.sslLib, "SSL_new"));
-    api.sslFree = reinterpret_cast<TlsApi::SSL_free_fn>(loadDynamicSymbol(api.sslLib, "SSL_free"));
-    api.sslSetFd = reinterpret_cast<TlsApi::SSL_set_fd_fn>(loadDynamicSymbol(api.sslLib, "SSL_set_fd"));
-    api.sslSetSni = reinterpret_cast<TlsApi::SSL_set_tlsext_host_name_fn>(loadDynamicSymbol(api.sslLib, "SSL_set_tlsext_host_name"));
-    api.sslGet0Param = reinterpret_cast<TlsApi::SSL_get0_param_fn>(loadDynamicSymbol(api.sslLib, "SSL_get0_param"));
-    api.verifyParamSetHost = reinterpret_cast<TlsApi::X509_VERIFY_PARAM_set1_host_fn>(loadDynamicSymbol(api.sslLib, "X509_VERIFY_PARAM_set1_host"));
-    if (api.verifyParamSetHost == nullptr && api.cryptoLib != nullptr) {
-        api.verifyParamSetHost = reinterpret_cast<TlsApi::X509_VERIFY_PARAM_set1_host_fn>(loadDynamicSymbol(api.cryptoLib, "X509_VERIFY_PARAM_set1_host"));
+    loadTlsSymbol(api, api.initSsl, "OPENSSL_init_ssl");
+    loadTlsSymbol(api, api.clientMethod, "TLS_client_method");
+    loadTlsSymbol(api, api.ctxNew, "SSL_CTX_new");
+    loadTlsSymbol(api, api.ctxFree, "SSL_CTX_free");
+    loadTlsSymbol(api, api.ctxCtrl, "SSL_CTX_ctrl");
+    loadTlsSymbol(api, api.ctxSetVerify, "SSL_CTX_set_verify");
+    loadTlsSymbol(api, api.ctxLoadVerifyLocations, "SSL_CTX_load_verify_locations");
+    loadTlsSymbol(api, api.ctxSetDefaultVerifyPaths, "SSL_CTX_set_default_verify_paths");
+    loadTlsSymbol(api, api.ctxUseCertificateFile, "SSL_CTX_use_certificate_file");
+    loadTlsSymbol(api, api.ctxUsePrivateKeyFile, "SSL_CTX_use_PrivateKey_file");
+    loadTlsSymbol(api, api.ctxCheckPrivateKey, "SSL_CTX_check_private_key");
+    loadTlsSymbol(api, api.sslNew, "SSL_new");
+    loadTlsSymbol(api, api.sslFree, "SSL_free");
+    loadTlsSymbol(api, api.sslSetFd, "SSL_set_fd");
+    loadTlsSymbol(api, api.sslCtrl, "SSL_ctrl");
+    loadTlsSymbol(api, api.sslGet0Param, "SSL_get0_param");
+    loadTlsSymbol(api, api.verifyParamSetHost, "X509_VERIFY_PARAM_set1_host");
+    loadTlsSymbol(api, api.verifyParamSetIp, "X509_VERIFY_PARAM_set1_ip_asc");
+    loadTlsSymbol(api, api.sslConnect, "SSL_connect");
+    loadTlsSymbol(api, api.sslGetError, "SSL_get_error");
+    loadTlsSymbol(api, api.sslWrite, "SSL_write");
+    loadTlsSymbol(api, api.sslRead, "SSL_read");
+    loadTlsSymbol(api, api.sslShutdown, "SSL_shutdown");
+    loadTlsSymbol(api, api.sslGetVerifyResult, "SSL_get_verify_result");
+    loadTlsSymbol(api, api.sslPending, "SSL_pending");
+    loadTlsSymbol(api, api.sslPeerCertificate, "SSL_get1_peer_certificate");  // 3.x
+    if (api.sslPeerCertificate == nullptr) {
+        loadTlsSymbol(api, api.sslPeerCertificate, "SSL_get_peer_certificate");  // 1.1
     }
-    api.sslConnect = reinterpret_cast<TlsApi::SSL_connect_fn>(loadDynamicSymbol(api.sslLib, "SSL_connect"));
-    api.sslGetError = reinterpret_cast<TlsApi::SSL_get_error_fn>(loadDynamicSymbol(api.sslLib, "SSL_get_error"));
-    api.sslWrite = reinterpret_cast<TlsApi::SSL_write_fn>(loadDynamicSymbol(api.sslLib, "SSL_write"));
-    api.sslRead = reinterpret_cast<TlsApi::SSL_read_fn>(loadDynamicSymbol(api.sslLib, "SSL_read"));
-    api.sslShutdown = reinterpret_cast<TlsApi::SSL_shutdown_fn>(loadDynamicSymbol(api.sslLib, "SSL_shutdown"));
-    api.sslGetVerifyResult = reinterpret_cast<TlsApi::SSL_get_verify_result_fn>(loadDynamicSymbol(api.sslLib, "SSL_get_verify_result"));
-    api.sslPending = reinterpret_cast<TlsApi::SSL_pending_fn>(loadDynamicSymbol(api.sslLib, "SSL_pending"));
+    loadTlsSymbol(api, api.x509Free, "X509_free");
+    loadTlsSymbol(api, api.verifyErrorString, "X509_verify_cert_error_string");
+    loadTlsSymbol(api, api.errGetError, "ERR_get_error");
+    loadTlsSymbol(api, api.errErrorString, "ERR_error_string_n");
+    loadTlsSymbol(api, api.errClear, "ERR_clear_error");
+    loadTlsSymbol(api, api.defaultCertFile, "X509_get_default_cert_file");
+    loadTlsSymbol(api, api.defaultCertFileEnv, "X509_get_default_cert_file_env");
+    loadTlsSymbol(api, api.defaultCertDir, "X509_get_default_cert_dir");
+    loadTlsSymbol(api, api.defaultCertDirEnv, "X509_get_default_cert_dir_env");
 
-    if (!api.clientMethod || !api.ctxNew || !api.ctxFree || !api.ctxSetVerify ||
-        !api.sslNew || !api.sslFree || !api.sslSetFd || !api.sslConnect ||
+    // Every symbol needed for chain + host verification is mandatory.
+    if (!api.clientMethod || !api.ctxNew || !api.ctxFree || !api.ctxCtrl || !api.ctxSetVerify ||
+        !api.ctxLoadVerifyLocations || !api.ctxSetDefaultVerifyPaths ||
+        !api.sslNew || !api.sslFree || !api.sslSetFd || !api.sslCtrl || !api.sslGet0Param ||
+        !api.verifyParamSetHost || !api.verifyParamSetIp || !api.sslConnect ||
         !api.sslGetError || !api.sslWrite || !api.sslRead || !api.sslShutdown ||
-        !api.sslGetVerifyResult || !api.sslPending) {
-        throw std::runtime_error("mqtt tls requested but required OpenSSL symbols are missing");
+        !api.sslGetVerifyResult || !api.sslPending || !api.sslPeerCertificate || !api.x509Free ||
+        !api.verifyErrorString || !api.errGetError || !api.errErrorString || !api.errClear) {
+        throw std::runtime_error(
+            "mqtt tls requested but required OpenSSL symbols are missing (OpenSSL 1.1 or 3.x required); "
+            "no plaintext fallback is attempted");
     }
     if (api.initSsl) {
         api.initSsl(0, nullptr);
@@ -1144,7 +1258,7 @@ void applyMqttSocketDeadline(SocketHandle socketHandle, const MqttDeadline& dead
     throw std::runtime_error(message);
 }
 
-SocketHandle connectTcp(const BrokerEndpoint& endpoint, int timeoutMs) {
+SocketHandle connectTcp(const std::string& host, int portNumber, int timeoutMs) {
     ensureSocketRuntime();
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -1152,8 +1266,8 @@ SocketHandle connectTcp(const BrokerEndpoint& endpoint, int timeoutMs) {
     hints.ai_protocol = IPPROTO_TCP;
 
     addrinfo* result = nullptr;
-    const auto port = std::to_string(endpoint.port);
-    if (getaddrinfo(endpoint.host.c_str(), port.c_str(), &hints, &result) != 0) {
+    const auto port = std::to_string(portNumber);
+    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &result) != 0) {
         throw std::runtime_error("getaddrinfo failed");
     }
 
@@ -1213,31 +1327,147 @@ SocketHandle connectTcp(const BrokerEndpoint& endpoint, int timeoutMs) {
     return sock;
 }
 
-void enableTlsOnConnection(MqttConnection& connection, const MqttConfig& config, const BrokerEndpoint& endpoint) {
-    auto& api = tlsApi();
-    constexpr int kSslVerifyNone = 0;
-    constexpr int kSslVerifyPeer = 1;
-    constexpr int kSslFiletypePem = 1;
-    constexpr long kX509VerifyOk = 0;
+constexpr int kSslVerifyPeer = 1;
+constexpr int kSslFiletypePem = 1;
+constexpr int kSslCtrlSetTlsextHostname = 55;
+constexpr long kTlsextNametypeHostName = 0;
+constexpr int kSslCtrlSetMinProtoVersion = 123;
+constexpr long kTls12Version = 0x0303;
+constexpr long kX509VerifyOk = 0;
+constexpr int kSslErrorSyscall = 5;
 
+bool isIpLiteral(const std::string& host) {
+    unsigned char buffer[16];
+    return inet_pton(AF_INET, host.c_str(), buffer) == 1 ||
+        inet_pton(AF_INET6, host.c_str(), buffer) == 1;
+}
+
+bool readableRegularFile(const std::string& path) {
+#ifndef _WIN32
+    struct stat info{};
+    if (stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0) {
+        return false;
+    }
+#endif
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    return input.good();
+}
+
+bool nonEmptyDirectory(const std::string& path) {
+#ifdef _WIN32
+    (void)path;
+    return false;
+#else
+    DIR* directory = opendir(path.c_str());
+    if (directory == nullptr) {
+        return false;
+    }
+    bool found = false;
+    while (const dirent* entry = readdir(directory)) {
+        const std::string name = entry->d_name;
+        if (name != "." && name != "..") {
+            found = true;
+            break;
+        }
+    }
+    closedir(directory);
+    return found;
+#endif
+}
+
+std::string defaultTrustPath(TlsApi::X509_get_default_path_fn envName, TlsApi::X509_get_default_path_fn fallback) {
+    if (envName != nullptr) {
+        const char* name = envName();
+        const char* value = name != nullptr ? std::getenv(name) : nullptr;
+        if (value != nullptr) {
+            return value;
+        }
+    }
+    const char* path = fallback != nullptr ? fallback() : nullptr;
+    return path != nullptr ? path : "";
+}
+
+// OpenSSL's default store is the SSL_CERT_FILE / SSL_CERT_DIR environment
+// override or the compiled-in OPENSSLDIR paths. An absent store would make
+// every handshake fail with an opaque issuer error, so report it up front.
+bool systemTrustStoreAvailable(const TlsApi& api, std::string* checked) {
+    const auto file = defaultTrustPath(api.defaultCertFileEnv, api.defaultCertFile);
+    const auto dirs = defaultTrustPath(api.defaultCertDirEnv, api.defaultCertDir);
+    *checked = "file '" + file + "', dir '" + dirs + "'";
+    if (!file.empty() && readableRegularFile(file)) {
+        return true;
+    }
+    std::size_t begin = 0;
+    while (begin <= dirs.size()) {
+        const auto end = dirs.find(':', begin);
+        const auto dir = dirs.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+        if (!dir.empty() && nonEmptyDirectory(dir)) {
+            return true;
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+    return false;
+}
+
+// Drains the thread's OpenSSL error queue; returns the earliest (root cause) entry.
+std::string takeOpensslError(const TlsApi& api) {
+    const unsigned long first = api.errGetError();
+    if (first == 0) {
+        return std::string();
+    }
+    char buffer[256] = {};
+    api.errErrorString(first, buffer, sizeof(buffer));
+    while (api.errGetError() != 0) {
+    }
+    return buffer;
+}
+
+void loadMqttTrustAnchors(const TlsApi& api, SSL_CTX* context, const std::string& caFile) {
+    if (!caFile.empty()) {
+        if (!readableRegularFile(caFile)) {
+            throw std::runtime_error(
+                "mqtt tls caFile is missing or unreadable: " + caFile +
+                " (deploy the broker CA certificate there; connection not attempted)");
+        }
+        api.errClear();
+        if (api.ctxLoadVerifyLocations(context, caFile.c_str(), nullptr) != 1) {
+            const auto detail = takeOpensslError(api);
+            throw std::runtime_error(
+                "mqtt tls caFile is not a usable PEM CA certificate: " + caFile +
+                (detail.empty() ? std::string() : " (" + detail + ")"));
+        }
+        return;
+    }
+    std::string checked;
+    if (!systemTrustStoreAvailable(api, &checked)) {
+        throw std::runtime_error(
+            "mqtt tls.caFile is not configured and no system trust store was found (" + checked +
+            "); deploy the broker CA certificate and set tls.caFile");
+    }
+    api.errClear();
+    if (api.ctxSetDefaultVerifyPaths(context) != 1) {
+        const auto detail = takeOpensslError(api);
+        throw std::runtime_error("mqtt tls system trust store could not be loaded" +
+            (detail.empty() ? std::string() : " (" + detail + ")"));
+    }
+}
+
+// Local trust material is validated before any socket is opened, so a missing
+// CA or client certificate never reaches the network.
+void prepareTlsContext(MqttConnection& connection, const MqttConfig& config) {
+    auto& api = tlsApi();
     connection.sslCtx = api.ctxNew(api.clientMethod());
     if (connection.sslCtx == nullptr) {
         throw std::runtime_error("mqtt tls context create failed");
     }
-
-    if (config.tls.insecureSkipVerify) {
-        api.ctxSetVerify(connection.sslCtx, kSslVerifyNone, nullptr);
-    } else {
-        api.ctxSetVerify(connection.sslCtx, kSslVerifyPeer, nullptr);
-        if (!config.tls.caFile.empty()) {
-            if (api.ctxLoadVerifyLocations == nullptr ||
-                api.ctxLoadVerifyLocations(connection.sslCtx, config.tls.caFile.c_str(), nullptr) != 1) {
-                throw std::runtime_error("mqtt tls CA file load failed");
-            }
-        } else if (api.ctxSetDefaultVerifyPaths != nullptr) {
-            api.ctxSetDefaultVerifyPaths(connection.sslCtx);
-        }
+    if (api.ctxCtrl(connection.sslCtx, kSslCtrlSetMinProtoVersion, kTls12Version, nullptr) != 1) {
+        throw std::runtime_error("mqtt tls could not enforce TLS 1.2 as minimum protocol version");
     }
+    api.ctxSetVerify(connection.sslCtx, kSslVerifyPeer, nullptr);
+    loadMqttTrustAnchors(api, connection.sslCtx, config.tls.caFile);
 
     if (!config.tls.certFile.empty() || !config.tls.keyFile.empty()) {
         if (config.tls.certFile.empty() || config.tls.keyFile.empty()) {
@@ -1248,17 +1478,26 @@ void enableTlsOnConnection(MqttConnection& connection, const MqttConfig& config,
             api.ctxCheckPrivateKey == nullptr) {
             throw std::runtime_error("mqtt tls client certificate support is not available");
         }
+        if (!readableRegularFile(config.tls.certFile)) {
+            throw std::runtime_error("mqtt tls certFile is missing or unreadable: " + config.tls.certFile);
+        }
+        if (!readableRegularFile(config.tls.keyFile)) {
+            throw std::runtime_error("mqtt tls keyFile is missing or unreadable: " + config.tls.keyFile);
+        }
         if (api.ctxUseCertificateFile(connection.sslCtx, config.tls.certFile.c_str(), kSslFiletypePem) != 1) {
-            throw std::runtime_error("mqtt tls client certificate load failed");
+            throw std::runtime_error("mqtt tls client certificate load failed: " + config.tls.certFile);
         }
         if (api.ctxUsePrivateKeyFile(connection.sslCtx, config.tls.keyFile.c_str(), kSslFiletypePem) != 1) {
-            throw std::runtime_error("mqtt tls client private key load failed");
+            throw std::runtime_error("mqtt tls client private key load failed: " + config.tls.keyFile);
         }
         if (api.ctxCheckPrivateKey(connection.sslCtx) != 1) {
             throw std::runtime_error("mqtt tls client certificate and key mismatch");
         }
     }
+}
 
+void startTlsOnConnection(MqttConnection& connection, const std::string& host, const MqttDeadline& deadline) {
+    auto& api = tlsApi();
     connection.ssl = api.sslNew(connection.sslCtx);
     if (connection.ssl == nullptr) {
         throw std::runtime_error("mqtt tls session create failed");
@@ -1266,38 +1505,107 @@ void enableTlsOnConnection(MqttConnection& connection, const MqttConfig& config,
     if (api.sslSetFd(connection.ssl, static_cast<int>(connection.sock)) != 1) {
         throw std::runtime_error("mqtt tls set socket failed");
     }
-    if (api.sslSetSni != nullptr && !endpoint.host.empty()) {
-        api.sslSetSni(connection.ssl, endpoint.host.c_str());
+    auto* param = api.sslGet0Param(connection.ssl);
+    if (param == nullptr) {
+        throw std::runtime_error("mqtt tls verification parameters unavailable");
     }
-    if (!config.tls.insecureSkipVerify) {
-        if (api.sslGet0Param == nullptr || api.verifyParamSetHost == nullptr) {
-            throw std::runtime_error("mqtt tls hostname verification is not available");
+    if (isIpLiteral(host)) {
+        // IP brokers are matched against the certificate's IP SAN; SNI must not carry an IP.
+        if (api.verifyParamSetIp(param, host.c_str()) != 1) {
+            throw std::runtime_error("mqtt tls IP address verification setup failed");
         }
-        auto* param = api.sslGet0Param(connection.ssl);
-        if (param == nullptr || api.verifyParamSetHost(param, endpoint.host.c_str(), endpoint.host.size()) != 1) {
+    } else {
+        if (api.sslCtrl(connection.ssl, kSslCtrlSetTlsextHostname, kTlsextNametypeHostName,
+                const_cast<char*>(host.c_str())) != 1) {
+            throw std::runtime_error("mqtt tls SNI setup failed");
+        }
+        if (api.verifyParamSetHost(param, host.c_str(), host.size()) != 1) {
             throw std::runtime_error("mqtt tls hostname verification setup failed");
         }
     }
 
+    api.errClear();
     const auto rc = api.sslConnect(connection.ssl);
     if (rc != 1) {
-        throw std::runtime_error("mqtt tls handshake failed");
+        const auto sslError = api.sslGetError(connection.ssl, rc);
+        const auto verifyResult = api.sslGetVerifyResult(connection.ssl);
+        if (verifyResult != kX509VerifyOk) {
+            const char* reason = api.verifyErrorString(verifyResult);
+            api.errClear();
+            throw std::runtime_error(
+                "mqtt tls certificate verification failed for " + host + ": " +
+                (reason != nullptr ? reason : "unknown error") + " (X509 error " +
+                std::to_string(verifyResult) + ")");
+        }
+        auto detail = takeOpensslError(api);
+        if (std::chrono::steady_clock::now() >= deadline) {
+            detail = "deadline exceeded";
+        } else if (detail.empty()) {
+            detail = sslError == kSslErrorSyscall
+                ? "connection closed by broker or I/O error"
+                : "SSL error " + std::to_string(sslError);
+        }
+        throw std::runtime_error("mqtt tls handshake failed for " + host + ": " + detail);
     }
-    if (!config.tls.insecureSkipVerify && api.sslGetVerifyResult(connection.ssl) != kX509VerifyOk) {
-        throw std::runtime_error("mqtt tls certificate verification failed");
+    // A completed handshake must carry a verified broker certificate.
+    X509* peer = api.sslPeerCertificate(connection.ssl);
+    if (peer == nullptr) {
+        throw std::runtime_error("mqtt tls broker presented no certificate");
+    }
+    api.x509Free(peer);
+    if (api.sslGetVerifyResult(connection.ssl) != kX509VerifyOk) {
+        throw std::runtime_error("mqtt tls certificate verification failed for " + host);
     }
     connection.tls = true;
 }
 
+std::int64_t steadyNowMs();
+
+// Problems an operator must fix on site; repeated reconnects log at most every 10 minutes.
+void logMqttTransportProblem(const std::string& message) {
+    static std::mutex mutex;
+    static std::string lastMessage;
+    static std::int64_t lastLogMs = 0;
+    std::lock_guard<std::mutex> lock(mutex);
+    const auto now = steadyNowMs();
+    if (message == lastMessage && now - lastLogMs < 600000) {
+        return;
+    }
+    lastMessage = message;
+    lastLogMs = now;
+    std::cerr << message << std::endl;
+}
+
+// TLS is decided once from configuration; a TLS failure propagates and the
+// caller's reconnect retries TLS again. There is no plaintext fallback.
 MqttConnection connectMqttTransport(const MqttConfig& config, const MqttDeadline& deadline) {
-    const auto endpoint = parseBroker(config.broker);
+    const auto policy = evaluateMqttTransportPolicy(config);
+    if (policy.kind == MqttTransportPolicy::Kind::Refused) {
+        const auto message = "mqtt connection refused clientId=" + config.clientId + ": " + policy.message;
+        logMqttTransportProblem(message);
+        throw std::runtime_error(message);
+    }
+    if (policy.kind == MqttTransportPolicy::Kind::InsecurePlaintext) {
+        std::cerr << policy.message << " clientId=" << config.clientId << std::endl;
+    }
+    const bool tls = policy.kind == MqttTransportPolicy::Kind::Tls;
     MqttConnection connection;
-    connection.sock = connectTcp(endpoint, remainingMqttTimeoutMs(deadline));
     try {
-        if (configUsesTls(config, endpoint)) {
-            applyMqttSocketDeadline(connection.sock, deadline);
-            enableTlsOnConnection(connection, config, endpoint);
+        if (tls) {
+            prepareTlsContext(connection, config);
         }
+        connection.sock = connectTcp(policy.host, policy.port, remainingMqttTimeoutMs(deadline));
+        if (tls) {
+            applyMqttSocketDeadline(connection.sock, deadline);
+            startTlsOnConnection(connection, policy.host, deadline);
+        }
+    } catch (const std::exception& ex) {
+        closeConnection(connection);
+        const std::string message = ex.what();
+        if (message.compare(0, 8, "mqtt tls") == 0) {
+            logMqttTransportProblem(message + " clientId=" + config.clientId + " (no plaintext fallback)");
+        }
+        throw;
     } catch (...) {
         closeConnection(connection);
         throw;
@@ -2109,6 +2417,49 @@ bool parsePublishPacket(
 
 }  // namespace
 
+MqttTransportPolicy evaluateMqttTransportPolicy(const MqttConfig& config) {
+    MqttTransportPolicy policy;
+    if (config.broker.find_first_not_of(" \t\r\n") == std::string::npos) {
+        policy.message = "mqtt broker is not configured: deploy ssl://<broker-host>:8883 and "
+            "tls.caFile (no default broker address is assumed)";
+        return policy;
+    }
+    const auto address = parseBrokerAddress(config.broker);
+    if (!address.valid) {
+        policy.message = "mqtt broker address is invalid: " + address.error;
+        return policy;
+    }
+    const bool tls = address.schemeTls || config.tls.enabled;
+    policy.host = address.host;
+    policy.port = address.port > 0 ? address.port : (tls ? kMqttTlsDefaultPort : kMqttPlainDefaultPort);
+    if (tls) {
+        if (config.tls.insecureSkipVerify) {
+            policy.message = "tls.insecureSkipVerify=true is not supported: certificate chain and "
+                "broker host verification cannot be disabled; remove it and deploy the broker CA "
+                "as tls.caFile";
+            return policy;
+        }
+        if (config.tls.certFile.empty() != config.tls.keyFile.empty()) {
+            policy.message = "tls.certFile and tls.keyFile must be configured together";
+            return policy;
+        }
+        policy.kind = MqttTransportPolicy::Kind::Tls;
+        return policy;
+    }
+    const auto label = brokerLabel(address.plaintextScheme ? "tcp://" : "", policy.host, policy.port);
+    if (!config.allowInsecurePlaintext) {
+        policy.message = "plaintext broker " + label + " refused: credentials, telemetry and control "
+            "commands would be unencrypted and the broker unauthenticated; use ssl://<host>:8883 "
+            "with tls.caFile (allowInsecurePlaintext=true exists for isolated experiments only)";
+        return policy;
+    }
+    policy.kind = MqttTransportPolicy::Kind::InsecurePlaintext;
+    policy.message = "WARNING: INSECURE PLAINTEXT MQTT to " + label +
+        " (allowInsecurePlaintext=true): credentials, telemetry and control commands are "
+        "unencrypted and the broker is not authenticated; experimental use only, never in production";
+    return policy;
+}
+
 std::string encodeBuiltinOtaStatusJson(const OtaStatus& status) {
     return encodeOtaStatusJson(status);
 }
@@ -2139,6 +2490,15 @@ BuiltinMqttDriverPublisher::BuiltinMqttDriverPublisher(
     : config_(std::move(config)),
       mode_(mode),
       eventOutboxOwnership_(eventOutboxOwnership), durableEventSubmit_(std::move(durableEventSubmit)) {
+    // Configuration still loads when the transport is unusable; every connect
+    // attempt is refused with the same reason instead of falling back.
+    const auto transport = evaluateMqttTransportPolicy(config_);
+    if (transport.kind == MqttTransportPolicy::Kind::Refused) {
+        std::cerr << "mqtt transport refused clientId=" << config_.clientId << ": "
+                  << transport.message << std::endl;
+    } else if (transport.kind == MqttTransportPolicy::Kind::InsecurePlaintext) {
+        std::cerr << transport.message << " clientId=" << config_.clientId << std::endl;
+    }
     const auto& queryRequest = config_.otaQueryRequestTopic;
     const auto& queryReply = config_.otaQueryReplyTopic;
     if (queryRequest.empty() != queryReply.empty() ||

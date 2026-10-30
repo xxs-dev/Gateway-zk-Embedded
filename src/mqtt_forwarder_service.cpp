@@ -850,6 +850,7 @@ MqttConfig MqttForwarderService::makeTxOnlyMqttConfig(
     mqtt.qos = forwardConfig.qos;
     mqtt.controlQos = forwardConfig.qos;
     mqtt.tls = forwardConfig.tls;
+    mqtt.allowInsecurePlaintext = forwardConfig.allowInsecurePlaintext;
     mqtt.offlineBufferEnabled = false;
     clearControlTopics(mqtt);
     if (forwardConfig.events.enabled) {

@@ -23,6 +23,7 @@
 #include <windows.h>
 #endif
 
+#include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/json_value.hpp"
@@ -1041,6 +1042,15 @@ void MqttDriverService::start() {
             R"(,"fullUploadMode":")" +
             escapeJson(driverConfig_.fullUploadWorker.mode) + R"(")"
     );
+    // Explicit experimental plaintext is announced to the platform on every start.
+    const auto transport = evaluateMqttTransportPolicy(mqttConfig_);
+    if (mqttConfig_.enabled && transport.kind == MqttTransportPolicy::Kind::InsecurePlaintext) {
+        publishStatusEvent(
+            "mqtt-insecure-plaintext",
+            ts,
+            std::string(R"("allowInsecurePlaintext":true,"message":")") + escapeJson(transport.message) + R"(")"
+        );
+    }
     replayPendingOtaStatuses(ts);
     scanThread_ = std::thread(&MqttDriverService::scanLoop, this);
     if (eventOutbox_ || businessReplayFactory_) {

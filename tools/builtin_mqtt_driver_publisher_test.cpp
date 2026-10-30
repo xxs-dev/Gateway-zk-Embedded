@@ -561,6 +561,7 @@ void requireReliablePublishRejected(
     RejectingAckMqttBroker broker(mode);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_ACK_REJECT";
     config.topicMachineCode = "GW_ACK_REJECT";
     config.statusTopic = "edge/status";
@@ -599,6 +600,7 @@ void testReliablePublishHasAbsoluteAckDeadline() {
     SlowAckMqttBroker broker(std::chrono::milliseconds(80));
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_SLOW_ACK";
     config.topicMachineCode = "GW_SLOW_ACK";
     config.statusTopic = "edge/status";
@@ -669,6 +671,7 @@ void testLeasedBatchWindowAndExactTopics() {
     TestMqttBroker broker(16, 0, true, true, 16);
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "leased-window"; config.topicMachineCode = "must-not-append";
     config.offlineBufferEnabled = false;
     config.qos = 0;
@@ -744,6 +747,7 @@ void testLeasedBatchPartial(int mode) {
     });
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "leased-partial"; config.offlineBufferEnabled = false;
     if (mqtt5) config.protocolVersion = "mqtt5";
     edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
@@ -800,6 +804,7 @@ void testLeasedBatchWrapReconnect(bool alreadyWrapped) {
     }, 2);
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "leased-wrap"; config.offlineBufferEnabled = false; config.qos = 0;
     edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
         edge_gateway::MqttEventOutboxOwnership::External);
@@ -816,6 +821,7 @@ void testLeasedBatchWrapReconnect(bool alreadyWrapped) {
 void testLeasedBatchInputGates() {
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:1"; config.offlineBufferEnabled = false;
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     edge_gateway::BuiltinMqttDriverPublisher publisher(config, edge_gateway::MqttPublisherMode::TxOnly,
         edge_gateway::MqttEventOutboxOwnership::External);
     const auto now = edge_gateway::readEventStoreLeaseTime();
@@ -837,6 +843,7 @@ void testLeasedBatchRejectsPersistentSession() {
     for (int mode = 0; mode < 4; ++mode) {
         edge_gateway::MqttConfig config;
         config.broker = "tcp://127.0.0.1:1";
+        config.allowInsecurePlaintext = true;  // local plaintext stub broker
         config.offlineBufferEnabled = false;
         config.cleanSession = mode >= 2;
         if (mode != 0) config.protocolVersion = "mqtt5";
@@ -861,6 +868,7 @@ void testReliableBatchPipelinesQos1Publishes() {
     TestMqttBroker broker(kBatchSize, 0, true, true);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_BATCH_ACK";
     config.topicMachineCode = "GW_BATCH_ACK";
     config.statusTopic = "edge/status";
@@ -895,6 +903,7 @@ void testReliableBatchCapsQos1InFlightWindow() {
     TestMqttBroker broker(kBatchSize, 0, true, true, kExpectedWindow);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_BATCH_WINDOW";
     config.topicMachineCode = "GW_BATCH_WINDOW";
     config.statusTopic = "edge/status";
@@ -1122,6 +1131,7 @@ void testSubscriberSubAckAndOversizedPublish() {
         });
         edge_gateway::MqttConfig config;
         config.broker = std::string("tcp://127.0.0.1:") + std::to_string(ntohs(addr.sin_port));
+        config.allowInsecurePlaintext = true;  // local plaintext stub broker
         config.clientId = "GW_SUB";
         config.topicMachineCode = "GW_SUB";
         config.commandRequestTopic = "edge/command/request";
@@ -1169,6 +1179,7 @@ void testSubscribeWireAndSubAckCount() {
         require(listen(listenFd, 1) == 0, "subscribe wire listen failed");
         edge_gateway::MqttConfig config;
         config.broker = "tcp://127.0.0.1:" + std::to_string(ntohs(addr.sin_port));
+        config.allowInsecurePlaintext = true;  // local plaintext stub broker
         config.clientId = "GW_WIRE";
         config.topicMachineCode = "GW_WIRE";
         config.protocolVersion = mqtt5 ? "mqtt5" : "mqtt3";
@@ -1256,6 +1267,7 @@ void testClosedTxConnectionReconnectsBeforeNextPublish() {
     ReconnectMqttBroker broker;
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_RECONNECT";
     config.topicMachineCode = "GW_RECONNECT";
     config.commandRequestTopic = "edge/command/request";
@@ -1298,6 +1310,7 @@ void testOfflineReplayRemovesSentRecords() {
     TestMqttBroker broker(3);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_TEST";
     config.topicMachineCode = "GW_TEST";
     config.qos = 1;
@@ -1338,6 +1351,7 @@ void testOfflinePublishSurvivesRestartAndReplaysInOrder() {
 
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_RESTART_REPLAY";
     config.topicMachineCode = "GW_RESTART_REPLAY";
     config.statusTopic = "edge/status";
@@ -1400,6 +1414,7 @@ void testRealtimeRingSurvivesRestartAndReplaysBeforeCurrentSnapshot() {
 
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_REALTIME_REPLAY";
     config.topicMachineCode = "GW_REALTIME_REPLAY";
     config.fullTelemetryTopic = "edge/telemetry/full";
@@ -1461,6 +1476,7 @@ void testEventOutboxSurvivesRestartAndClearsAfterReplay() {
 
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_EVENT_REPLAY";
     config.topicMachineCode = "GW_EVENT_REPLAY";
     config.changeEventTopic = "edge/event/change";
@@ -1540,6 +1556,7 @@ void testManagementOnlyPublisherNeverConsumesBusinessOutbox() {
 
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(port);
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_MANAGEMENT_ONLY";
     config.topicMachineCode = "GW_MANAGEMENT_ONLY";
     config.statusTopic = "edge/status";
@@ -1601,6 +1618,7 @@ void testControlTopicsUseQos2() {
     TestMqttBroker broker(4);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_TEST";
     config.topicMachineCode = "GW_TEST";
     config.qos = 1;
@@ -1641,6 +1659,7 @@ void testPacketIdentifierSkipsZeroAfterWrap() {
     TestMqttBroker broker(kPublishCount);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_PACKET_ID_WRAP";
     config.topicMachineCode = "GW_PACKET_ID_WRAP";
     config.statusTopic = "edge/status";
@@ -1670,6 +1689,7 @@ void testFullTelemetryTopicScopingMode() {
     TestMqttBroker broker(6);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_FULL_TOPIC";
     config.topicMachineCode = "GW_FULL_TOPIC";
     config.fullTelemetryTopic = "third/site/full";
@@ -1724,6 +1744,7 @@ void testNonFinitePointValuesProduceValidJson() {
     TestMqttBroker broker(5);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_FINITE_JSON";
     config.topicMachineCode = "GW_FINITE_JSON";
     config.fullTelemetryTopic = "edge/telemetry/full";
@@ -1769,6 +1790,7 @@ void testNonFinitePointValuesProduceValidJson() {
 void testUnreachableBrokerHonorsConnectTimeout() {
     edge_gateway::MqttConfig config;
     config.broker = "tcp://192.0.2.1:1883";
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_CONNECT_TIMEOUT";
     config.statusTopic = "edge/status";
     config.connectTimeoutMs = 100;
@@ -1789,6 +1811,7 @@ void testRealtimeSessionIdIsPresentInEveryFormatChunkAndAbsentFromFull() {
     TestMqttBroker broker(16);
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_REALTIME_SESSION";
     config.topicMachineCode = "GW_TEST";
     config.realtimeTelemetryTopic = "edge/telemetry/realtime";
@@ -1867,6 +1890,7 @@ void testRealtimeBatchWindowAndPayload() {
     TestMqttBroker broker(20, 0, true, true, 8);
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.topicMachineCode = "GW_TEST"; config.qos = 1;
     config.offlineBufferEnabled = false; config.maxPayloadBytes = 4096;
     {
@@ -1912,6 +1936,7 @@ void testRealtimeBatchFailureClosesBeforeNextSnapshot(bool timeout) {
     }, 2);
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.topicMachineCode = "GW_TEST"; config.qos = 1;
     config.offlineBufferEnabled = false; config.maxPayloadBytes = 4096; config.connectTimeoutMs = 200;
     {
@@ -1937,6 +1962,7 @@ void testRealtimeBatchKeepsMqtt5Serial() {
     });
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.topicMachineCode = "GW_TEST"; config.qos = 1; config.protocolVersion = "mqtt5";
     config.offlineBufferEnabled = false; config.maxPayloadBytes = 4096;
     {
@@ -1976,6 +2002,7 @@ void testRealtimeLegacyEscapingAndTxOnlyIsolation() {
     TestMqttBroker broker(4);
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.topicMachineCode = "GW_TEST";
     config.clientId = "GW_SESSION_COMPAT";
     config.realtimeTelemetryTopic = "edge/telemetry/realtime";
@@ -2109,6 +2136,7 @@ void testInboundQos2RedeliveryIsDeliveredOnce() {
     });
     edge_gateway::MqttConfig config;
     config.broker = std::string("tcp://127.0.0.1:") + std::to_string(ntohs(addr.sin_port));
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "GW_Q2";
     config.topicMachineCode = "GW_Q2";
     config.commandRequestTopic = "edge/command/request";
