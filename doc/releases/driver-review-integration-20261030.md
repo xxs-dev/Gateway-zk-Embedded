@@ -104,6 +104,7 @@
 
 相关文档：
 
+- [第五轮剩余问题闭环](driver-review-remaining-20261030.md)（AM5SE DPI、RS-485、CAN/DIO 确认语义、AGC/AVC 授权、MQTT TLS 默认）
 - [共享待写队列升级规程](../部署运维/共享待写队列升级规程.md)
 - [AM5 原生 SOE 全流程操作手册](../协议与驱动/AM5SE-F原生SOE全流程操作手册.md)
 - [CAN 接入设计](../协议与驱动/CAN接口接入设计.md)
