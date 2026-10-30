@@ -1006,8 +1006,11 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
 
 SerialRs485Config parseRs485(const JsonValue* value) {
     SerialRs485Config rs485;
-    if (value == nullptr || value->isNull()) {
+    if (value == nullptr) {
         return rs485;
+    }
+    if (!value->isObject()) {
+        throw std::invalid_argument("transport.rs485 must be an object");
     }
     const auto& object = value->asObject();
     for (const auto& member : object.values) {
@@ -1016,20 +1019,31 @@ SerialRs485Config parseRs485(const JsonValue* value) {
             throw std::invalid_argument("transport.rs485." + member.key + " is not a known field");
         }
     }
-    rs485.enabled = requireBool(object, "enabled", rs485.enabled);
-    rs485.rtsOnSend = requireBool(object, "rtsOnSend", rs485.rtsOnSend);
-    rs485.rtsAfterSend = requireBool(object, "rtsAfterSend", rs485.rtsAfterSend);
-    rs485.delayRtsBeforeSendMs = requireInt(object, "delayRtsBeforeSendMs", rs485.delayRtsBeforeSendMs);
-    rs485.delayRtsAfterSendMs = requireInt(object, "delayRtsAfterSendMs", rs485.delayRtsAfterSendMs);
-    // The kernel rewrites equal RTS levels and clamps delays above 100 ms; reject both here so the
-    // read-back check at open never has to explain a silent kernel correction.
+    // Present fields must have the exact type: a string "true" or a fractional delay is a typo, not a value.
+    const auto flag = [&object](const char* key, bool fallback) {
+        const auto* item = findValue(object, key);
+        if (item == nullptr) return fallback;
+        if (!item->isBool()) throw std::invalid_argument(std::string("transport.rs485.") + key + " must be true or false");
+        return item->asBool();
+    };
+    const auto delay = [&object](const char* key) {
+        const auto* item = findValue(object, key);
+        if (item == nullptr) return 0;
+        // The kernel clamps delays above 100 ms; reject them so the read-back check never has to explain it.
+        if (!item->isNumber() || std::floor(item->asNumber()) != item->asNumber() || item->asNumber() < 0 ||
+            item->asNumber() > 100) {
+            throw std::invalid_argument(std::string("transport.rs485.") + key + " must be an integer between 0 and 100 (ms)");
+        }
+        return static_cast<int>(item->asNumber());
+    };
+    rs485.enabled = flag("enabled", rs485.enabled);
+    rs485.rtsOnSend = flag("rtsOnSend", rs485.rtsOnSend);
+    rs485.rtsAfterSend = flag("rtsAfterSend", rs485.rtsAfterSend);
+    rs485.delayRtsBeforeSendMs = delay("delayRtsBeforeSendMs");
+    rs485.delayRtsAfterSendMs = delay("delayRtsAfterSendMs");
+    // The kernel rewrites equal RTS levels; the two must differ.
     if (rs485.rtsOnSend == rs485.rtsAfterSend) {
         throw std::invalid_argument("transport.rs485.rtsOnSend and rtsAfterSend must differ");
-    }
-    for (const auto delay : {rs485.delayRtsBeforeSendMs, rs485.delayRtsAfterSendMs}) {
-        if (delay < 0 || delay > 100) {
-            throw std::invalid_argument("transport.rs485 RTS delays must be between 0 and 100 ms");
-        }
     }
     return rs485;
 }
@@ -1300,6 +1314,17 @@ ProtocolConfig parseProtocol(const JsonValue* value) {
         (protocol.type == "iec103" && protocol.iec.transportMode == "tcp");
     if (usesTcp) {
         validateTcpTransport(protocol.tcp);
+    }
+    // Kernel RS-485 direction control belongs to a local serial port only.
+    const bool usesSerialLine = protocol.type == "modbus_rtu" || protocol.type == "dlt645_2007" ||
+        protocol.type == "dlt645_1997" ||
+        ((protocol.type == "iec101" || protocol.type == "iec103" || protocol.type == "iec103_serial") &&
+         protocol.iec.transportMode == "serial");
+    if (protocol.transport.rs485.enabled && !usesSerialLine) {
+        const bool iec = protocol.type.compare(0, 3, "iec") == 0;
+        throw std::invalid_argument("transport.rs485.enabled needs a serial line; protocol.type=" + protocol.type +
+                                    (iec ? " with protocol.iec.transportMode=" + protocol.iec.transportMode : std::string()) +
+                                    " does not use transport.serialPort");
     }
     return protocol;
 }

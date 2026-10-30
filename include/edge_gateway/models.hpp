@@ -508,8 +508,10 @@ struct PointBinding {
 // port is then opened without any RS-485 ioctl.
 struct SerialRs485Config {
     bool enabled = false;
-    bool rtsOnSend = true;       // RTS level while sending (true = high)
-    bool rtsAfterSend = false;   // RTS level after sending; must differ from rtsOnSend
+    // Logical RTS state (true = asserted, SER_RS485_RTS_ON_SEND/AFTER_SEND). The pin voltage that
+    // results depends on the UART (nRTS is usually active-low) and on inverters on the board.
+    bool rtsOnSend = true;       // RTS while sending
+    bool rtsAfterSend = false;   // RTS after sending; must differ from rtsOnSend
     int delayRtsBeforeSendMs = 0;  // 0..100, the kernel's limit
     int delayRtsAfterSendMs = 0;   // 0..100
 };

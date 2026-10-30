@@ -111,37 +111,84 @@ void PosixSerialPort::open() {
     (void)tcflush(fd_, TCIFLUSH);
 }
 
+namespace {
+
+// Bits this driver owns. Everything else in serial_rs485.flags (bus termination, addressing, ...) is
+// read from the driver and written back unchanged.
+constexpr std::uint32_t kRs485ControlledFlags =
+    SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | SER_RS485_RTS_AFTER_SEND | SER_RS485_RX_DURING_TX;
+
+std::string rtsLevel(bool asserted) {
+    return asserted ? "asserted" : "deasserted";
+}
+
+// Every field the driver did not take as requested, in words.
+std::string rs485Differences(const serial_rs485& requested, const serial_rs485& actual) {
+    std::string out;
+    const auto add = [&out](const std::string& text) { out += (out.empty() ? "" : "; ") + text; };
+    const auto bit = [](const serial_rs485& value, std::uint32_t flag) { return (value.flags & flag) != 0; };
+    if (bit(requested, SER_RS485_ENABLED) != bit(actual, SER_RS485_ENABLED)) {
+        add("RS-485 mode is off in the driver");
+    }
+    if (bit(requested, SER_RS485_RTS_ON_SEND) != bit(actual, SER_RS485_RTS_ON_SEND)) {
+        add("RTS while sending: requested " + rtsLevel(bit(requested, SER_RS485_RTS_ON_SEND)) + ", driver " +
+            rtsLevel(bit(actual, SER_RS485_RTS_ON_SEND)));
+    }
+    if (bit(requested, SER_RS485_RTS_AFTER_SEND) != bit(actual, SER_RS485_RTS_AFTER_SEND)) {
+        add("RTS after sending: requested " + rtsLevel(bit(requested, SER_RS485_RTS_AFTER_SEND)) + ", driver " +
+            rtsLevel(bit(actual, SER_RS485_RTS_AFTER_SEND)));
+    }
+    if (bit(requested, SER_RS485_RX_DURING_TX) != bit(actual, SER_RS485_RX_DURING_TX)) {
+        add(std::string("receive while sending: requested ") + (bit(requested, SER_RS485_RX_DURING_TX) ? "on" : "off") +
+            ", driver " + (bit(actual, SER_RS485_RX_DURING_TX) ? "on" : "off"));
+    }
+    if (requested.delay_rts_before_send != actual.delay_rts_before_send) {
+        add("RTS delay before send: requested " + std::to_string(requested.delay_rts_before_send) + " ms, driver " +
+            std::to_string(actual.delay_rts_before_send) + " ms");
+    }
+    if (requested.delay_rts_after_send != actual.delay_rts_after_send) {
+        add("RTS delay after send: requested " + std::to_string(requested.delay_rts_after_send) + " ms, driver " +
+            std::to_string(actual.delay_rts_after_send) + " ms");
+    }
+    return out;
+}
+
+}  // namespace
+
 void PosixSerialPort::applyRs485() {
-    // Hand the transceiver direction to the UART driver, then read the settings back: a driver that
-    // lacks RS-485 support or silently adjusts a field would otherwise leave the line half-working.
-    const auto& wanted = options_.rs485;
-    serial_rs485 rs485{};
-    rs485.flags = SER_RS485_ENABLED;
-    if (wanted.rtsOnSend) rs485.flags |= SER_RS485_RTS_ON_SEND;
-    if (wanted.rtsAfterSend) rs485.flags |= SER_RS485_RTS_AFTER_SEND;
-    rs485.delay_rts_before_send = static_cast<std::uint32_t>(wanted.delayRtsBeforeSendMs);
-    rs485.delay_rts_after_send = static_cast<std::uint32_t>(wanted.delayRtsAfterSendMs);
+    // Hand the transceiver direction to the UART driver on every open (also every reopen after an error),
+    // then read the settings back: a driver that lacks RS-485 support or silently adjusts a field would
+    // otherwise leave the line half-working. Any failure closes the port, which releases the line lock.
     const auto fail = [this](const std::string& what) {
         const auto err = errno;
         close();
         throw std::runtime_error("RS-485 " + what + " failed on " + options_.device + ": " + std::strerror(err) +
                                  " (errno " + std::to_string(err) + ")");
     };
-    if (ioctl(fd_, TIOCSRS485, &rs485) != 0) fail("TIOCSRS485");
+    serial_rs485 current{};
+    if (ioctl(fd_, TIOCGRS485, &current) != 0) fail("TIOCGRS485 (reading the driver settings)");
+
+    const auto& wanted = options_.rs485;
+    serial_rs485 requested = current;
+    requested.flags &= ~kRs485ControlledFlags;
+    requested.flags |= SER_RS485_ENABLED;
+    if (wanted.rtsOnSend) requested.flags |= SER_RS485_RTS_ON_SEND;
+    if (wanted.rtsAfterSend) requested.flags |= SER_RS485_RTS_AFTER_SEND;
+    // A transceiver that echoes the sent bytes (transport.localEcho) must keep its receiver on while
+    // sending, so the echo is read and compared; otherwise the kernel gates the receiver during sending.
+    if (options_.localEcho) requested.flags |= SER_RS485_RX_DURING_TX;
+    requested.delay_rts_before_send = static_cast<std::uint32_t>(wanted.delayRtsBeforeSendMs);
+    requested.delay_rts_after_send = static_cast<std::uint32_t>(wanted.delayRtsAfterSendMs);
+
+    // The kernel may sanitize the argument in place; compare against an untouched copy.
+    serial_rs485 argument = requested;
+    if (ioctl(fd_, TIOCSRS485, &argument) != 0) fail("TIOCSRS485 (applying the settings)");
     serial_rs485 actual{};
-    if (ioctl(fd_, TIOCGRS485, &actual) != 0) fail("TIOCGRS485");
-    const auto controlled = static_cast<std::uint32_t>(SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND |
-                                                       SER_RS485_RTS_AFTER_SEND);
-    if ((actual.flags & controlled) != rs485.flags ||
-        actual.delay_rts_before_send != rs485.delay_rts_before_send ||
-        actual.delay_rts_after_send != rs485.delay_rts_after_send) {
+    if (ioctl(fd_, TIOCGRS485, &actual) != 0) fail("TIOCGRS485 (reading the settings back)");
+    const auto differences = rs485Differences(requested, actual);
+    if (!differences.empty()) {
         close();
-        throw std::runtime_error(
-            "RS-485 settings not applied on " + options_.device + ": requested flags=" +
-            std::to_string(rs485.flags) + " delays=" + std::to_string(rs485.delay_rts_before_send) + "/" +
-            std::to_string(rs485.delay_rts_after_send) + " ms, driver reports flags=" +
-            std::to_string(actual.flags & controlled) + " delays=" + std::to_string(actual.delay_rts_before_send) +
-            "/" + std::to_string(actual.delay_rts_after_send) + " ms");
+        throw std::runtime_error("RS-485 settings not applied on " + options_.device + ": " + differences);
     }
 }
 
