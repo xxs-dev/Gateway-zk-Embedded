@@ -26,7 +26,9 @@
 | 四、AGC/AVC source 授权 | 授权只取决于入口和 `agcAvc.commandMailbox` 策略（`platformDispatch`、`maintenanceShadowTest`，默认均 false）；载荷 `source` 只作审计；latest 槽 `reserved[0]` 记入口，普通写入清零；AgcAvcController 读取时复核；高优先级、非命令点、保留消息、EMS 就地模式均拒绝；SCADA/Graph EMS/计算引擎/转发/`pointctl --app-config`/采集驱动写邮箱点一律拒绝 | `agc_avc_mailbox_authorization`：伪造 source、策略关闭、入口不匹配、缺失入口、正常授权、路由/latest/批量写绕过、普通写清标记后消费者拒绝、直连维护四种场景；`agc_avc_controller` | 平台下发联调；broker 账号与 ACL 是否只允许平台发布本机命令主题 | 服务均以 root 运行，root 进程可直接改共享内存或伪造标记；控制权/优先级锁文件 0664；MQTT 入口身份只能依赖 broker 认证和 ACL |
 | 五、MQTT 明文默认 | 出厂模板与示例改为 TLS（broker 为空、`tls.enabled=true`、`caFile` 指向部署路径）；明文默认拒绝且不建 socket；`allowInsecurePlaintext` 实验开关默认 false、开启时持续告警；`insecureSkipVerify` 取消；TLS 1.2+、证书链、域名 SAN+SNI、IP SAN 校验；TLS 失败不回落明文；缺 CA/坏 CA/无信任库/缺客户端密钥时拒绝；初始化脚本拒绝明文与跳过校验；`production-smoke-test.sh --mqtt-transport` 只读预检 | `mqtt_tls_transport`（本机 OpenSSL 3.0 + 临时证书测试 broker：正常 TLS、错误 CA、主机名不符、IP 不符、证书过期、双向 TLS、禁止降级、明文拒绝、实验开关）、`mqtt_transport_deploy_policy`、`builtin_mqtt_driver_publisher`、`mqtt_forwarder_service`、`config_corpus_load` | 目标板 OpenSSL 1.1、真实 broker 与平台签发证书；现有明文现场的迁移 | 不支持证书固定、CRL/OCSP、PKCS#12、带口令私钥、WebSocket；证书过期判断依赖设备时间 |
 
-## 实际测试结果
+## 原交付阶段测试结果
+
+以下为原交付报告的云端验证记录；内网接收验证单独记录在后文，不混用测试数量与运行环境。
 
 | 验证 | 结果 |
 | --- | --- |
@@ -34,12 +36,38 @@
 | CTest 全量 | 155/155 通过，测试耗时合计 390.7 s；在 `unshare -fp --mount-proc` 中运行，`GATEWAY_MIGRATION_TEST_BACKUP_DIR` 指向专用空目录，`QT_QPA_PLATFORM=offscreen`；`mqtt_tls_transport` 实际执行，未跳过 |
 | `config_corpus_load` | 33 个设备配置、11 个应用配置加载，0 失败 |
 | 云端 aarch64 交叉编译 | 19/19 生产目标通过；工具链为 Ubuntu `aarch64-linux-gnu-g++-6` 6.4.0，不是 AGENTS.md 指定的 Linaro 6.3.1，仅作编译/链接检查，产物不可部署（见下一节） |
-| 22.11 独立目录交叉编译（边端 + Qt） | **本文提交时未执行**：编写本文的会话无法访问 192.168.22.x。按 AGENTS.md 方式二由用户在内网执行（独立 `/tmp/gateway-build-<id>`，按提交树逐文件校验源码，回传产物两端 SHA256）；推送脚本要求该构建报告的提交号与本提交一致才推送。报告与产物哈希保存在本机交付目录，不在仓库内 |
+| 22.11 独立目录交叉编译（边端 + Qt） | 原云端交付阶段未执行；内网接收阶段已补验，见后文。报告与产物哈希保存在本机验证目录，不在仓库内 |
 | 目标 ARM 运行、Qt 运行、真实设备、平台联调 | **未执行** |
 
 ### 云端 aarch64 编译
 
 `tools/build_edge_aarch64.sh --clean --build-dir <checkout>/build-aarch64-r5 --jobs 2`，源码树与最终提交的代码一致（只差本文档）：19 个生产目标全部编译链接成功，退出码 0，无编译警告，产物均为 AArch64 ELF。工具链是 Ubuntu GCC 6.4.0 交叉编译器（默认生成 PIE），与 22.11 的 Linaro 6.3.1 和全志 sysroot 不同：这只说明合并后的源码能被 GCC 6 系列编译，不代替 22.11 编译，产物不回传、不可部署。Qt SCADA 需要全志 sysroot，云端未编译。
+
+## 2026-10-31 内网接收验证
+
+导入并核对交付末端 `2df66deab7f8f772602fa67a1fa21ee159ef1276`，以 `80b11bf` 为共同基线。在指定构建机 `192.168.22.11` 的独立目录 `/tmp/gateway-build-r5-20261030163913/` 上传 Git archive，并按 Git 对象哈希和执行位逐一核验 3170 个受控文件。未操作共享 `/srv/build/Gateway-zk`，未连接现场设备或部署产物。
+
+| 验证 | 本轮实测结果 |
+| --- | --- |
+| Allwinner AArch64 Release 构建 | 指定 Linaro GCC 6.3.1 与全志 sysroot；19 个生产目标全部编译链接通过 |
+| Qt AArch64 构建 | KY-SCADA 和 3 个 Qt 测试程序编译链接通过；未运行 Qt 测试或截图验收 |
+| 产物回传 | 23 个 AArch64 ELF 已回传本地，重新读取文件并逐个核对 SHA256，全数一致 |
+| 原生 Debug 构建 | GCC 7.5 全目标及单独的 `ems_control_mode_test` 构建通过 |
+| 原生普通测试 | 首次 150 项中 149 项通过，401.11 秒；唯一失败是 `mqtt_transport_deploy_policy` 的 Python 3.6 兼容问题。修复后该项专项测试通过；最终 CTest 重跑 `mqtt_tls_transport`、`mqtt_transport_deploy_policy` 均通过 |
+| 迁移测试 | `memory_point_store_migration`、`memory_point_store_v11_migration` 在独立 PID/proc、mount、IPC、network 环境和专用备份目录运行，两项均通过 |
+| 覆盖结论 | 152 个唯一原生测试均取得通过结果，包含修复后的复测，不是一次全量 152/152 无失败。该环境缺少原生 Qt 开发库，不含原交付 155 项中的 3 个 Qt 运行测试 |
+| TLS 环境 | Python 3.6.9、OpenSSL 1.1.1，TLS 专项实际运行，未跳过；不等于目标 ARM 板验证 |
+
+内网验证发现并补修两处兼容问题：
+
+- `9eaa265`：测试 broker 在 Python 3.6 没有 `SSLContext.sni_callback`，改为检测 API 并回退到 `set_servername_callback`。复现失败后，完整 TLS 专项通过。
+- `78889a9`：生产预检使用 Python 3.7 才支持的 `subprocess.run(capture_output=True)`，改为显式 `stdout/stderr=subprocess.PIPE`；专项测试增加有效 CA 必须通过 30 天有效期检查的断言，防止只检查文件存在而漏检有效期。
+
+23 个二进制产物的原始构建提交仍为 `2df66de`，原报告不改写。后续差异仅为上述测试脚本、生产预检脚本及本文档，没有修改编入产物的 C++ 或构建配置；最终源码审计以 `final-source-audit.json` 记录接收末端提交与构建提交的差异。
+
+本地证据目录：`D:/workspace/new/driver-r5-20261031/`。包括 `report/`、`artifacts.local.sha256.json`、`ordinary-initial-LastTest.log`、`mqtt-recheck-LastTest.log`、`migration-LastTest.log`、`finish_verify.log`、`final-source-audit.json`。初始失败记录保留，不删除或覆盖成通过结果。
+
+目标 ARM 运行、Qt 运行、真实设备、平台联调均未执行。MQTT 明文拒绝及 AGC/AVC 平台调度默认关闭的行为未放宽；硬件语义和现场接线问题仍待现场验证，不因构建和模拟通过而标记验收。
 
 ## 行为变化与迁移
 
@@ -62,7 +90,7 @@
 - AM5SE ASDU44 的 QDS 仍未纳入点值质量。
 - 部分驱动按字节截断 UTF-8 消息（本轮 CAN/DIO 已控制在 127 字节内，其他驱动未统一处理）。
 - 实验室 MQTT 口令曾出现在仓库文档中，本轮已从文档删除，但仍在 Git 历史里，建议轮换该账号口令。
-- 22.11 Linaro 6.3.1 交叉编译、Qt 交叉编译和目标板运行均未在本轮执行。
+- 22.11 Linaro 6.3.1 与 Qt 交叉编译已在内网接收阶段通过；目标板运行、Qt 运行及现场/平台联调仍未执行。
 
 ## 需要用户提供的材料
 
