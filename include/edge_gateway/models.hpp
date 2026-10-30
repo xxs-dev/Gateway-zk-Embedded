@@ -64,6 +64,8 @@ struct ReadSpec {
     std::string byteOrder = "AB";
     bool signedFlag = false;
     std::string unit;
+    // Device-defined unavailable markers, checked before scaling or word assembly.
+    std::vector<std::uint16_t> invalidRawWords;
     int intervalMs = 500;
     bool intervalExplicit = false;
     int bit = -1;

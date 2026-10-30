@@ -467,6 +467,18 @@ ReadSpec parseReadSpec(const JsonValue* value) {
     spec.function = requireInt(object, "function", spec.function);
     spec.length = requireInt(object, "length", spec.length);
     spec.dataType = requireString(object, "dataType", spec.dataType);
+    if (const auto* words = value->find("invalidRawWords")) {
+        for (const auto& word : words->asArray().values) {
+            const auto number = word->asNumber();
+            if (!std::isfinite(number) || number < 0 || number > 65535 || std::floor(number) != number) {
+                throw std::invalid_argument("read.invalidRawWords must contain uint16 integers");
+            }
+            spec.invalidRawWords.push_back(static_cast<std::uint16_t>(number));
+        }
+        if (!spec.invalidRawWords.empty() && spec.function != 3 && spec.function != 4) {
+            throw std::invalid_argument("read.invalidRawWords requires register reads");
+        }
+    }
     spec.scale = requireDouble(object, "scale", spec.scale);
     spec.offset = requireDouble(object, "offset", spec.offset);
     spec.byteOrder = requireString(object, "byteOrder", spec.byteOrder);

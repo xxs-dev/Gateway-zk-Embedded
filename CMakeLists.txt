@@ -541,6 +541,10 @@ add_executable(modbus_codec_test tools/modbus_codec_test.cpp)
 target_link_libraries(modbus_codec_test PRIVATE edge_gateway)
 target_compile_options(modbus_codec_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(hgm6110nc_control_test tools/hgm6110nc_control_test.cpp)
+target_link_libraries(hgm6110nc_control_test PRIVATE edge_gateway)
+target_compile_options(hgm6110nc_control_test PRIVATE -fdiagnostics-color=never)
+
 add_executable(dlt645_client_interval_test tools/dlt645_client_interval_test.cpp)
 target_link_libraries(dlt645_client_interval_test PRIVATE edge_gateway)
 target_compile_options(dlt645_client_interval_test PRIVATE -fdiagnostics-color=never)

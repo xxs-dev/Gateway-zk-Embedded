@@ -191,6 +191,13 @@ DecodedValue ModbusCodec::decodeReadValue(
     if (registers.size() < static_cast<std::size_t>(point.read.length)) {
         throw std::invalid_argument("not enough registers");
     }
+    for (int i = 0; i < point.read.length; ++i) {
+        for (const auto invalid : point.read.invalidRawWords) {
+            if (registers[static_cast<std::size_t>(i)] == invalid) {
+                throw std::invalid_argument("device unavailable raw=" + bytesToHex(flattenRegisters(registers)));
+            }
+        }
+    }
 
     double rawValue = 0.0;
     std::vector<std::uint8_t> rawBytes;
@@ -224,6 +231,17 @@ DecodedValue ModbusCodec::decodeReadValue(
             rawValue = static_cast<double>(readBigEndian<std::int16_t>(orderedBytes));
         } else if (point.read.dataType == "uint32") {
             rawValue = static_cast<double>(readBigEndian<std::uint32_t>(orderedBytes));
+        } else if (point.read.dataType == "uint32_base10000") {
+            if (point.read.length != 2 || orderedBytes.size() != 4) {
+                throw std::invalid_argument("uint32_base10000 requires exactly two registers");
+            }
+            const auto packed = readBigEndian<std::uint32_t>(orderedBytes);
+            const auto high = packed >> 16;
+            const auto low = packed & 0xffff;
+            if (high > 9999 || low > 9999) {
+                throw std::invalid_argument("uint32_base10000 word exceeds 9999");
+            }
+            rawValue = static_cast<double>(high) * 10000.0 + low;
         } else if (point.read.dataType == "int32") {
             rawValue = static_cast<double>(readBigEndian<std::int32_t>(orderedBytes));
         } else if (point.read.dataType == "float32") {
