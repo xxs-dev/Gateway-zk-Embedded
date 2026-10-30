@@ -456,6 +456,7 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     spec.fd = requireBool(object, "fd", spec.fd);
     spec.pulse = requireBool(object, "pulse", spec.pulse);
     spec.pulseIdleValue = requireDouble(object, "pulseIdleValue", spec.pulseIdleValue);
+    spec.templateSafe = requireBool(object, "templateSafe", spec.templateSafe);
     if (const auto* invalid = value->find("invalidRawValues")) {
         if (!invalid->isNull()) {
             for (const auto& item : invalid->asArray().values) {

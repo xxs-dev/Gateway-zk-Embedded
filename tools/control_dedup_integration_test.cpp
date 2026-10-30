@@ -304,6 +304,7 @@ void canTest() {
     for (auto& p : config.points) {
         p.write.can.frameId = "0x123"; p.write.can.extended = false;
         p.write.can.dlc = 8; p.write.can.bitLength = 16;
+        p.write.can.templateSafe = true;  // both points share frame 0x123; its zero template is the safe state
     }
     auto c = f.command("can-id");
     require(f.router.submitWriteCommand(c).accepted && f.router.submitWriteCommand(c).accepted, "CAN duplicate submit");
@@ -320,7 +321,7 @@ void canTest() {
         can.processWritebackOnce(103);
         require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) > 0, "CAN fault window actually sent");
         const auto r = f.store->getWritebackResult(c.cmdId);
-        require(r && !r->success && r->stage == "writeback-timeout", "CAN finalize failure unknown");
+        require(r && !r->success && r->stage == "writeback-unconfirmed", "CAN finalize failure unknown");
         f.store->submitWriteCommand(c); can.processWritebackOnce(104);
         require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) < 0, "CAN pending cannot resend");
     }

@@ -3,11 +3,14 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 
 #include "edge_gateway/json_value.hpp"
+#include "ota_query_sha256.hpp"
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -18,8 +21,6 @@ namespace edge_gateway {
 namespace can_frame_state {
 
 namespace {
-
-constexpr int kVersion = 1;
 
 std::string hexBytes(const std::vector<std::uint8_t>& bytes) {
     std::ostringstream out;
@@ -64,7 +65,22 @@ std::string directoryOf(const std::string& path) {
     return slash == std::string::npos ? std::string(".") : (slash == 0 ? std::string("/") : path.substr(0, slash));
 }
 
+std::mutex& writeFailureMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::function<bool(const std::string&)>& writeFailure() {
+    static std::function<bool(const std::string&)> fail;
+    return fail;
+}
+
 }  // namespace
+
+void setWriteFailureForTest(std::function<bool(const std::string& content)> fail) {
+    std::lock_guard<std::mutex> lock(writeFailureMutex());
+    writeFailure() = std::move(fail);
+}
 
 std::string layoutHash(const std::string& signature) {
     std::uint64_t hash = 1469598103934665603ULL;  // FNV-1a 64
@@ -77,9 +93,12 @@ std::string layoutHash(const std::string& signature) {
     return out.str();
 }
 
-std::string serialize(const std::string& interfaceName, const std::vector<Entry>& entries) {
+namespace {
+
+std::string serializeBody(const std::string& interfaceName, const std::vector<Entry>& entries) {
     std::ostringstream out;
-    out << "{\"version\":" << kVersion << ",\"interfaceName\":\"" << escape(interfaceName) << "\",\"frames\":[";
+    out << "{\"format\":" << kFormat << ",\"content\":\"can-requested-state\",\"interfaceName\":\""
+        << escape(interfaceName) << "\",\"frames\":[";
     for (std::size_t i = 0; i < entries.size(); ++i) {
         const auto& entry = entries[i];
         std::ostringstream id;
@@ -87,46 +106,75 @@ std::string serialize(const std::string& interfaceName, const std::vector<Entry>
         out << (i == 0 ? "" : ",") << "\n {\"frameId\":\"" << id.str() << "\",\"extended\":"
             << (entry.extended ? "true" : "false") << ",\"fd\":" << (entry.fd ? "true" : "false")
             << ",\"remoteRequest\":" << (entry.remoteRequest ? "true" : "false")
-            << ",\"dlc\":" << entry.payload.size() << ",\"layout\":\"" << escape(entry.layout)
-            << "\",\"payload\":\"" << hexBytes(entry.payload) << "\"}";
+            << ",\"dlc\":" << entry.dlc << ",\"layout\":\"" << escape(entry.layout)
+            << "\",\"pending\":" << (entry.pending ? "true" : "false")
+            << ",\"requested\":\"" << hexBytes(entry.requested) << "\"}";
     }
-    out << "\n]}\n";
+    out << "\n]";
     return out.str();
+}
+
+std::string checksumOf(const std::string& body) {
+    ota_query_detail::Sha256 sha;
+    sha.update(body);
+    return sha.finishHex();
+}
+
+}  // namespace
+
+std::string serialize(const std::string& interfaceName, const std::vector<Entry>& entries) {
+    const auto body = serializeBody(interfaceName, entries);
+    return body + ",\"sha256\":\"" + checksumOf(body) + "\"}\n";
 }
 
 std::vector<Entry> parse(const std::string& text, const std::string& interfaceName) {
     const auto root = json::JsonParser(text, 8, 4096).parse();
     if (!root.isObject()) {
-        throw std::runtime_error("CAN frame state is not a JSON object");
+        throw std::runtime_error("not a JSON object");
     }
-    if (static_cast<int>(member(root, "version").asNumber()) != kVersion) {
-        throw std::runtime_error("CAN frame state has an unknown version");
+    if (static_cast<int>(member(root, "format").asNumber()) != kFormat ||
+        member(root, "content").asString() != "can-requested-state") {
+        throw std::runtime_error("unknown format");
     }
-    if (member(root, "interfaceName").asString() != interfaceName) {
-        throw std::runtime_error("CAN frame state belongs to interface " + member(root, "interfaceName").asString());
-    }
+    const auto& owner = member(root, "interfaceName").asString();
     std::vector<Entry> entries;
     for (const auto& item : member(root, "frames").asArray().values) {
         Entry entry;
         const auto& id = member(*item, "frameId").asString();
         if (id.size() < 3 || id.compare(0, 2, "0x") != 0) {
-            throw std::runtime_error("CAN frame state frameId is not hex");
+            throw std::runtime_error("frameId is not hex");
         }
         entry.frameId = static_cast<std::uint32_t>(std::stoul(id.substr(2), nullptr, 16));
         entry.extended = member(*item, "extended").asBool();
         entry.fd = member(*item, "fd").asBool();
         entry.remoteRequest = member(*item, "remoteRequest").asBool();
+        entry.dlc = static_cast<int>(member(*item, "dlc").asNumber());
         entry.layout = member(*item, "layout").asString();
-        entry.payload = parseHexBytes(member(*item, "payload").asString());
-        if (static_cast<std::size_t>(member(*item, "dlc").asNumber()) != entry.payload.size()) {
-            throw std::runtime_error("CAN frame state dlc does not match its payload");
+        entry.pending = member(*item, "pending").asBool();
+        entry.requested = parseHexBytes(member(*item, "requested").asString());
+        if (!entry.requested.empty() && static_cast<int>(entry.requested.size()) != entry.dlc) {
+            throw std::runtime_error("requested payload does not match its dlc");
         }
         entries.push_back(entry);
+    }
+    // Integrity: the checksum covers the canonical form of everything above, so any changed,
+    // truncated-and-repaired or hand-edited content is rejected.
+    if (checksumOf(serializeBody(owner, entries)) != member(root, "sha256").asString()) {
+        throw std::runtime_error("checksum mismatch");
+    }
+    if (owner != interfaceName) {
+        throw std::runtime_error("written for interface " + owner);
     }
     return entries;
 }
 
 void writeAtomically(const std::string& path, const std::string& content) {
+    {
+        std::lock_guard<std::mutex> lock(writeFailureMutex());
+        if (writeFailure() && writeFailure()(content)) {
+            throw std::runtime_error("cannot write " + path + ": injected failure");
+        }
+    }
 #ifndef _WIN32
     const auto temporary = path + ".tmp";
     const auto fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);

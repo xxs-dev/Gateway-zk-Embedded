@@ -277,11 +277,13 @@ void CanDriverService::initializeRuntimeDevices() {
                             tx.frame.extended = can.extended;
                             tx.frame.fd = can.fd;
                             tx.frame.remoteRequest = can.remoteRequest;
+                            tx.frame.templateSafe = can.templateSafe;
                             tx.frame.payload = CanSignalCodec::templatePayload(can);
                         } else if (tx.frame.payload.size() != static_cast<std::size_t>(std::max(0, can.dlc)) ||
-                                   tx.frame.fd != can.fd || tx.frame.remoteRequest != can.remoteRequest) {
+                                   tx.frame.fd != can.fd || tx.frame.remoteRequest != can.remoteRequest ||
+                                   tx.frame.templateSafe != can.templateSafe) {
                             throw std::invalid_argument("frame " + can.frameId + " is also written by " + tx.owner +
-                                                        " with a different dlc/fd/remoteRequest");
+                                                        " with a different dlc/fd/remoteRequest/templateSafe");
                         }
                         if (!can.payloadTemplate.empty()) {
                             if (!tx.templateHex.empty() && tx.templateHex != can.payloadTemplate) {
@@ -298,6 +300,8 @@ void CanDriverService::initializeRuntimeDevices() {
                             auto scratch = tx.frame.payload;
                             CanSignalCodec::encodeInto(scratch, can.pulseIdleValue, point.write, point.read.signedFlag);
                             tx.frame.pulsePoints.push_back(runtimePoints_.size());
+                        } else {
+                            tx.frame.signalPoints.push_back(runtimePoints_.size());
                         }
                         std::ostringstream signature;
                         signature << point.index << ':' << can.byteOffset << '/' << can.bitOffset << '/'
@@ -321,7 +325,8 @@ void CanDriverService::initializeRuntimeDevices() {
         std::sort(build.signals.begin(), build.signals.end());
         std::ostringstream signature;
         signature << "dlc=" << build.frame.payload.size() << ";fd=" << build.frame.fd << ";rtr="
-                  << build.frame.remoteRequest << ";template=" << build.templateHex;
+                  << build.frame.remoteRequest << ";template=" << build.templateHex << ";safe="
+                  << build.frame.templateSafe;
         for (const auto& signal : build.signals) {
             signature << ';' << signal;
         }

@@ -42,6 +42,10 @@ struct CanSignalSpec {
     // frame only; the frame mirror then holds pulseIdleValue, so later frames never repeat it.
     bool pulse = false;
     double pulseIdleValue = 0.0;
+    // Write: payloadTemplate is a safe state of the device, so the frame may start from it when no
+    // trusted requested state exists. Default false: such a frame only accepts a write of all its
+    // non-pulse signals together until a requested state is recorded. Same on every signal of a frame.
+    bool templateSafe = false;
 };
 
 struct IecPointSpec {

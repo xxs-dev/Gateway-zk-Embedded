@@ -90,6 +90,7 @@ struct TxFrameDefinition {
     int dlc = 0;
     bool fd = false;
     bool remoteRequest = false;
+    bool templateSafe = false;
     std::string payloadTemplate;
     std::vector<std::pair<std::string, std::vector<int>>> signals;  // owner label, occupied bits
     struct Pulse {
@@ -163,9 +164,11 @@ void validateWriteSignal(const std::string& label, const PointDefinition& point,
         frame.dlc = write.can.dlc;
         frame.fd = write.can.fd;
         frame.remoteRequest = write.can.remoteRequest;
-    } else if (frame.dlc != write.can.dlc || frame.fd != write.can.fd || frame.remoteRequest != write.can.remoteRequest) {
+        frame.templateSafe = write.can.templateSafe;
+    } else if (frame.dlc != write.can.dlc || frame.fd != write.can.fd || frame.remoteRequest != write.can.remoteRequest ||
+               frame.templateSafe != write.can.templateSafe) {
         reject(label, "write.can", "frame " + write.can.frameId + " is also written by " + frame.owner +
-               " with a different dlc/fd/remoteRequest; all signals of one frame must agree");
+               " with a different dlc/fd/remoteRequest/templateSafe; all signals of one frame must agree");
     }
     if (!write.can.payloadTemplate.empty()) {
         if (!frame.payloadTemplate.empty() && frame.payloadTemplate != write.can.payloadTemplate) {
