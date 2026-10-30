@@ -81,7 +81,8 @@ int main() {
         mailbox.commandMailbox = true;
         router.addRoute(mailbox);
         command.index = 3;
-        require(!router.submitCommandMailbox(command).accepted, "mailbox must not strip authorization into a scalar");
+        require(!router.submitCommandMailbox(command, LatestValueOrigin::PlatformDispatch).accepted,
+                "mailbox must not strip authorization into a scalar");
         auto parameter = *router.routeByIndex(1);
         parameter.index = 4;
         parameter.protocolType = "ems_virtual";

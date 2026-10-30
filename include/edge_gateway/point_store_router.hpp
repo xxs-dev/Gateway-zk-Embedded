@@ -121,7 +121,9 @@ public:
         const PendingWriteCommand& command
     );
     CommandGroupSubmitResult submitWriteCommands(const std::vector<PendingWriteCommand>& commands);
-    CommandSubmitResult submitCommandMailbox(const PendingWriteCommand& command);
+    // The only writer of command-mailbox points: stores the value tagged with the ingress that
+    // authorized it (must not be Ordinary). Ordinary write/latest paths refuse mailbox points.
+    CommandSubmitResult submitCommandMailbox(const PendingWriteCommand& command, LatestValueOrigin ingress);
     CommandSubmitResult putLatestByIndex(PointValue value);
     CommandSubmitResult putLatestByLocation(
         const std::string& sharedMemoryName,

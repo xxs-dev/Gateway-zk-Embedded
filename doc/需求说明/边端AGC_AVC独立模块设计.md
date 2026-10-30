@@ -435,6 +435,7 @@ abs(Q_cmd) <= min(ratedReactivePowerKvar, dynamicReactivePowerKvar)
     "enabled": true,
     "shadowMode": true,
     "submitWrites": false,
+    "commandMailbox": {"platformDispatch": false, "maintenanceShadowTest": false},
     "cycleMs": 200,
     "avcCycleMs": 500,
     "commandTimeoutMs": 5000,
@@ -846,9 +847,50 @@ PCS 实际 P/Q、SOC、温度、状态和并网点反馈继续使用原采集点
 - 真实控制统一进入共享写回队列，读取 `WritebackResultRecord`，并对 PCS 实际 P/Q 做反馈超时检查。
 - PCS 功率控制权采用跨进程文件锁保护的租约文件，避免两个进程同时抢占成功。
 - MQTT 与 SystemMonitor 识别 `agc_avc_virtual` 的 command 点为共享命令邮箱，不把它误当普通设备寄存器写回。
-- 直连维护只允许带 `agc-avc-shadow-test` 来源的影子注入；生产调度只允许 MQTT 使用明确的 `agc-avc-dispatch` 来源。
+- 命令邮箱的写入授权见下文“命令邮箱授权”（2026-10 起不再依据载荷 `source`）。
 
 命令邮箱提交顺序固定为：有功目标、AVC 模式、Q/电压/PF 目标、`issuedAt`、`sequence`。其中 `sequence` 必须最后提交。
+
+### 命令邮箱授权（2026-10）
+
+邮箱写入的授权只取决于**接收请求的入口**和**服务端策略** `agcAvc.commandMailbox`（写在
+`agc-avc-service.json`，MqttDriver、SystemMonitor 直连维护和 AgcAvcController 读同一份）。请求载荷里的 `source`
+只作审计记录，不授予平台、本地、维护或高优先级身份；改写 `source` 不能打开邮箱。
+
+| 入口 | 身份 | 允许条件 | 写入标记 |
+| --- | --- | --- | --- |
+| MQTT 命令主题 | 平台调度 | `commandMailbox.platformDispatch=true`，且 EMS 处于远程模式（`EmsControlMode` 的 `admitPlatform`/`dispatchPermit`），且非高优先级 | `platform-dispatch` |
+| SystemMonitor 直连维护批量控制（需维护口令鉴权） | 维护影子注入 | `commandMailbox.maintenanceShadowTest=true`，且 `shadowMode=true`、`submitWrites=false`，且非高优先级 | `maintenance-shadow-test` |
+| 其他一切路径（SCADA/本地画面、Graph EMS、计算引擎、旧版 EMS、转发服务、`pointctl --app-config`、采集驱动） | 普通写入 | 一律拒绝写邮箱点 | — |
+
+- 两项策略默认都为 `false`：未配置 `commandMailbox` 时邮箱关闭，所有入口都会得到 `stage=control-rejected` 的明确回执。
+- 维护影子注入不会进入可执行邮箱：只要 `submitWrites=true`（或关闭 `shadowMode`）就拒绝。
+- 邮箱只接受 `agcAvc` 配置引用到的命令点（`agc.target/commandSequence/commandTimestamp`、`avc.mode/targetQ/targetVoltage/targetPowerFactor`）；
+  虚拟设备上其他 command 点同样拒绝。
+- 写入标记保存在共享内存 latest 槽的 `reserved[0]`（0=普通，1=平台调度，2=维护影子注入；槽大小和布局不变）。
+  每次普通 `putLatest` 都会把标记清为 0，所以绕过路由直接写同一点的进程（如误配到同一 index 的采集驱动）会清掉授权标记。
+- AgcAvcController 读取命令时再次校验标记：标记不符合本服务的 `commandMailbox` 策略和运行模式（例如 `submitWrites=true` 时读到维护注入的值）
+  的命令值被丢弃，服务转为不健康，`failureReason` 为 `command mailbox value was not committed by an authorized ingress: ...`，
+  不会按该值出力；`sequence` 二次读取同样要求标记有效。
+- MQTT 邮箱成功写入后在状态主题发布 `mailbox-committed` 事件，带 `cmdId`、`index`、`ingress` 和载荷 `source`（审计）。
+
+**边界与固有限制**
+
+- MQTT 入口只代表“能向本机命令主题发布消息的一方”。平台侧身份边界是 broker：必须使用 TLS + 账号认证，并由 broker ACL
+  只允许平台账号发布本机命令主题。边端无法区分同一主题上的平台和其他获准发布者。
+- 所有服务以 root 运行。共享内存段以 0600 创建、EMS 模式文件为 0600，但任意 root 进程都可直接改写共享内存或控制文件，
+  包括伪造写入标记；控制权/优先级锁文件为 0664。这不在本机制防护范围内，需靠主机账号和进程管控。
+
+**迁移**
+
+- 使用 MQTT 下发 AGC/AVC 调度的项目，必须在 `agc-avc-service.json` 的 `agcAvc` 下增加
+  `"commandMailbox": {"platformDispatch": true}`，并确认 broker ACL；否则升级后调度回执为 `control-rejected`，AGC/AVC 收不到新命令。
+- 用直连维护做影子注入测试的项目，需要增加 `"maintenanceShadowTest": true`（仅影子、不写回时生效）。不再要求 `source` 含 `agc-avc-shadow-test`。
+- 经 MQTT 发送、`source` 为 `gateway-desktop-agc-avc-shadow-test` 的影子测试现在按平台调度处理，需要 `platformDispatch=true`。
+- 升级时请同时停止所有写邮箱共享内存的服务再启动新版本：旧版本写 latest 不会清 `reserved[0]`；升级前写入的邮箱值标记为 0，
+  新 AgcAvcController 会拒绝这些旧值，直到平台按新规则重新下发（命令本来也会在 `commandTimeoutMs` 后超时）。
+- EMS 就地模式（或模式切换撤销）拒绝的 MQTT 控制命令（邮箱和普通设备写都一样），回执 `stage` 从 `rejected` 改为
+  `control-rejected`；邮箱策略拒绝同样是 `control-rejected`。`outcome=failed`、`success=false` 不变，平台按 `stage` 区分原因时需要知道这一变化。
 
 工厂模板继续保持 `enabled=false`、`shadowMode=true`、`submitWrites=false`。项目配置必须完成现场影子验证和安全联锁复核后，才能单独开启真实写回。
 
