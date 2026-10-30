@@ -73,8 +73,9 @@ and is not a routine maintenance action.
 ## Preserved Independent Paths
 
 EMS virtual parameters retain their existing atomic local persistence and
-local-parameter-committed receipt. AGC/AVC command mailboxes retain their original
-source/runtime checks and mailbox-committed receipt. They are not covered by
+local-parameter-committed receipt. AGC/AVC command mailboxes are authorized by
+ingress plus the agcAvc.commandMailbox policy (the payload source is audit only)
+and keep the mailbox-committed receipt. They are not covered by
 ordinary physical-control deduplication. MQTT keeps the existing in-memory TTL
 behavior on nonphysical paths; ordinary physical repeats reach the ledger.
 
