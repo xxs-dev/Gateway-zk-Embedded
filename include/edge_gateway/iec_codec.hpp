@@ -42,6 +42,16 @@ struct IecDataValue {
     std::int64_t timestampMs = 0;
     // Command echo only: raw qualifier byte (SCO/DCO/RCO/QOS) incl. S/E bit.
     int commandQualifier = -1;
+    // IEC 103 ASDU 1/2 only: the DPI octet exactly as received; -1 for every other object.
+    // IEC 60870-5-103 uses bits 1..2 (1 = OFF, 2 = ON, 0/3 not used) and leaves bits 3..8
+    // spare, so only 0x01 / 0x02 are on/off candidates; any other octet (DPI 0/3 or spare bits
+    // set) is bad quality and the collector keeps the previous value (holdsPreviousValue).
+    int rawDpiOctet = -1;
+    // IEC 103 status evidence recorded by the decoder (ASDU 1/2 DPI, ASDU 44 status bit): the
+    // message and raw fields that produced this value, e.g.
+    // "asdu=1 cot=1(spontaneous) ca=1 fun=1 inf=100 dpiOctet=0x02". Empty for other objects.
+    // Kept for diagnostics only (iec103StatusDiagnostic); never used to interpret the value.
+    std::string evidence;
 };
 
 struct IecParameterValue {
@@ -282,10 +292,25 @@ public:
 
     static bool pointMatches(const PointDefinition& point, const IecDataValue& value);
     // True when value cannot be represented by point: a double point with DPI 0/3 (no on/off
-    // mapping) on a boolean point. The collector then keeps the previous value and publishes it
-    // with bad quality.
+    // mapping) on a boolean point, or an IEC 103 DPI octet with spare bits set (on any point).
+    // The collector then keeps the previous value and publishes it with bad quality.
     static bool holdsPreviousValue(const PointDefinition& point, const IecDataValue& value);
     static DecodedValue decodePointValue(const PointDefinition& point, const IecDataValue& value);
+    // One-line diagnostic for IEC 103 status values (ASDU 1/2 DPI, ASDU 44 status bit): source
+    // message and raw fields (value.evidence), the value actually stored (storedValue, or the
+    // held previous value when held), quality and the mapping the code applied, always marked
+    // verified=false: no vendor document or field record has confirmed the AM5SE semantics.
+    // Empty for values without IEC 103 status evidence.
+    static std::string iec103StatusDiagnostic(
+        const PointDefinition& point,
+        const IecDataValue& value,
+        double storedValue,
+        int quality,
+        bool held
+    );
+    // GATEWAY_IEC103_DEBUG=1 (default off): raw IEC 103 change frames and status diagnostics are
+    // logged to standard error (journal) for field comparison.
+    static bool iec103DebugEnabled();
     static std::string toHex(const std::vector<std::uint8_t>& bytes);
 };
 

@@ -20,10 +20,15 @@ public:
 
 private:
     // Device quality and time tag applied; a double point in DPI 0/3 mapped to a boolean
-    // point keeps the previously stored value with bad quality.
+    // point (or an IEC 103 DPI octet with spare bits set) keeps the previously stored value
+    // with bad quality. IEC 103 status values (ASDU 1/2 DPI, ASDU 44 status bit) also carry
+    // their diagnostic in text (IecCodec::iec103StatusDiagnostic); rawHex keeps the raw ASDU.
     PointValue buildIecPointValue(const PointDefinition& point, const IecDataValue& dataValue, std::int64_t receivedMs) const;
 
     std::shared_ptr<IecClient> client_;
+    // GATEWAY_IEC103_DEBUG: log the status diagnostic of every ASDU 1/2 value and of every
+    // ASDU 44 value whose stored state or quality changes. Off by default.
+    bool debugStatusValues_ = false;
 };
 
 }  // namespace edge_gateway

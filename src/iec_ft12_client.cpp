@@ -38,14 +38,9 @@ std::string normalizedProtocol(std::string value) {
     return value;
 }
 
-// GATEWAY_IEC103_DEBUG=1 (same convention as GATEWAY_DLT645_DEBUG): log every IEC 103 change
-// frame (ASDU 1/2) with its raw octets, raw DPI and CP32Time2a fields, so that the DPI can be
-// compared with the real breaker position on site. Off by default.
-bool iec103DebugEnabled() {
-    const char* value = std::getenv("GATEWAY_IEC103_DEBUG");
-    return value != nullptr && std::string(value) != "0" && std::string(value) != "false";
-}
-
+// GATEWAY_IEC103_DEBUG=1 (same convention as GATEWAY_DLT645_DEBUG, IecCodec::iec103DebugEnabled):
+// log every IEC 103 change frame (ASDU 1/2) with its raw octets, raw DPI octet and CP32Time2a
+// fields, so that the DPI can be compared with the real breaker position on site. Off by default.
 void logIec103ChangeFrame(const std::vector<std::uint8_t>& asdu, const std::vector<IecDataValue>& decoded) {
     const std::size_t timeOffset = 4 + 3 + (asdu[0] == 2 ? 4 : 0);
     if (asdu.size() < timeOffset + 4) {
@@ -57,7 +52,8 @@ void logIec103ChangeFrame(const std::vector<std::uint8_t>& asdu, const std::vect
     line << "IEC103 change frame ASDU" << static_cast<int>(asdu[0])
          << " COT=" << static_cast<int>(asdu[2]) << " CA=" << static_cast<int>(asdu[3])
          << " FUN=" << static_cast<int>(asdu[4]) << " INF=" << static_cast<int>(asdu[5])
-         << " DPI=" << (asdu[6] & 0x03)
+         << " DPI=" << (asdu[6] & 0x03) << " DPIoctet=0x" << std::hex << std::uppercase << std::setfill('0')
+         << std::setw(2) << static_cast<int>(asdu[6]) << std::dec << std::nouppercase
          << " CP32=" << std::setfill('0') << std::setw(2) << (asdu[timeOffset + 3] & 0x1F)
          << ':' << std::setw(2) << (asdu[timeOffset + 2] & 0x3F)
          << ':' << std::setw(2) << ms / 1000 << '.' << std::setw(3) << ms % 1000
@@ -94,7 +90,7 @@ Ft12PollSession::Ft12PollSession(Ft12Profile profile, IecProtocolConfig config, 
     : profile_(profile),
       config_(std::move(config)),
       master_(master),
-      debugChangeFrames_(profile == Ft12Profile::Iec103 && iec103DebugEnabled()) {
+      debugChangeFrames_(profile == Ft12Profile::Iec103 && IecCodec::iec103DebugEnabled()) {
 }
 
 Ft12Profile Ft12PollSession::profile() const {

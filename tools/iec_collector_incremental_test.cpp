@@ -1,13 +1,16 @@
 #include <cstdint>
+#include <cstdlib>
 #include <deque>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "edge_gateway/iec_client.hpp"
+#include "edge_gateway/iec_codec.hpp"
 #include "edge_gateway/iec_collector.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/models.hpp"
@@ -220,6 +223,105 @@ void verifyTestFramesTimeTagsAndHeldDoublePoints() {
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+bool contains(const std::string& text, const std::string& part) {
+    return text.find(part) != std::string::npos;
+}
+
+// Round 5 (AM5SE DPI): the published point value keeps the raw ASDU (rawHex) and, in text, the
+// source message, raw DPI octet / ASDU 44 status bit, stored value, quality and mapping
+// (verified=false). Constructed frames: this checks the diagnostic is kept, not the firmware's
+// DPI semantics.
+void verifyStatusDiagnosticsKept() {
+    const std::string storeName = "gateway_iec_collector_diagnostic_test";
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+    unsetenv("GATEWAY_IEC103_DEBUG");
+    {
+        edge_gateway::DeviceConfig config;
+        config.machineCode = "GW_IEC_TEST";
+        config.meterCode = "AM5SE_DIAG_TEST";
+        config.protocol.type = "iec103";
+        config.protocol.iec.linkAddressSize = 1;
+        config.collect.defaultIntervalMs = 100;
+        config.memoryStore.sharedMemoryName = storeName;
+        config.memoryStore.maxLatestPoints = 8;
+        config.memoryStore.maxPendingWrites = 4;
+        config.memoryStore.maxPersistentSamples = 4;
+        config.memoryStore.sqlitePath.clear();
+        config.points = {point(433001, "breaker_closed", 44, 100)};
+        edge_gateway::MemoryPointStore store(config.memoryStore);
+        auto client = std::make_shared<ScriptedIecClient>();
+        const auto decode = [&config](const std::vector<std::uint8_t>& asdu) {
+            return edge_gateway::IecCodec::decodeIec103Data(asdu, config.protocol.iec);
+        };
+        const std::vector<std::uint8_t> gi = {44, 0x81, 9, 1, 1, 100, 0x01, 0x00, 0x00, 0x00, 0x00};
+        std::vector<std::uint8_t> change = {1, 0x81, 1, 1, 1, 100, 0x06, 0x34, 0x12, 0x05, 0x0A, 0x00};
+        client->polls.push_back(decode(gi));
+        client->polls.push_back(decode(change));
+        change[6] = 0x01;
+        client->polls.push_back(decode(change));
+        edge_gateway::IecCollector collector(config, store, client);
+
+        const auto first = collector.collectOnce(1000);
+        require(first.values.size() == 1, "GI snapshot collected");
+        const auto& snapshot = first.values.front();
+        require(snapshot.value == 1.0 && snapshot.quality == 1 && snapshot.rawHex == "2c8109010164" "0100000000",
+            "ASDU44 value and raw ASDU kept: " + snapshot.rawHex);
+        require(contains(snapshot.text, "[iec103 asdu=44 cot=9(gi) ca=1 fun=1 inf=100 block=0 bitIndex=0") &&
+            contains(snapshot.text, "bit=1 value=1 quality=1 mapping=asdu44-status-bit(1->1,0->0) verified=false"),
+            "ASDU44 diagnostic: " + snapshot.text);
+
+        const auto second = collector.collectOnce(1100);
+        const auto held = store.getLatestByIndex(433001, 1100);
+        require(held && held->value == 1.0 && held->quality == 0, "DPI octet 0x06 keeps the previous value, bad quality");
+        require(second.values.size() == 1 && contains(second.values.front().qualityMsg, "spare bits") &&
+            contains(second.values.front().text, "asdu=1 cot=1(spontaneous) ca=1 fun=1 inf=100 dpiOctet=0x06 "
+                "dpi=invalid(spare-bits) value=held(1) quality=0") &&
+            second.values.front().rawHex == "018101010164063412050a00",
+            "spare-bit DPI diagnostic: " + (second.values.empty() ? std::string() : second.values.front().text));
+
+        const auto third = collector.collectOnce(1200);
+        const auto opened = store.getLatestByIndex(433001, 1200);
+        require(opened && opened->value == 0.0 && opened->quality == 1, "adopted mapping: DPI 1 stored as 0");
+        require(third.values.size() == 1 && third.values.front().text.compare(0, 5, "off [") == 0 &&
+            contains(third.values.front().text, "dpiOctet=0x01 dpi=1 value=0 quality=1 "
+                "mapping=iec103-standard-dpi(1=off->0,2=on->1,0/3=bad-hold) verified=false"),
+            "DPI 1 diagnostic: " + (third.values.empty() ? std::string() : third.values.front().text));
+
+        // GATEWAY_IEC103_DEBUG: every ASDU 1/2 value is logged, an ASDU 44 value only when the
+        // stored state or quality changes.
+        setenv("GATEWAY_IEC103_DEBUG", "1", 1);
+        auto debugClient = std::make_shared<ScriptedIecClient>();
+        debugClient->polls.push_back(decode(gi));
+        debugClient->polls.push_back(decode(gi));
+        change[6] = 0x02;
+        debugClient->polls.push_back(decode(change));
+        edge_gateway::IecCollector debugCollector(config, store, debugClient);
+        unsetenv("GATEWAY_IEC103_DEBUG");
+        std::ostringstream log;
+        auto* previous = std::cerr.rdbuf(log.rdbuf());
+        (void)debugCollector.collectOnce(1300);
+        (void)debugCollector.collectOnce(1400);
+        (void)debugCollector.collectOnce(1500);
+        std::cerr.rdbuf(previous);
+        const auto logged = log.str();
+        const auto first44 = logged.find("asdu=44");
+        require(first44 != std::string::npos && logged.find("asdu=44", first44 + 1) == std::string::npos,
+            "ASDU44 logged once (state change only): " + logged);
+        require(contains(logged, "IEC103 point breaker_closed index=433001 iec103 asdu=1 cot=1(spontaneous)") &&
+            contains(logged, "dpiOctet=0x02 dpi=2 value=1 quality=1") && contains(logged, "verified=false"),
+            "ASDU1 diagnostic logged: " + logged);
+
+        edge_gateway::IecCollector quietCollector(config, store, client);
+        client->polls.push_back(decode(change));
+        std::ostringstream quiet;
+        previous = std::cerr.rdbuf(quiet.rdbuf());
+        (void)quietCollector.collectOnce(1600);
+        std::cerr.rdbuf(previous);
+        require(quiet.str().empty(), "status diagnostics are not logged by default");
+    }
+    edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 }  // namespace
 
 int main() {
@@ -227,6 +329,7 @@ int main() {
         verifyIncrementalPollKeepsOtherClassValue();
         verifyStepQualityPropagatesToStore();
         verifyTestFramesTimeTagsAndHeldDoublePoints();
+        verifyStatusDiagnosticsKept();
         std::cout << "IEC collector incremental response test passed" << std::endl;
         return 0;
     } catch (const std::exception& ex) {

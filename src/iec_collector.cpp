@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -47,14 +48,32 @@ PointValue IecCollector::buildIecPointValue(
     // Expiry counts from reception; the device time tag only dates the value.
     auto value = buildPointValue(point, decoded, receivedMs);
     applyDeviceQuality(value, dataValue);
-    if (IecCodec::holdsPreviousValue(point, dataValue)) {
-        const auto previous = store_.getLatestByIndex(point.index, receivedMs);
+    const bool held = IecCodec::holdsPreviousValue(point, dataValue);
+    const bool hasEvidence = !dataValue.evidence.empty();
+    Optional<StoredPointValue> previous;
+    if (held || (debugStatusValues_ && hasEvidence)) {
+        previous = store_.getLatestByIndex(point.index, receivedMs);
+    }
+    if (held) {
         value.value = previous ? previous->value : 0.0;
         value.text = dataValue.qualityMsg;
         value.quality = 0;
     }
     if (dataValue.timestampMs > 0) {
         value.ts = dataValue.timestampMs;
+    }
+    if (hasEvidence) {
+        // Keep the evidence beside the interpreted value: raw ASDU in rawHex, and in text the
+        // source message (ASDU/COT/FUN/INF), raw DPI octet or ASDU 44 status bit, the stored value,
+        // quality and the mapping applied (verified=false). Shared memory only stores
+        // value/quality/ts, so the debug log below is the field-side record.
+        const auto line = IecCodec::iec103StatusDiagnostic(point, dataValue, value.value, value.quality, held);
+        value.text += " [" + line + "]";
+        const bool asdu1Or2 = dataValue.rawDpiOctet >= 0;
+        if (debugStatusValues_ &&
+            (asdu1Or2 || !previous || previous->value != value.value || previous->quality != value.quality)) {
+            std::cerr << "IEC103 point " << value.pointCode << " index=" << point.index << ' ' << line << std::endl;
+        }
     }
     return value;
 }
@@ -65,7 +84,8 @@ IecCollector::IecCollector(
     std::shared_ptr<IecClient> client,
     std::shared_ptr<IMqttPublisher> mqttPublisher
 ) : CollectorBase(std::move(config), store, std::move(mqttPublisher)),
-    client_(std::move(client)) {
+    client_(std::move(client)),
+    debugStatusValues_(IecCodec::iec103DebugEnabled()) {
     if (!client_) {
         throw std::invalid_argument("iecClient is required");
     }

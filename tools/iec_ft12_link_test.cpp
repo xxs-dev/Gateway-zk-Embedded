@@ -276,7 +276,7 @@ void verifyChangeFrameDebugLog() {
         return log.str();
     };
     const auto logged = capture(true);
-    require(logged.find("ASDU1") != std::string::npos && logged.find("DPI=2") != std::string::npos &&
+    require(logged.find("ASDU1") != std::string::npos && logged.find("DPI=2 DPIoctet=0x02") != std::string::npos &&
         logged.find("CP32=10:05:04.660") != std::string::npos && logged.find("raw=01810101016402341205") != std::string::npos,
         "change frame debug line: " + logged);
     require(capture(false).find("change frame") == std::string::npos, "change frame logging is off by default");

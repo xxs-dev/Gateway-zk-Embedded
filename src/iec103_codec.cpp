@@ -66,12 +66,42 @@ IecDataValue baseValue(const std::vector<std::uint8_t>& asdu, int functionType, 
     return value;
 }
 
-// ASDU 1 / 2: FUN, INF, DPI, (RET, FAN,) CP32Time2a, SIN. The raw DPI 0..3 is kept; the
-// collector maps it like an IEC 101/104 double point (1 -> off/0, 2 -> on/1, 0/3 -> bad
-// quality). For AM5SE this is the mapping the code adopts, NOT a verified property of the
-// firmware: the actual meaning of DPI in its change frames still has to be confirmed by the
-// vendor, or by comparing raw frames (GATEWAY_IEC103_DEBUG / channel trace) with the real
-// breaker position on site.
+std::string hexOctets(unsigned value, int octets) {
+    static const char digits[] = "0123456789ABCDEF";
+    std::string text = "0x";
+    for (int nibble = octets * 2 - 1; nibble >= 0; --nibble) {
+        text += digits[(value >> (nibble * 4)) & 0x0FU];
+    }
+    return text;
+}
+
+// COT spelled out in diagnostics, so that a general-interrogation answer (COT 9) is never read
+// as a spontaneous change (COT 1).
+std::string causeLabel(int cause) {
+    switch (cause) {
+        case 1: return "1(spontaneous)";
+        case 2: return "2(cyclic)";
+        case kIec103CauseTestMode: return "7(test)";
+        case 9: return "9(gi)";
+        case 11: return "11(local-op)";
+        case 12: return "12(remote-op)";
+        default: return std::to_string(cause);
+    }
+}
+
+std::string evidenceHeader(const IecDataValue& value) {
+    return "asdu=" + std::to_string(value.typeId) + " cot=" + causeLabel(value.cause) +
+        " ca=" + std::to_string(value.commonAddress) + " fun=" + std::to_string(value.functionType) +
+        " inf=" + std::to_string(value.informationNumber);
+}
+
+// ASDU 1 / 2: FUN, INF, DPI, (RET, FAN,) CP32Time2a, SIN. value holds DPI 0..3 and rawDpiOctet
+// the whole octet as received; the collector maps it per IEC 60870-5-103 (1 -> off/0,
+// 2 -> on/1; 0/3 and octets with spare bits 3..8 set -> bad quality, previous value held).
+// For AM5SE this is the mapping the code adopts, NOT a verified property of the firmware: the
+// actual meaning of DPI in its change frames still has to be confirmed by the vendor, or by
+// comparing raw frames (GATEWAY_IEC103_DEBUG / channel trace) with the real breaker position on
+// site. value.evidence keeps ASDU/COT/CA/FUN/INF and the raw octet for that comparison.
 void decodeTimeTaggedMessage(
     std::vector<IecDataValue>& out,
     const std::vector<std::uint8_t>& asdu,
@@ -83,12 +113,18 @@ void decodeTimeTaggedMessage(
         throw std::runtime_error("IEC103 ASDU" + std::to_string(asdu[0]) + " is truncated");
     }
     auto value = baseValue(asdu, asdu[kHeaderSize], asdu[kHeaderSize + 1]);
-    const int dpi = asdu[kHeaderSize + 2] & 0x03;
+    const int octet = asdu[kHeaderSize + 2];
+    const int dpi = octet & 0x03;
+    value.rawDpiOctet = octet;
     value.value = static_cast<double>(dpi);
     value.text = std::to_string(dpi);
     value.doublePoint = true;
     value.timestampMs = decodeCp32Time2a(asdu, timeOffset, time);
-    if (dpi == 0 || dpi == 3) {
+    value.evidence = evidenceHeader(value) + " dpiOctet=" + hexOctets(static_cast<unsigned>(octet), 1);
+    if ((octet & ~0x03) != 0) {
+        markBad(value, "IEC103 DPI octet " + hexOctets(static_cast<unsigned>(octet), 1) +
+            " has spare bits 3..8 set; not an on/off value");
+    } else if (dpi == 0 || dpi == 3) {
         markBad(value, "IEC103 DPI=" + std::to_string(dpi) + " has no on/off mapping");
     }
     out.push_back(std::move(value));
@@ -151,6 +187,9 @@ void decodeFaultLocation(
 }
 
 // ASDU 44 (AM5SE signal blocks): FUN, base INF, per block 16 state bits + 16 change bits + QDS.
+// The field verification only saw ASDU 44 as the GI answer (COT 9); its state bits were never
+// compared with the real switch positions. value.evidence names block, bit, the status/change
+// words and the QDS octet so that GI snapshots stay distinguishable from ASDU 1/2 change frames.
 void decodeSignalBlocks(std::vector<IecDataValue>& out, const std::vector<std::uint8_t>& asdu) {
     if (asdu.size() < kHeaderSize + 2) {
         return;
@@ -164,10 +203,15 @@ void decodeSignalBlocks(std::vector<IecDataValue>& out, const std::vector<std::u
             throw std::runtime_error("IEC103 ASDU44 information element is truncated");
         }
         const auto states = static_cast<std::uint16_t>(readUnsignedLe(asdu, offset, 2));
+        const auto changes = readUnsignedLe(asdu, offset + 2, 2);
+        const auto qds = static_cast<unsigned>(asdu[offset + 4]);
         for (int bit = 0; bit < 16; ++bit) {
             auto value = baseValue(asdu, functionType, baseInformationNumber + block * 16 + bit);
             value.value = (states & (static_cast<std::uint16_t>(1U) << bit)) != 0 ? 1.0 : 0.0;
             value.text = value.value > 0.0 ? "1" : "0";
+            value.evidence = evidenceHeader(value) + " block=" + std::to_string(block) +
+                " bitIndex=" + std::to_string(bit) + " status=" + hexOctets(states, 2) +
+                " change=" + hexOctets(changes, 2) + " qds=" + hexOctets(qds, 1);
             out.push_back(std::move(value));
         }
         offset += 5;
