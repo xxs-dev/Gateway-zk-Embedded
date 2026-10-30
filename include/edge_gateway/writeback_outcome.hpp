@@ -8,7 +8,13 @@ namespace edge_gateway {
 
 // One classification for every control receipt (shared memory, control ledger, MQTT reply, direct
 // maintenance, third-party forwarder, pointctl). outcome decides whether a caller may act on it:
-//   succeeded  stage writeback-succeeded (or a local/mailbox commit stage)
+//   succeeded  the write completed as far as the gateway can see; the stage says how far:
+//              writeback-succeeded    the device acknowledged it (protocol reply); verifyPassed: its
+//                                     read-back or feedback also confirmed the value
+//              writeback-submitted    handed to an output or transport without any device
+//                                     acknowledgement (SocketCAN kernel queue, DO output latch without
+//                                     contact feedback): not a confirmation that the device acted
+//              local-parameter-committed / mailbox-committed (local or mailbox commit)
 //   failed     the write definitely did not take effect: writeback-failed (refused before the wire
 //              or a conclusive device rejection), expired, control-rejected, writeback-skipped, ...
 //   unknown    the write may have taken effect; never retry it automatically or under a new cmdId:
@@ -18,6 +24,7 @@ namespace edge_gateway {
 //                                     (executing now, or interrupted); never dispatched again
 // The executor message is kept verbatim in every stage.
 constexpr const char* kWritebackSucceededStage = "writeback-succeeded";
+constexpr const char* kWritebackSubmittedStage = "writeback-submitted";
 constexpr const char* kWritebackFailedStage = "writeback-failed";
 constexpr const char* kWritebackExpiredStage = "expired";
 constexpr const char* kWritebackMismatchStage = "writeback-mismatch";

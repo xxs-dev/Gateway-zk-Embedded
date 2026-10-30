@@ -3,12 +3,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include "can_driver_service_internal.hpp"
@@ -39,6 +41,16 @@ std::string frameName(std::uint32_t frameId) {
     std::ostringstream id;
     id << "0x" << std::uppercase << std::hex << frameId;
     return id.str();
+}
+
+std::string number(double value) {
+    std::ostringstream out;
+    out << value;
+    return out.str();
+}
+
+bool integerSignal(const std::string& dataType) {
+    return dataType != "float32" && dataType != "float64";
 }
 
 }  // namespace
@@ -161,7 +173,25 @@ std::size_t CanDriverService::processWritebackOnce(std::int64_t nowMsValue) {
             }
             CanSignalCodec::encodeInto(scratch, command.value, point.write, point.read.signedFlag);
         } catch (const std::exception& ex) {
-            completeWritebackResult(staged.result, false, ex.what(), "writeback-failed", nowMs());
+            // Refused before anything was sent: a definite failure, recorded in the control ledger
+            // like any executed result so a replay of the cmdId reports the same.
+            const std::string error = ex.what();
+            const auto refuse = [&] {
+                auto receipt = beginWritebackResult(command, staged.startedAt);
+                completeWritebackResult(receipt, false, error, kWritebackFailedStage, nowMs());
+                return receipt;
+            };
+            staged.result = refuse();
+            if (command.durableControl) {
+                try {
+                    const auto& device = runtimeDevices_[runtimePoint.deviceIndex].config;
+                    staged.result = ControlDedupStore(config_.memoryStore.controlDedupPath)
+                        .dispatch(device.machineCode, device.meterCode, command, staged.startedAt, refuse);
+                } catch (const std::exception& ledgerError) {
+                    completeWritebackResult(staged.result, false, error + "; " + ledgerError.what(),
+                                            kWritebackFailedStage, nowMs());
+                }
+            }
             finishWrite(staged, processed);
             continue;
         }
@@ -212,17 +242,21 @@ std::size_t CanDriverService::flushStagedWrites(std::vector<StagedWrite>& group)
         writes.emplace_back(staged.pointIndex, staged.command.value);
     }
     std::string note;
-    const auto error = transmitJournaled(key, writes, note);
-    const auto completedAt = nowMs();
+    std::int64_t sentAtWallMs = 0;
+    const auto error = transmitJournaled(key, writes, note, sentAtWallMs);
+    const auto sentSteadyMs = steadyNowMs();
+    std::string frame;
+    {
+        std::lock_guard<std::mutex> lock(socketMutex_);
+        frame = frameName(txFrames_.at(key).frameId);
+    }
     for (auto& staged : group) {
         staged.modePermit.reset();
         if (!error.empty()) {
             completeNotSent(staged, error, "writeback-failed");
             continue;
         }
-        // Success means the kernel queued the frame; CAN has no acknowledgement from the receiver.
-        auto receipt = beginWritebackResult(staged.command, staged.startedAt);
-        completeWritebackResult(receipt, true, note.empty() ? "ok" : "ok; " + note, "writeback-succeeded", completedAt);
+        auto receipt = sentReceipt(staged, frame, note, sentAtWallMs, sentSteadyMs);
         if (staged.claimed) {
             const auto& device = runtimeDevices_[runtimePoints_[staged.pointIndex].deviceIndex].config;
             try {
@@ -238,6 +272,75 @@ std::size_t CanDriverService::flushStagedWrites(std::vector<StagedWrite>& group)
         staged.result = receipt;
     }
     return group.size();
+}
+
+WritebackResultRecord CanDriverService::sentReceipt(const StagedWrite& staged, const std::string& frame,
+                                                   const std::string& note, std::int64_t sentAtWallMs,
+                                                   std::int64_t sentSteadyMs) {
+    const auto& point = runtimePoints_[staged.pointIndex].point;
+    const auto suffix = note.empty() ? std::string() : "; " + note;
+    auto receipt = beginWritebackResult(staged.command, staged.startedAt);
+    const auto feedbackIndex = point.write.verifyIndex;
+    if (feedbackIndex == 0) {
+        // SocketCAN reports only that the kernel queued the frame: no receiver acknowledges it, and the
+        // frame may still be lost (bus-off, no ACK). Never reported as a confirmed action.
+        completeWritebackResult(receipt, true, "submitted: CAN frame " + frame + " queued by the kernel; no device "
+                                "feedback configured" + suffix, kWritebackSubmittedStage, nowMs());
+        return receipt;
+    }
+    // Device feedback signal (write.verifyIndex): only a good, current value stored after the send
+    // counts. It must equal the written value within half a step of the write and feedback scaling.
+    double step = integerSignal(point.write.dataType) ? std::abs(point.write.scale) : 0.0;
+    const auto local = indexToRuntimePoint_.find(feedbackIndex);
+    if (local != indexToRuntimePoint_.end()) {
+        const auto& read = runtimePoints_[local->second].point.read;
+        if (integerSignal(read.dataType)) step = std::max(step, std::abs(read.scale));
+    }
+    const auto tolerance = step / 2.0 + 1e-6;
+    const auto expected = staged.command.value;
+    const auto timeoutMs = std::max(1, point.write.verifyTimeoutMs);
+    const auto label = "feedback index " + std::to_string(feedbackIndex);
+    bool haveValue = false;
+    double lastValue = 0.0;
+    std::string lastError = "no value";
+    while (true) {
+        const auto stored = store_.getLatestByIndex(feedbackIndex, nowMs());
+        if (!stored) {
+            lastError = "no value";
+        } else if (stored->stale || stored->quality != 1) {
+            lastError = "stale or bad quality";
+        } else if (stored->ts <= sentAtWallMs) {
+            lastError = "no value received since the send";
+        } else {
+            haveValue = true;
+            lastValue = stored->value;
+            if (std::abs(lastValue - expected) <= tolerance) {
+                break;
+            }
+        }
+        if (steadyNowMs() - sentSteadyMs >= timeoutMs) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    const auto completedAt = nowMs();
+    if (haveValue && std::abs(lastValue - expected) <= tolerance) {
+        completeWritebackResult(receipt, true, "ok: CAN frame " + frame + " sent; " + label + "=" + number(lastValue) +
+                                " confirms" + suffix, kWritebackSucceededStage, completedAt, true, true);
+    } else if (haveValue) {
+        // Sent, and the device reports another value: it may or may not have acted. Never re-sent.
+        completeWritebackResult(receipt, false, "feedback mismatch: CAN frame " + frame + " sent, " + label + "=" +
+                                number(lastValue) + ", expected " + number(expected) + " (" + std::to_string(timeoutMs) +
+                                " ms); not re-sent" + suffix, kWritebackMismatchStage, completedAt, true, false);
+        receipt.feedbackMismatch = true;
+    } else {
+        completeWritebackResult(receipt, false, "outcome unknown: CAN frame " + frame + " sent, " + label +
+                                " no new value in " + std::to_string(timeoutMs) + " ms (" + lastError + ")" + suffix,
+                                kWritebackTimeoutStage, completedAt, true, false);
+        receipt.outcomeUnknown = true;
+    }
+    normalizeWritebackOutcome(receipt);
+    return receipt;
 }
 
 void CanDriverService::completeNotSent(StagedWrite& staged, const std::string& message, const std::string& stage) {
@@ -317,8 +420,9 @@ void CanDriverService::runStartupWrites() {
             try {
                 validateWriteValue(pointIt->point, item.value);
                 sendSingleWrite(*pointIt, item.value);
+                // Queued by the kernel only; a startup write never waits for device feedback.
                 publishStatusEvent(
-                    "startup-write-succeeded",
+                    "startup-write-submitted",
                     nowMs(),
                     std::string(R"("pointCode":")") + escapeJson(item.pointCode) +
                         R"(","value":)" + std::to_string(item.value) +
@@ -346,7 +450,9 @@ void CanDriverService::sendSingleWrite(const RuntimePoint& runtimePoint, double 
     }
     const auto pointIndex = static_cast<std::size_t>(&runtimePoint - runtimePoints_.data());
     std::string note;
-    const auto error = transmitJournaled(runtimePoint.writeKey, {std::make_pair(pointIndex, value)}, note);
+    std::int64_t sentAtWallMs = 0;
+    const auto error =
+        transmitJournaled(runtimePoint.writeKey, {std::make_pair(pointIndex, value)}, note, sentAtWallMs);
     if (!error.empty()) {
         throw std::runtime_error(error);
     }
@@ -361,8 +467,9 @@ void CanDriverService::requireInterfaceUsable() const {
 
 std::string CanDriverService::transmitJournaled(std::uint64_t key,
                                                 const std::vector<std::pair<std::size_t, double>>& writes,
-                                                std::string& note) {
+                                                std::string& note, std::int64_t& sentAtWallMs) {
     note.clear();
+    sentAtWallMs = 0;
     std::vector<std::uint8_t> payload;
     std::string name;
     {
@@ -416,6 +523,7 @@ std::string CanDriverService::transmitJournaled(std::uint64_t key,
         try {
             requireInterfaceUsable();
             openSocketLocked();
+            sentAtWallMs = nowMs();  // feedback must be newer than this
             transmitLocked(frame, payload);
             storeSentPayloadLocked(frame, payload);
             frame.trusted = true;

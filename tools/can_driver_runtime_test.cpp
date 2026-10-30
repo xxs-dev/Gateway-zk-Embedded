@@ -295,6 +295,12 @@ void receivePathAndWrites(const std::string& directory) {
         service.processWritebackOnce(wallNow());
         check(bus.receive(sent) && sent.frameId == 0x321 && !sent.fd &&
               sent.payload == Bytes({0x01, 0, 0, 0, 0, 0, 0, 0xAA}), "run_cmd=1 frame from the template");
+        // Round 5: the kernel queue is all SocketCAN reports: submitted, never a confirmed action.
+        const auto submitted = store.getWritebackResult("W1");
+        check(submitted && submitted->success && submitted->stage == "writeback-submitted" &&
+              !submitted->verifyAttempted && !submitted->verifyPassed &&
+              submitted->message.find("queued by the kernel") != std::string::npos &&
+              submitted->message.find("ok") != 0, "CAN receipt says submitted, not confirmed");
         submit(store, "W2", 310202, 55);
         service.processWritebackOnce(wallNow());
         check(bus.receive(sent) && sent.payload == Bytes({0x01, 55, 0, 0, 0, 0, 0, 0xAA}),

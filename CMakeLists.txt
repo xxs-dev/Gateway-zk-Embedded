@@ -589,6 +589,13 @@ if(BUILD_TESTING)
     add_test(NAME can_driver_runtime COMMAND can_driver_runtime_test)
     add_test(NAME dio_driver_review COMMAND dio_driver_review_test)
 endif()
+# driver-review: can-dio (round 5) — submitted / confirmed / mismatch / unknown / failed receipts of
+# CAN and local DO writes agree across first reply, ledger, replay, late reply and restart.
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(can_dio_control_outcome_test tools/can_dio_control_outcome_test.cpp)
+    target_link_libraries(can_dio_control_outcome_test PRIVATE edge_gateway ${CMAKE_DL_LIBS})
+    add_test(NAME can_dio_control_outcome COMMAND can_dio_control_outcome_test)
+endif()
 # driver-review: nb-mqtt
 if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING
    AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

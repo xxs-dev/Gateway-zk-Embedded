@@ -151,8 +151,24 @@ void validateWriteSignal(const std::string& label, const PointDefinition& point,
         }
     }
     if (write.verifyAfterWrite) {
-        configWarning("CAN " + label + ": write.verifyAfterWrite is not supported for CAN; a successful write "
-                      "means the frame was queued by the kernel");
+        configWarning("CAN " + label + ": write.verifyAfterWrite is not supported for CAN (SocketCAN only reports "
+                      "that the kernel queued the frame); confirm with write.verifyIndex and a status signal the "
+                      "device sends");
+    }
+    if (write.verifyValue) {
+        reject(label, "write.verifyValue", "is for local_dio only; a CAN feedback signal (write.verifyIndex) must "
+               "report the written value");
+    }
+    if (write.verifyIndex != 0) {
+        if (write.verifyIndex == point.index) {
+            reject(label, "write.verifyIndex", "must be another point: a status signal the device sends");
+        }
+        if (write.can.pulse) {
+            reject(label, "write.verifyIndex", "a pulse signal returns to idle; it has no level to confirm");
+        }
+        if (write.verifyTimeoutMs <= 0 || write.verifyTimeoutMs > 60000) {
+            reject(label, "write.verifyTimeoutMs", "must be 1..60000");
+        }
     }
 
     const auto key = CanSignalCodec::frameKey(CanSignalCodec::parseFrameId(write.can.frameId, write.can.extended),
@@ -217,6 +233,48 @@ void checkPulseTemplates(const std::map<std::uint64_t, TxFrameDefinition>& frame
     }
 }
 
+// A feedback signal of this config must be a received status signal: never an online point, and
+// never decoded from a frame the gateway itself transmits (that would only echo the command).
+// active: the points validated above (enabled meters, or the top-level points without meters).
+void checkFeedbackSignals(const DeviceConfig& config, const std::vector<const PointDefinition*>& active,
+                          const std::map<std::uint64_t, TxFrameDefinition>& frames) {
+    std::map<std::uint32_t, const PointDefinition*> byIndex;
+    for (const auto* point : active) {
+        byIndex[point->index] = point;
+    }
+    std::map<std::uint32_t, bool> anywhere;
+    for (const auto* point : configPoints(config)) {
+        anywhere[point->index] = true;
+    }
+    for (const auto* point : active) {
+        if (!point->enabled || !point->write.enable || point->write.verifyIndex == 0) {
+            continue;
+        }
+        const auto label = pointLabel(config, *point);
+        const auto index = point->write.verifyIndex;
+        const auto found = byIndex.find(index);
+        if (found == byIndex.end()) {
+            if (anywhere.count(index) != 0) {
+                reject(label, "write.verifyIndex", "index " + std::to_string(index) + " is in a disabled meter");
+            }
+            configWarning("CAN " + label + ": write.verifyIndex " + std::to_string(index) +
+                          " is not in this config; its value is read from the shared point store");
+            continue;
+        }
+        const auto& feedback = *found->second;
+        if (!feedback.enabled || !feedback.read.enable || isOnlineStatusPoint(feedback)) {
+            reject(label, "write.verifyIndex", "index " + std::to_string(index) +
+                   " must be an enabled status signal the device sends");
+        }
+        const auto key = CanSignalCodec::frameKey(
+            CanSignalCodec::parseFrameId(feedback.read.can.frameId, feedback.read.can.extended), feedback.read.can.extended);
+        if (frames.count(key) != 0) {
+            reject(label, "write.verifyIndex", "index " + std::to_string(index) + " is decoded from frame " +
+                   feedback.read.can.frameId + ", which the gateway transmits; it would only echo the command");
+        }
+    }
+}
+
 }  // namespace
 
 void validateCanDeviceConfig(const DeviceConfig& config) {
@@ -226,8 +284,10 @@ void validateCanDeviceConfig(const DeviceConfig& config) {
                                     can.transportMode);
     }
     std::map<std::uint64_t, TxFrameDefinition> frames;
+    std::vector<const PointDefinition*> active;
     const auto validatePoints = [&](const std::vector<PointDefinition>& points) {
         for (const auto& point : points) {
+            active.push_back(&point);
             if (!point.enabled) {
                 continue;
             }
@@ -266,6 +326,7 @@ void validateCanDeviceConfig(const DeviceConfig& config) {
         validatePoints(meter.points);
     }
     checkPulseTemplates(frames);
+    checkFeedbackSignals(config, active, frames);
 }
 
 }  // namespace edge_gateway

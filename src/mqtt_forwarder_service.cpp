@@ -1985,9 +1985,11 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
         ? (submissionConfirmed ? "writeback result timeout" : "control submission outcome is uncertain")
         : "device write completed";
     bool outcomeUnknown = timedOut;
+    bool submittedOnly = false;  // a result reached the transport without any device acknowledgement
     for (const auto& result : results) {
         resultsByIndex[result.index] = &result;
         success = success && result.success;
+        submittedOnly = submittedOnly || (result.success && result.stage == kWritebackSubmittedStage);
         outcomeUnknown = outcomeUnknown || std::string(writebackOutcome(result)) == "unknown";
         if (!result.success && message == "device write completed") {
             message = result.message.empty() ? "device write failed" : result.message;
@@ -2003,6 +2005,9 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
         deviceWriteMs = std::max(deviceWriteMs, result.deviceWriteMs);
         edgeElapsedMs = std::max(edgeElapsedMs, result.edgeElapsedMs);
         totalElapsedMs = std::max(totalElapsedMs, result.totalElapsedMs);
+    }
+    if (success && submittedOnly) {
+        message = "write submitted; not confirmed by the device";
     }
     if (timedOut) {
         totalElapsedMs = std::max<std::int64_t>(

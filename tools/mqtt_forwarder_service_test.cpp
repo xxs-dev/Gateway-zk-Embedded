@@ -1156,6 +1156,39 @@ void testControlFinalResultKeepsFeedbackMismatch() {
         "a feedback mismatch must stay outcome unknown with its cause and message: " + joined);
 }
 
+// driver-review: can-dio (round 5). A target that only reached the transport (e.g. a SocketCAN frame
+// queued by the kernel) keeps outcome succeeded, but the aggregate never says the device completed it.
+void testControlFinalResultKeepsSubmittedOnly() {
+    ControlTestEnvironment environment;
+    const std::int64_t startedAt = 1770001963000LL;
+    environment.runCommand("{\"type\":1,\"target\":2,\"id\":\"RESULT_SUBMITTED\"}", startedAt);
+    requireMappedWrites(environment, 21.0, 3.5, "submitted test command should be queued");
+    WritebackResultRecord first;
+    first.cmdId = "RESULT_SUBMITTED";
+    first.index = 4001;
+    first.value = 21.0;
+    first.success = true;
+    first.message = "ok";
+    first.stage = "writeback-succeeded";
+    first.acceptedAt = startedAt;
+    first.completedAt = startedAt + 30;
+    WritebackResultRecord second = first;
+    second.index = 4002;
+    second.value = 3.5;
+    second.message = "submitted: CAN frame 0x321 queued by the kernel; no device feedback configured";
+    second.stage = "writeback-submitted";
+    environment.store->recordWritebackResult(first);
+    environment.store->recordWritebackResult(second);
+    environment.service->runOnce(startedAt + 50);
+    const auto joined = joinValues(environment.publisher->jsonPayloads);
+    require(joined.find("\"id\":\"RESULT_SUBMITTED\"") != std::string::npos &&
+            joined.find("\"success\":true,\"outcome\":\"succeeded\"") != std::string::npos &&
+            joined.find("write submitted; not confirmed by the device") != std::string::npos &&
+            joined.find("device write completed") == std::string::npos &&
+            joined.find("\"stage\":\"writeback-submitted\"") != std::string::npos,
+        "a submitted-only target must not be reported as a completed device write: " + joined);
+}
+
 void testControlPublishesFinalResultTimeout() {
     ControlTestEnvironment environment;
     const std::int64_t startedAt = 1770001965000LL;
@@ -3803,6 +3836,7 @@ int main(int argc, char** argv) {
         testControlPublishesFinalDeviceResults();
         std::cerr << "running final device control feedback mismatch test" << std::endl;
         testControlFinalResultKeepsFeedbackMismatch();
+        testControlFinalResultKeepsSubmittedOnly();
         std::cerr << "running final device control timeout test" << std::endl;
         testControlPublishesFinalResultTimeout();
         std::cerr << "running final device control restart recovery test" << std::endl;

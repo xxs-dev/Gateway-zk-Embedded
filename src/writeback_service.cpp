@@ -74,7 +74,7 @@ void completeWritebackFromCommand(
 ) {
     const char* stage = kWritebackFailedStage;
     if (result.success) {
-        stage = kWritebackSucceededStage;
+        stage = result.submittedOnly ? kWritebackSubmittedStage : kWritebackSucceededStage;
     } else if (expiredBeforeSend) {
         stage = kWritebackExpiredStage;
     } else if (result.feedbackMismatch) {

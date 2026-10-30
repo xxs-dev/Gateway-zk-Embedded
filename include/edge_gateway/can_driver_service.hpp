@@ -112,10 +112,15 @@ private:
     void runStartupWrites();
     void sendSingleWrite(const RuntimePoint& runtimePoint, double value);
     // Encodes writes (runtimePoints_ index, value) into frame key and sends it with the write-ahead
-    // journal: pending record, send, committed record. Returns an empty string when the frame went
-    // out (note: remark for the receipt), else why it was not sent.
+    // journal: pending record, send, committed record. Returns an empty string when the kernel
+    // accepted the frame (note: remark for the receipt; sentAtWallMs: wall time just before the
+    // send), else why it was not sent.
     std::string transmitJournaled(std::uint64_t key, const std::vector<std::pair<std::size_t, double>>& writes,
-                                  std::string& note);
+                                  std::string& note, std::int64_t& sentAtWallMs);
+    // Receipt of a sent write: writeback-submitted without write.verifyIndex (the kernel queue is all
+    // SocketCAN reports), else the result of waiting for the device's feedback signal.
+    WritebackResultRecord sentReceipt(const StagedWrite& staged, const std::string& frame, const std::string& note,
+                                      std::int64_t sentAtWallMs, std::int64_t sentSteadyMs);
     void transmitLocked(const TxFrame& frame, const std::vector<std::uint8_t>& payload);
     // After a successful send: the mirror becomes payload with every pulse signal back at idle.
     void storeSentPayloadLocked(TxFrame& frame, const std::vector<std::uint8_t>& payload);

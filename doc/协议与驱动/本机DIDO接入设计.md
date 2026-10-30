@@ -355,32 +355,40 @@ config/runtime/devices/device_dio.json
 
 DO 写入的回执（`CommandResult.message`、写回记录）和画面区分两件事：
 
-- **输出状态**：网关写到 GPIO 的值（SoC 输出锁存）。回读只能证明锁存已置位，不能证明继电器触点动作。DO 点本身的值就是输出状态。
-- **触点反馈**：接到独立 DI 上的继电器/接触器辅助触点（`write.verifyIndex`）。只有它能确认设备实际动作。没有配置时一律写明“未配置反馈”。
+- **输出状态**：网关写到 GPIO 的值（SoC 输出锁存）。锁存回读（`verifyAfterWrite` + `verifyByRead`）只能证明锁存已置位，不能证明继电器触点动作，因此不算“校验”：`verifyAttempted`/`verifyPassed` 不因锁存回读而置位。DO 点本身的值就是输出状态。
+- **触点反馈**：接到独立 DI 上的继电器/接触器辅助触点（`write.verifyIndex`）。只有它能确认设备实际动作；`verifyAttempted`/`verifyPassed` 只指它。没有配置时一律写明“未配置反馈”。
 
-| 配置 | 成功回执示例 |
-| --- | --- |
-| 无 `verifyIndex`，不回读 | `ok：输出状态已置为 1（未回读）；未配置反馈，继电器触点是否动作未确认` |
-| 无 `verifyIndex`，`verifyAfterWrite` + `verifyByRead` | `ok：输出状态回读=1（GPIO 输出锁存）；未配置反馈，继电器触点是否动作未确认` |
-| 配置 `verifyIndex` | `ok：输出状态回读=1（GPIO 输出锁存）；触点反馈(index 998)=1，动作已确认` |
+能力边界：没有接辅助触点的 DO，软件无法知道继电器、接触器或被控设备是否动作，这是硬件接线决定的，软件不能补上。这类写入只能报“输出状态已置位”，不得报成动作已确认，也不会因此重发。
+
+成功回执（回执消息在共享内存中最多 127 字节，UTF-8）：
+
+| 配置 | 写回阶段 / outcome | `verifyAttempted` / `verifyPassed` | 回执示例 |
+| --- | --- | --- | --- |
+| 无 `verifyIndex`，不回读 | `writeback-submitted` / succeeded | `false` / `false` | `输出状态已置为1（未回读）；未配置反馈，触点动作未确认` |
+| 无 `verifyIndex`，`verifyAfterWrite` + `verifyByRead` | `writeback-submitted` / succeeded | `false` / `false` | `输出状态已置为1（锁存回读一致）；未配置反馈，触点动作未确认` |
+| 配置 `verifyIndex`，触点反馈确认 | `writeback-succeeded` / succeeded | `true` / `true` | `输出状态已置为1；触点反馈(index 998)=1，动作已确认` |
+
+`writeback-submitted` 表示“仅到输出”：outcome 仍是 succeeded（输出确实已置位，不得当失败重发），但它不是动作确认。需要“设备已动作”的消费方（EMS `confirmedControlWrite` 等）必须看 `verifyPassed=true`。
 
 配置了 `write.verifyIndex` 时，写 GPIO 之后在 `verifyTimeoutMs` 内等触点反馈：
 
-- 只认写出之后的新值：反馈 DI 属于同一逻辑设备（同一 `meter`）时，执行器直接读该 DI 的 GPIO，按其 `debounceMs` 判稳（与采集线程无关，采集因优先控制暂停时也能确认）；属于其他设备（例如另一台 IO 模块）时从共享点库读取，只认好质量、未过期且时间戳严格晚于写出时刻的值。
+- 只认写出之后的新值：反馈 DI 属于同一逻辑设备（同一 `meter`）时，执行器直接读该 DI 的 GPIO，按其 `debounceMs` 判稳（与采集线程无关，采集因优先控制暂停时也能确认）；属于其他设备（例如另一台 IO 模块）时从共享点库读取，只认好质量、未过期且时间戳严格晚于写出时刻的值。坏质量、已过期、写出之前的旧值都不算反馈。
 - 期间读到等于期望值的新值：成功，`verifyPassed=true`。
 
 结果分类（`CommandResult` 与写回阶段）：
 
 | 情况 | `success` / `feedbackMismatch` / `outcomeUnknown` | 写回阶段 / outcome | 回执示例 |
 | --- | --- | --- | --- |
+| 未配置反馈 | `true` / `false` / `false`（`submittedOnly`） | `writeback-submitted` / succeeded | 见上表 |
 | 触点反馈确认 | `true` / `false` / `false` | `writeback-succeeded` / succeeded | 见上表 |
-| 超时时读到过新值但不等于期望值（反馈不一致） | `false` / `true` / `false` | `writeback-mismatch` / unknown | `反馈不一致：输出状态已置为 1，触点反馈(index 998)=0，期望 1（3000 ms 内）；输出写入已执行，不得自动重发` |
-| 输出锁存回读不一致（`verifyByRead`） | `false` / `true` / `false` | `writeback-mismatch` / unknown | `输出状态回读不一致：已写入 1，GPIO 输出锁存回读 0；输出写入已执行，不得自动重发` |
-| 超时内没有任何新值（反馈 DI 读失败、跨设备的采集未更新） | `false` / `false` / `true` | `writeback-timeout` / unknown | `输出状态已置为 1；触点反馈(index 998) 在 3000 ms 内没有新值（…），动作未确认，结果未知` |
+| 超时时读到过新值但不等于期望值（反馈不一致） | `false` / `true` / `false` | `writeback-mismatch` / unknown | `反馈不一致：输出状态已置为1，触点反馈(index 998)=0，期望1；已执行，不得自动重发` |
+| 输出锁存回读不一致（`verifyByRead`） | `false` / `true` / `false` | `writeback-mismatch` / unknown | `输出状态回读不一致：已写入1，锁存回读0；已执行，不得自动重发` |
+| 超时内没有任何可用新值（反馈 DI 读失败；跨设备的值坏质量、过期或未更新） | `false` / `false` / `true` | `writeback-timeout` / unknown | `输出状态已置为1；触点反馈(index 998) 3000ms内无新值，结果未知: stale or bad quality` |
 | GPIO 写入被拒绝、值非法等，输出未改变 | `false` / `false` / `false` | `writeback-failed` / failed | 内核错误原因 |
 
-- 反馈不一致≠设备未执行：输出写入已经执行，设备可能已动作（辅助触点卡滞、接线错误）也可能没有。它不是确定失败，回执不得写成“未执行”；调用方和驱动都不得自动重发，不得换新 cmdId 重试，需人工核实现场后再决定。`feedbackMismatch` 到 `writeback-mismatch`（outcome=unknown）的映射由共用回执分类（`writeback_outcome.hpp`）完成，持久化去重的命令（durableControl）在账本中同样记为 `writeback-mismatch`，重放时返回同一结论。
+- 反馈不一致≠设备未执行：输出写入已经执行，设备可能已动作（辅助触点卡滞、接线错误）也可能没有。它不是确定失败，回执不得写成“未执行”；调用方和驱动都不得自动重发，不得换新 cmdId 重试，需人工核实现场后再决定。`feedbackMismatch` 到 `writeback-mismatch`（outcome=unknown）的映射由共用回执分类（`writeback_outcome.hpp`）完成，持久化去重的命令（durableControl）在账本中同样记为 `writeback-mismatch`，重放时返回同一结论；`writeback-submitted` 同样原样入账、原样重放。
 - 无论确认成功与否，输出保持已置位状态，驱动不自动回退、不补发。
+- 晚到反馈（`verifyTimeoutMs` 之后才到）：命令回执已是最终结果（`writeback-timeout` 或同一 DI 判稳后的 `writeback-mismatch`），晚到的值不改写它、不补发回执、不触发重发。晚到反馈只体现在反馈 DI 点自身的值，以及下面的持续不一致告警：与输出状态一致则不告警（已告警的按恢复判据恢复），持续不一致则告警。需要知道动作是否最终发生时，看这两处，不要换新 cmdId 重发。
 - 跨设备反馈依赖对方驱动的采集：优先控制租约期间其他驱动的采集会暂停，此时可能等不到新值而报结果未知；需要可靠确认的 DO 应把辅助触点接到同一 DIO 设备。
 - 等待期间本驱动的写回线程被占用（最长 `verifyTimeoutMs`），同批后续写命令顺延。
 
@@ -609,9 +617,9 @@ wgpio.sh 231 1
 
 验收：
 
-- DO1 继电器闭合。
-- `pointctl get` 返回值为 `1`。
-- MQTT 命令回执为成功。
+- DO1 继电器闭合（现场目视或万用表确认：软件回执不能证明这一点）。
+- `pointctl get` 返回值为 `1`（输出状态）。
+- 未配置触点反馈时，MQTT 命令回执为 `success=true`、`outcome=succeeded`、`stage=writeback-submitted`、`verifyPassed=false`，消息含“未配置反馈，触点动作未确认”；配置了 `write.verifyIndex` 时为 `stage=writeback-succeeded`、`verifyPassed=true`。
 
 ### 11.4 事件验证
 
