@@ -371,6 +371,85 @@ void verifyIec103(IecProtocolConfig config) {
         std::vector<std::uint8_t>({7, 0x81, 9, 1, 0xFF, 0x00, 0xE9}), "IEC 103 GI is ASDU 7 with COT 9");
 }
 
+bool contains(const std::string& text, const std::string& part) {
+    return text.find(part) != std::string::npos;
+}
+
+// Round 5 (AM5SE DPI): the status values keep their evidence (source message, raw DPI octet or
+// ASDU 44 status bit, mapping applied, verified=false). The frames are constructed: this checks
+// that the diagnostic is kept, it says nothing about the firmware's DPI semantics.
+void verifyIec103StatusDiagnostics(IecProtocolConfig config) {
+    config.linkAddressSize = 1;
+    PointDefinition breaker;
+    breaker.read.enable = true;
+    breaker.read.dataType = "bool";
+    breaker.read.iec.functionType = 1;
+    breaker.read.iec.informationNumber = 100;
+    breaker.read.iec.typeId = 44;
+    auto rawPoint = breaker;
+    rawPoint.read.dataType = "double_point";
+
+    // ASDU 1, COT 1, DPI octet 0x02, CP32 10:05:04.660 (time irrelevant here).
+    std::vector<std::uint8_t> asdu1 = {1, 0x81, 1, 1, 1, 100, 0x02, 0x34, 0x12, 0x05, 0x0A, 0x00};
+    const auto on = IecCodec::decodeIec103Data(asdu1, config).at(0);
+    requireTrue(on.rawDpiOctet == 0x02 && on.evidence == "asdu=1 cot=1(spontaneous) ca=1 fun=1 inf=100 dpiOctet=0x02",
+        "ASDU1 evidence: " + on.evidence);
+    requireTrue(on.rawHex == "018101010164023412050a00", "ASDU1 raw octets kept: " + on.rawHex);
+    const auto onLine = IecCodec::iec103StatusDiagnostic(breaker, on, 1.0, 1, false);
+    requireTrue(onLine == "iec103 asdu=1 cot=1(spontaneous) ca=1 fun=1 inf=100 dpiOctet=0x02 dpi=2 value=1 quality=1 "
+        "mapping=iec103-standard-dpi(1=off->0,2=on->1,0/3=bad-hold) verified=false", "ASDU1 diagnostic: " + onLine);
+    requireTrue(contains(IecCodec::iec103StatusDiagnostic(rawPoint, on, 2.0, 1, false), "value=2 quality=1 mapping=raw-dpi"),
+        "double_point points report the raw DPI mapping");
+
+    asdu1[6] = 0x03;
+    const auto indeterminate = IecCodec::decodeIec103Data(asdu1, config).at(0);
+    const auto heldLine = IecCodec::iec103StatusDiagnostic(breaker, indeterminate, 1.0, 0, true);
+    requireTrue(contains(heldLine, "dpiOctet=0x03 dpi=3 value=held(1) quality=0") && contains(heldLine, "verified=false"),
+        "DPI 3 diagnostic names the held value: " + heldLine);
+
+    // Spare bits 3..8 set: not an on/off value even when bits 1..2 read 1 or 2.
+    for (const std::uint8_t octet : {std::uint8_t{0x06}, std::uint8_t{0x81}, std::uint8_t{0xFE}}) {
+        asdu1[6] = octet;
+        const auto spare = IecCodec::decodeIec103Data(asdu1, config).at(0);
+        requireTrue(spare.rawDpiOctet == octet && spare.quality == 0 && contains(spare.qualityMsg, "spare bits"),
+            "DPI octet with spare bits is bad quality: " + spare.qualityMsg);
+        requireTrue(IecCodec::holdsPreviousValue(breaker, spare) && IecCodec::holdsPreviousValue(rawPoint, spare),
+            "DPI octet with spare bits keeps the previous value on every point type");
+        requireTrue(IecCodec::decodePointValue(breaker, spare).text == "no on/off mapping",
+            "DPI octet with spare bits is never on/off");
+        requireTrue(contains(IecCodec::iec103StatusDiagnostic(breaker, spare, 0.0, 0, true), "dpi=invalid(spare-bits)"),
+            "spare-bit diagnostic");
+    }
+
+    // IEC 103 answers a GI with ASDU 1 COT 9: kept apart from spontaneous changes.
+    asdu1[2] = 9;
+    asdu1[6] = 0x01;
+    requireTrue(contains(IecCodec::decodeIec103Data(asdu1, config).at(0).evidence, "asdu=1 cot=9(gi)"),
+        "ASDU1 GI answer is labelled COT 9");
+
+    // ASDU 44 GI snapshot (the only status message seen in the field record): status 0x0005,
+    // change 0x0000, QDS 0x00 -> INF 100 bit 0 = 1, INF 101 bit 1 = 0.
+    const std::vector<std::uint8_t> asdu44 = {44, 0x81, 9, 1, 1, 100, 0x05, 0x00, 0x00, 0x00, 0x00};
+    const auto snapshot = IecCodec::decodeIec103Data(asdu44, config);
+    requireTrue(snapshot.size() == 16 && snapshot[0].rawDpiOctet == -1 && !snapshot[0].doublePoint,
+        "ASDU44 values are not DPI values");
+    requireTrue(snapshot[0].evidence ==
+        "asdu=44 cot=9(gi) ca=1 fun=1 inf=100 block=0 bitIndex=0 status=0x0005 change=0x0000 qds=0x00",
+        "ASDU44 evidence: " + snapshot[0].evidence);
+    const auto bitLine = IecCodec::iec103StatusDiagnostic(breaker, snapshot[0], 1.0, 1, false);
+    requireTrue(contains(bitLine, "asdu=44 cot=9(gi)") && contains(bitLine, "bit=1 value=1 quality=1") &&
+        contains(bitLine, "mapping=asdu44-status-bit(1->1,0->0) verified=false") && !contains(bitLine, "dpi"),
+        "ASDU44 diagnostic is distinguishable from ASDU1/2: " + bitLine);
+    requireTrue(contains(snapshot[1].evidence, "inf=101 block=0 bitIndex=1") &&
+        contains(IecCodec::iec103StatusDiagnostic(breaker, snapshot[1], 0.0, 1, false), "bit=0 value=0"),
+        "ASDU44 second bit");
+
+    // Values without IEC 103 status evidence have no diagnostic.
+    const std::vector<std::uint8_t> asdu9 = {9, 0x81, 2, 1, 160, 148, 0x00, 0x20};
+    requireTrue(IecCodec::iec103StatusDiagnostic(breaker, IecCodec::decodeIec103Data(asdu9, config).at(0), 0.25, 1, false)
+        .empty(), "measurands carry no status diagnostic");
+}
+
 // Round 2: protocol.iec.timestampZone. Fixed POSIX zone strings (no tzdata needed).
 class ScopedTimeZone {
 public:
@@ -481,6 +560,7 @@ int main() {
     verifyProtectionEvents(config);
     verifyCommandBuilders(config);
     verifyIec103(config);
+    verifyIec103StatusDiagnostics(config);
     verifyTimestampZones(config);
 
     const std::vector<std::uint8_t> asdu = {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -1114,12 +1115,72 @@ bool IecCodec::pointMatches(const PointDefinition& point, const IecDataValue& va
     return true;
 }
 
+namespace {
+
+// IEC 103 DPI octet with any of the spare bits 3..8 set: not a DPI the standard defines.
+bool hasSpareDpiBits(const IecDataValue& value) {
+    return value.rawDpiOctet >= 0 && (value.rawDpiOctet & ~0x03) != 0;
+}
+
+std::string formatDiagnosticNumber(double value) {
+    if (std::isfinite(value) && std::floor(value) == value && std::fabs(value) < 1e15) {
+        return std::to_string(static_cast<long long>(value));
+    }
+    std::ostringstream out;
+    out << std::setprecision(10) << value;
+    return out.str();
+}
+
+}  // namespace
+
 bool IecCodec::holdsPreviousValue(const PointDefinition& point, const IecDataValue& value) {
-    if (!value.doublePoint || !isBooleanDataType(pointDataType(point))) {
+    if (!value.doublePoint) {
+        return false;
+    }
+    if (hasSpareDpiBits(value)) {
+        // Not an on/off value on any point type: never stored as one.
+        return true;
+    }
+    if (!isBooleanDataType(pointDataType(point))) {
         return false;
     }
     const int dpi = static_cast<int>(value.value) & 0x03;
     return dpi == 0 || dpi == 3;
+}
+
+std::string IecCodec::iec103StatusDiagnostic(
+    const PointDefinition& point,
+    const IecDataValue& value,
+    double storedValue,
+    int quality,
+    bool held
+) {
+    if (value.evidence.empty()) {
+        return {};
+    }
+    const bool booleanPoint = isBooleanDataType(pointDataType(point));
+    std::string interpreted;
+    std::string mapping;
+    if (value.rawDpiOctet >= 0) {
+        interpreted = hasSpareDpiBits(value)
+            ? "dpi=invalid(spare-bits)"
+            : "dpi=" + std::to_string(value.rawDpiOctet & 0x03);
+        // The IEC 60870-5-103 DPI meaning (1 = OFF, 2 = ON, 0/3 not used); whether the AM5SE
+        // firmware follows it in its change frames is unconfirmed.
+        mapping = booleanPoint ? "iec103-standard-dpi(1=off->0,2=on->1,0/3=bad-hold)" : "raw-dpi(value=dpi)";
+    } else {
+        interpreted = std::string("bit=") + (value.value > 0.0 ? "1" : "0");
+        mapping = "asdu44-status-bit(1->1,0->0)";
+    }
+    const auto stored = formatDiagnosticNumber(storedValue);
+    return "iec103 " + value.evidence + " " + interpreted +
+        " value=" + (held ? "held(" + stored + ")" : stored) +
+        " quality=" + std::to_string(quality) + " mapping=" + mapping + " verified=false";
+}
+
+bool IecCodec::iec103DebugEnabled() {
+    const char* value = std::getenv("GATEWAY_IEC103_DEBUG");
+    return value != nullptr && std::string(value) != "0" && std::string(value) != "false";
 }
 
 DecodedValue IecCodec::decodePointValue(const PointDefinition& point, const IecDataValue& value) {
@@ -1132,7 +1193,7 @@ DecodedValue IecCodec::decodePointValue(const PointDefinition& point, const IecD
             // Mapping adopted by the code: DPI 1 -> 0 (off), 2 -> 1 (on); DPI 0/3 is held by the
             // collector (holdsPreviousValue). IEC 101/104 define these meanings; for IEC 103 /
             // AM5SE change frames the firmware meaning is unverified (see decodeIec103Data).
-            const int dpi = static_cast<int>(value.value) & 0x03;
+            const int dpi = hasSpareDpiBits(value) ? 0 : static_cast<int>(value.value) & 0x03;
             raw = dpi == 2 ? 1.0 : 0.0;
             text = dpi == 2 ? "on" : dpi == 1 ? "off" : "no on/off mapping";
         } else {
