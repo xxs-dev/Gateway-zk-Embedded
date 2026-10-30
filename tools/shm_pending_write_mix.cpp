@@ -17,6 +17,10 @@
 //   pending <shm>                                           queued commands as this build decodes them
 //   raw     <shm> [gap <u32>] [occupied <n>]                 slot bytes as stored (optionally overwrite)
 //   version <shm>                                           segment header version
+//   putresult  <shm> <cmdId> <index> <stage> <success> <unknown> <mismatch> [message]
+//              write a receipt as this release does (flags it cannot express are dropped)
+//   readresult <shm> <cmdId> <index>                        receipt as this release's readers judge it
+//   rawresult  <shm>                                        receipt slots as stored
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +43,12 @@
 #include "edge_gateway/gateway_daemon.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "memory_point_store_layout.hpp"
+#if defined(__has_include)
+#if __has_include("edge_gateway/writeback_outcome.hpp")
+#include "edge_gateway/writeback_outcome.hpp"
+#define PWMIX_WRITEBACK_OUTCOME 1
+#endif
+#endif
 
 using namespace edge_gateway;
 
@@ -257,11 +267,102 @@ int version(const std::vector<std::string>& args) {
     return 0;
 }
 
+// Receipt fields differ by release: outcomeUnknown (bit 0x04) since 29f5068, feedbackMismatch (bit 0x08)
+// since the three-state ledger. Detected per build, so one source serves every release.
+template <typename R>
+auto setUnknown(R& r, bool value, int) -> decltype(r.outcomeUnknown = value, bool()) { r.outcomeUnknown = value; return true; }
+template <typename R>
+bool setUnknown(R&, bool, long) { return false; }
+template <typename R>
+auto setMismatch(R& r, bool value, int) -> decltype(r.feedbackMismatch = value, bool()) { r.feedbackMismatch = value; return true; }
+template <typename R>
+bool setMismatch(R&, bool, long) { return false; }
+template <typename R>
+auto getUnknown(const R& r, int) -> decltype(r.outcomeUnknown, int()) { return r.outcomeUnknown ? 1 : 0; }
+template <typename R>
+int getUnknown(const R&, long) { return -1; }
+template <typename R>
+auto getMismatch(const R& r, int) -> decltype(r.feedbackMismatch, int()) { return r.feedbackMismatch ? 1 : 0; }
+template <typename R>
+int getMismatch(const R&, long) { return -1; }
+
+int putresult(const std::vector<std::string>& args) {
+    if (args.size() < 7) throw std::invalid_argument("putresult <shm> <cmdId> <index> <stage> <success> <unknown> <mismatch> [message]");
+    MemoryPointStore store(storeConfig(args[0]));
+    WritebackResultRecord record;
+    record.cmdId = args[1];
+    record.index = static_cast<std::uint32_t>(std::stoul(args[2]));
+    record.value = 7;
+    record.stage = args[3];
+    record.success = args[4] == "1";
+    const bool unknownKept = setUnknown(record, args[5] == "1", 0);
+    const bool mismatchKept = setMismatch(record, args[6] == "1", 0);
+    record.message = args.size() > 7 ? args[7] : std::string("pwmix");
+    record.requestedAt = record.acceptedAt = record.startedAt = record.completedAt = 1;
+    store.recordWritebackResult(record);
+    std::cout << "RECORDED build=" << kBuild << " cmdId=" << record.cmdId << " unknownBit="
+              << (unknownKept ? "kept" : "dropped") << " mismatchBit=" << (mismatchKept ? "kept" : "dropped") << std::endl;
+    return 0;
+}
+
+// The outcome each reader of this release reports (MQTT reply, pointctl result, direct-maintenance
+// receipts), applied to both decode paths: lookup by cmdId and the per-point recent list.
+void printVerdict(const char* path, const WritebackResultRecord& r) {
+    std::cout << "READ build=" << kBuild << " path=" << path << " cmdId=" << r.cmdId << " success=" << (r.success ? 1 : 0)
+              << " unknown=" << getUnknown(r, 0) << " mismatch=" << getMismatch(r, 0) << " stage=" << r.stage;
+#if defined(PWMIX_WRITEBACK_OUTCOME)
+    std::cout << " outcome=" << writebackOutcome(r) << " final=" << (isUnconfirmedWriteback(r) ? 0 : 1);
+#else
+    if (getUnknown(r, 0) >= 0) {
+        // 29f5068: success ? succeeded : (outcomeUnknown ? unknown : failed); every reply is final.
+        std::cout << " outcome=" << (r.success ? "succeeded" : (getUnknown(r, 0) == 1 ? "unknown" : "failed")) << " final=1";
+    } else {
+        // dabb8fd has no outcome: replies and receipts carry success and the stage only.
+        std::cout << " outcome=none final=1";
+    }
+#endif
+    std::cout << std::endl;
+}
+
+int readresult(const std::vector<std::string>& args) {
+    if (args.size() < 3) throw std::invalid_argument("readresult <shm> <cmdId> <index>");
+    MemoryPointStore store(args[0], MemoryStoreOpenMode::OpenExisting);
+    const auto index = static_cast<std::uint32_t>(std::stoul(args[2]));
+    const auto found = store.getWritebackResult(args[1], index);
+    if (found) printVerdict("lookup", *found);
+    else std::cout << "READ build=" << kBuild << " path=lookup cmdId=" << args[1] << " missing" << std::endl;
+    for (const auto& record : store.recentWritebackResults(index, 20)) {
+        if (record.cmdId == args[1]) {
+            printVerdict("recent", record);
+            break;
+        }
+    }
+    return 0;
+}
+
+int rawresult(const std::vector<std::string>& args) {
+    if (args.empty()) throw std::invalid_argument("rawresult <shm>");
+    Mapping mapping;
+    mapSegment(args[0], false, mapping);
+    const auto& header = mapping.layout->header;
+    for (auto head = header.writebackResultHead; head != header.writebackResultTail;
+         head = (head + 1) % memory_layout::kMaxWritebackResultSlots) {
+        const auto& slot = mapping.layout->writebackResults[head];
+        char cmdId[memory_layout::kCmdIdSize + 1] = {};
+        std::memcpy(cmdId, slot.cmdId, memory_layout::kCmdIdSize);
+        char stage[memory_layout::kWritebackStageSize + 1] = {};
+        std::memcpy(stage, slot.stage, memory_layout::kWritebackStageSize);
+        std::cout << "RAWRESULT cmdId=" << cmdId << " flags=0x" << std::hex << unsigned(slot.success) << std::dec
+                  << " occupied=" << unsigned(slot.occupied) << " stage=" << stage << std::endl;
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "usage: shm_pending_write_mix produce|consume|result|pending|raw|version ..." << std::endl;
+        std::cerr << "usage: shm_pending_write_mix produce|consume|result|pending|raw|version|putresult|readresult|rawresult ..." << std::endl;
         return 2;
     }
     const std::string command = argv[1];
@@ -273,6 +374,9 @@ int main(int argc, char** argv) {
         if (command == "pending") return pending(args);
         if (command == "raw") return raw(args);
         if (command == "version") return version(args);
+        if (command == "putresult") return putresult(args);
+        if (command == "readresult") return readresult(args);
+        if (command == "rawresult") return rawresult(args);
 #ifdef PWMIX_STAMPED_QUEUE
         if (command == "now") {
             std::cout << "MONOTONIC " << pendingWriteMonotonicNowMs() << std::endl;

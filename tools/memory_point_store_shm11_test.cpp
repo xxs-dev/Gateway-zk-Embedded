@@ -1,6 +1,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "../src/memory_point_store_layout_v10.hpp"
 #include "../src/memory_point_store_layout.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <iostream>
 #include <memory>
@@ -248,10 +249,64 @@ void unstampedSlotIsNeverTrusted() {
     require(drained.size() == 1 && drained.front().acceptedMonotonicMs == 0, "drain decodes the same way as peek");
 }
 
+// Receipts are marked occupied=2 when stage and flags follow writeback_outcome.hpp. A receipt from an
+// earlier release (occupied=1) only knows success and the stage; its writeback-failed also covered a
+// request sent without a conclusive reply and a read-back mismatch, so it must never read as a definite,
+// retry-safe failure. Stages that never reach a device stay definite failures.
+void legacyReceiptsNeverReadAsDefiniteFailure() {
+    using namespace edge_gateway;
+    namespace layout = edge_gateway::memory_layout;
+    const auto name = "shm11_receipt_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/" + name).c_str()); } } cleanup{name};
+    MemoryPointStore store(name);
+    const auto record = [&](const std::string& cmdId, const std::string& stage, bool success) {
+        WritebackResultRecord result;
+        result.cmdId = cmdId;
+        result.index = 91;
+        result.stage = stage;
+        result.success = success;
+        store.recordWritebackResult(result);
+    };
+    record("NEW_FAILED", "writeback-failed", false);
+    record("OLD_FAILED", "writeback-failed", false);
+    record("OLD_EXPIRED", "expired", false);
+    record("OLD_REJECTED", "control-rejected", false);
+    record("OLD_OK", "writeback-succeeded", true);
+    const int fd = shm_open(("/" + name).c_str(), O_RDWR, 0);
+    require(fd >= 0, "map segment");
+    void* base = mmap(nullptr, sizeof(layout::SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    require(base != MAP_FAILED, "mmap segment");
+    auto* mapped = static_cast<layout::SharedStoreLayout*>(base);
+    for (auto head = mapped->header.writebackResultHead; head != mapped->header.writebackResultTail;
+         head = (head + 1) % layout::kMaxWritebackResultSlots) {
+        auto& slot = mapped->writebackResults[head];
+        require(slot.occupied == layout::kReceiptSlotThreeState, "receipts are written three-state");
+        if (std::string(slot.cmdId).compare(0, 4, "OLD_") == 0) slot.occupied = layout::kReceiptSlotLegacy;
+    }
+    munmap(base, sizeof(layout::SharedStoreLayout));
+    const auto outcome = [&](const std::string& cmdId) {
+        const auto found = store.getWritebackResult(cmdId, 91);
+        require(static_cast<bool>(found), "receipt " + cmdId);
+        std::string recent;
+        for (const auto& item : store.recentWritebackResults(91, 20)) {
+            if (item.cmdId == cmdId) recent = writebackOutcome(item);
+        }
+        require(recent == writebackOutcome(*found), "both decode paths agree for " + cmdId);
+        return std::string(writebackOutcome(*found)) + "/" + found->stage;
+    };
+    require(outcome("NEW_FAILED") == "failed/writeback-failed", "a three-state writeback-failed is definite");
+    require(outcome("OLD_FAILED") == "unknown/writeback-failed", "a legacy writeback-failed may have taken effect");
+    require(outcome("OLD_EXPIRED") == "failed/expired", "a legacy expired never reached a device");
+    require(outcome("OLD_REJECTED") == "failed/control-rejected", "a legacy control-rejected never reached a device");
+    require(outcome("OLD_OK") == "succeeded/writeback-succeeded", "a legacy success stays a success");
+}
+
 int main() {
     try {
 #ifndef _WIN32
         monotonicStampCrossesSharedQueue();
+        legacyReceiptsNeverReadAsDefiniteFailure();
         unstampedSlotIsNeverTrusted();
         incompatibleSegmentIsNeverResized();
         legacySegmentIsRejectedWithoutMutation();

@@ -150,6 +150,52 @@ for OLD in "$@"; do
   expect "RESULT cmdId=KEPT_STALE stage=expired success=0"
   finish
 
+  begin "$tag receipts written by the current release, read by the old release"
+  run "$NEW" putresult "$shm" R_MISMATCH 31 writeback-mismatch 0 0 1
+  run "$NEW" putresult "$shm" R_UNCONFIRMED 31 writeback-unconfirmed 0 0 0
+  run "$NEW" putresult "$shm" R_TIMEOUT 31 writeback-timeout 0 1 0
+  run "$NEW" putresult "$shm" R_FAILED 31 writeback-failed 0 0 0
+  run "$NEW" putresult "$shm" R_OK 31 writeback-succeeded 1 0 0
+  run "$NEW" rawresult "$shm"
+  for receipt in R_MISMATCH R_UNCONFIRMED R_TIMEOUT R_FAILED R_OK; do
+    run "$OLD" readresult "$shm" "$receipt" 31
+  done
+  expect "RAWRESULT cmdId=R_MISMATCH flags=0xc occupied=2"
+  for receipt in R_MISMATCH R_UNCONFIRMED R_TIMEOUT; do
+    for path in lookup recent; do
+      expect "path=$path cmdId=$receipt success=0"
+      # Never success, never a definite (retry-safe) failure: 29f5068 says unknown, dabb8fd has no outcome.
+      refuse "path=$path cmdId=$receipt .*outcome=failed"
+    done
+  done
+  expect "path=lookup cmdId=R_OK success=1"
+  expect "path=lookup cmdId=R_FAILED success=0"
+  printf '%s\n' "$out" | sed -n 's/^READ build=old path=lookup /    old reader: /p'
+  finish
+
+  begin "$tag receipts written by the old release, read by the current release"
+  run "$OLD" putresult "$shm" L_FAILED 32 writeback-failed 0 0 0 "modbus response timeout"
+  run "$OLD" putresult "$shm" L_VERIFY 32 writeback-failed 0 0 0 "verify failed: wrote 7, read back 5"
+  run "$OLD" putresult "$shm" L_TIMEOUT 32 writeback-timeout 0 1 0
+  run "$OLD" putresult "$shm" L_EXPIRED 32 expired 0 0 0
+  run "$OLD" putresult "$shm" L_REJECTED 32 control-rejected 0 0 0
+  run "$OLD" putresult "$shm" L_OK 32 writeback-succeeded 1 0 0
+  run "$NEW" rawresult "$shm"
+  for receipt in L_FAILED L_VERIFY L_TIMEOUT L_EXPIRED L_REJECTED L_OK; do
+    run "$NEW" readresult "$shm" "$receipt" 32
+  done
+  expect "RAWRESULT cmdId=L_FAILED flags=0x0 occupied=1"
+  for path in lookup recent; do
+    # An old writeback-failed may have reached the device (timeout, read-back mismatch): unknown.
+    expect "path=$path cmdId=L_FAILED success=0 unknown=1 .*stage=writeback-failed outcome=unknown"
+    expect "path=$path cmdId=L_VERIFY success=0 unknown=1 .*outcome=unknown"
+    expect "path=$path cmdId=L_TIMEOUT success=0 unknown=1 .*outcome=unknown"
+    expect "path=$path cmdId=L_EXPIRED .*outcome=failed"
+    expect "path=$path cmdId=L_REJECTED .*outcome=failed"
+    expect "path=$path cmdId=L_OK success=1 .*outcome=succeeded"
+  done
+  finish
+
   begin "$tag segment created by either release"
   t=$(now_ms)
   run "$OLD" produce "$shm" CREATED_OLD 11 "$t"
