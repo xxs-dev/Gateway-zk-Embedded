@@ -216,8 +216,12 @@ void Dlt645CommandExecutor::confirmByReadBack(
         message << "DLT645 command acknowledged but " << label
                 << " could not be read back: " << lastError << "; outcome unknown";
     } else {
-        message << "DLT645 command acknowledged but " << label << "=" << lastValue
-                << ", expected " << expected << " within " << point.write.dlt645.verifyTimeoutMs << " ms";
+        // The meter acknowledged the command; the position it reports is another one. It may have
+        // acted (relay, mechanism or contact fault): not a definite failure, never retried.
+        result.feedbackMismatch = true;
+        message << "DLT645 command acknowledged; feedback mismatch: " << label << "=" << lastValue
+                << ", target " << expected << " not shown within " << point.write.dlt645.verifyTimeoutMs
+                << " ms";
     }
     result.message = message.str();
 }

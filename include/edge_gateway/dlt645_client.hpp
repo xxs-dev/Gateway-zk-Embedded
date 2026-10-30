@@ -74,6 +74,8 @@ public:
 
     // C=08H broadcast time sync (no reply). Waits for the running transaction and the quiet time,
     // then reads wallClockMs so the meters get the time of sending. The quiet time follows it.
+    // Throws a plain error when nothing was sent, Dlt645OutcomeUnknownError when the frame may
+    // have reached the wire (local echo missing or different).
     void broadcastTime(const std::function<std::int64_t()>& wallClockMs);
 
     // Diagnostic: address of the only meter answering the wildcard pattern (see

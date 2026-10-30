@@ -227,6 +227,13 @@ void Dlt645Client::broadcastTime(const std::function<std::int64_t()>& wallClockM
         waitForBusQuietTime();
         const auto frame = Dlt645Codec::buildBroadcastTimeFrame(Dlt645Codec::localTime(wallClockMs()));
         sendFrame(frame, "broadcast-time", false, received, sent);
+    } catch (const std::exception& ex) {
+        markBusQuiet();
+        if (sent) {
+            // Bytes reached the wire (e.g. the local echo did not match): the meters may have taken it.
+            throw Dlt645OutcomeUnknownError(std::string("DLT645 broadcast time may have been sent: ") + ex.what());
+        }
+        throw;
     } catch (...) {
         markBusQuiet();
         throw;

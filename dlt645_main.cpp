@@ -1,6 +1,7 @@
 #include <iostream>
 #include <chrono>
 #include <csignal>
+#include <fstream>
 #include <algorithm>
 #include <memory>
 #include <stdexcept>
@@ -67,12 +68,17 @@ int main(int argc, char* argv[]) {
     // meter answering the wildcard on the configured bus and exits (stop the driver service first).
     bool readAddress = false;
     std::string addressPattern = "AAAAAAAAAAAA";
+    // Diagnostic: --time-sync-status prints the gateway clock state and the last broadcast time
+    // sync attempt of the running driver (status file); it does not touch the bus.
+    bool timeSyncStatus = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--mock") {
             useMock = true;
         } else if (arg == "--read-address") {
             readAddress = true;
+        } else if (arg == "--time-sync-status") {
+            timeSyncStatus = true;
         } else if (arg == "--address-pattern" && i + 1 < argc) {
             addressPattern = argv[++i];
         } else if (arg == "--config" && i + 1 < argc) {
@@ -96,6 +102,31 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument("Dlt645Driver requires protocol.type dlt645_2007 or dlt645_1997");
     }
     const auto version = dlt645VersionOf(config.protocol.type);
+    const auto timeSyncStatusFile = dlt645TimeSyncStatusPath(configPath);
+    if (timeSyncStatus) {
+        const auto wallNowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        const auto clock = dlt645GatewayClockState(wallNowMs);
+        std::cout << "timeSync.enabled=" << (config.protocol.dlt645.timeSync.enabled ? "true" : "false")
+                  << " intervalMs=" << config.protocol.dlt645.timeSync.intervalMs << std::endl;
+        std::cout << "clock.trusted=" << (clock.trusted ? "true" : "false")
+                  << " reason=" << (clock.reason.empty() ? "-" : clock.reason)
+                  << " kernelRead=" << (clock.kernelRead ? "true" : "false")
+                  << " kernelState=" << clock.kernelState
+                  << " kernelStatus=0x" << std::hex << clock.kernelStatus << std::dec
+                  << " maxErrorUs=" << clock.maxErrorUs
+                  << " estErrorUs=" << clock.estErrorUs
+                  << " message=" << clock.message << std::endl;
+        std::ifstream last(timeSyncStatusFile.c_str());
+        std::string line;
+        if (last && std::getline(last, line)) {
+            std::cout << "lastAttempt=" << line << std::endl;
+        } else {
+            std::cout << "lastAttempt=none (" << timeSyncStatusFile
+                      << " missing: the driver has not run with this configuration since boot)" << std::endl;
+        }
+        return 0;
+    }
 
     auto processToken = basenameOf(config.protocol.transport.serialPort);
     if (processToken.empty()) {
@@ -182,7 +213,8 @@ int main(int argc, char* argv[]) {
               << std::endl;
 
     // Broadcast time sync shares the bus client (transaction lock + quiet time) with collection.
-    Dlt645TimeSync timeSync(config.protocol.dlt645.timeSync, dlt645Client);
+    // Every attempt (and "disabled") is written to the status file read by --time-sync-status.
+    Dlt645TimeSync timeSync(config.protocol.dlt645.timeSync, dlt645Client, useMock ? std::string() : timeSyncStatusFile);
     while (g_running) {
         const auto steadyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
