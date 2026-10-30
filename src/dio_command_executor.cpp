@@ -87,9 +87,11 @@ std::int64_t wallClockMs() {
 
 // Wording of results: a DO write sets the GPIO output latch, reported as "输出状态". Reading it back
 // proves the latch only, never that the relay contact moved; only a feedback DI (auxiliary contact,
-// write.verifyIndex) confirms the action and is reported as "触点反馈". A DO without one says
-// "未配置反馈". A latch or contact showing another value is a feedback mismatch (feedbackMismatch):
-// the output was written, so it is not reported as "not executed" and must not be re-sent.
+// write.verifyIndex) confirms the action and is reported as "触点反馈" (verifyAttempted/verifyPassed
+// refer to it alone). A DO without one says "未配置反馈" and its success is submittedOnly (receipt
+// writeback-submitted). A latch or contact showing another value is a feedback mismatch: the output was
+// written, so it is not reported as "not executed" and must not be re-sent. Messages stay within the
+// 127-byte receipt field (UTF-8), with any ASCII detail last.
 CommandResult DioCommandExecutor::executeByIndex(
     const std::string& cmdId,
     std::uint32_t index,
@@ -108,32 +110,29 @@ CommandResult DioCommandExecutor::executeByIndex(
     try {
         const auto gpioHigh = driveOutput(point, value);
         const auto sentAtWallMs = wallClockMs();
-        std::string outputState = "输出状态已置为 " + logical(value) + "（未回读）";
+        std::string readBack = "（未回读）";
         if (point.write.verifyAfterWrite && point.write.verifyByRead) {
-            result.verifyAttempted = true;
             if (point.write.verifyDelayMs > 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(point.write.verifyDelayMs));
             }
             const auto latchValue = gpioPort_->readValue(point.read.gpio) == point.read.activeHigh ? 1.0 : 0.0;
             if (std::abs(latchValue - value) > 1e-9) {
                 result.feedbackMismatch = true;
-                result.message = "输出状态回读不一致：已写入 " + logical(value) + "，GPIO 输出锁存回读 " +
-                    logical(latchValue) + "；输出写入已执行，不得自动重发";
+                result.message = "输出状态回读不一致：已写入" + logical(value) + "，锁存回读" + logical(latchValue) +
+                    "；已执行，不得自动重发";
                 return result;
             }
-            outputState = "输出状态回读=" + logical(value) + "（GPIO 输出锁存）";
+            readBack = "（锁存回读一致）";
         }
         publishOutputState(point, value, gpioHigh, nowMs);
         if (point.write.verifyIndex != 0) {
             confirmByFeedback(point, value, sentAtWallMs, result);
-            if (result.success) {
-                result.message = "ok：" + outputState + "；" + result.message;
-            }
             return result;
         }
+        // Without a contact feedback DI nothing confirms the relay: the output state is all there is.
         result.success = true;
-        result.verifyPassed = result.verifyAttempted;
-        result.message = "ok：" + outputState + "；未配置反馈，继电器触点是否动作未确认";
+        result.submittedOnly = true;
+        result.message = "输出状态已置为" + logical(value) + readBack + "；未配置反馈，触点动作未确认";
     } catch (const std::exception& ex) {
         result.success = false;
         result.message = ex.what();
@@ -288,7 +287,7 @@ void DioCommandExecutor::confirmByFeedback(const PointDefinition& point, double 
     if (haveValue && std::abs(lastValue - expected) <= 1e-6) {
         result.success = true;
         result.verifyPassed = true;
-        result.message = label + "=" + logical(lastValue) + "，动作已确认";
+        result.message = "输出状态已置为" + logical(written) + "；" + label + "=" + logical(lastValue) + "，动作已确认";
         return;
     }
     result.success = false;
@@ -296,15 +295,15 @@ void DioCommandExecutor::confirmByFeedback(const PointDefinition& point, double 
     if (!haveValue) {
         // The output is set; whether the equipment moved is not known.
         result.outcomeUnknown = true;
-        result.message = "输出状态已置为 " + logical(written) + "；" + label + " 在 " + std::to_string(timeoutMs) +
-            " ms 内没有新值（" + lastError + "），动作未确认，结果未知";
+        result.message = "输出状态已置为" + logical(written) + "；" + label + " " + std::to_string(timeoutMs) +
+            "ms内无新值，结果未知: " + lastError;
         return;
     }
     // The output was set and the contact shows the other state: the equipment may or may not have
     // acted (stuck contact, wiring). Not a failure to execute; never re-sent automatically.
     result.feedbackMismatch = true;
-    result.message = "反馈不一致：输出状态已置为 " + logical(written) + "，" + label + "=" + logical(lastValue) +
-        "，期望 " + logical(expected) + "（" + std::to_string(timeoutMs) + " ms 内）；输出写入已执行，不得自动重发";
+    result.message = "反馈不一致：输出状态已置为" + logical(written) + "，" + label + "=" + logical(lastValue) +
+        "，期望" + logical(expected) + "；已执行，不得自动重发";
 }
 
 }  // namespace edge_gateway

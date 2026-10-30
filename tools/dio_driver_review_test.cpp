@@ -352,9 +352,10 @@ void outputStateWording(const std::string& base) {
         {
             DioCommandExecutor executor(config, store, port);
             const auto result = executor.executeByIndex("W1", 1240, 1.0, wallNow());
-            check(result.success && !result.verifyAttempted &&
-                  result.message.find("输出状态已置为 1") != std::string::npos &&
-                  result.message.find("未配置反馈") != std::string::npos, "unverified write: " + result.message);
+            check(result.success && result.submittedOnly && !result.verifyAttempted && !result.verifyPassed &&
+                  result.message.find("输出状态已置为1（未回读）") != std::string::npos &&
+                  result.message.find("未配置反馈，触点动作未确认") != std::string::npos &&
+                  result.message.find("ok") == std::string::npos, "unverified write: " + result.message);
         }
         config.points[0].write.verifyAfterWrite = true;
         config.points[0].write.verifyByRead = true;
@@ -362,10 +363,11 @@ void outputStateWording(const std::string& base) {
         {
             DioCommandExecutor executor(config, store, port);
             const auto result = executor.executeByIndex("W2", 1240, 0.0, wallNow());
-            check(result.success && result.verifyPassed &&
-                  result.message.find("输出状态回读=0") != std::string::npos &&
-                  result.message.find("输出锁存") != std::string::npos &&
-                  result.message.find("未配置反馈") != std::string::npos, "latch read-back: " + result.message);
+            // Round 5: the latch read-back is the output state, never a verification of the relay.
+            check(result.success && result.submittedOnly && !result.verifyAttempted && !result.verifyPassed &&
+                  result.message.find("输出状态已置为0（锁存回读一致）") != std::string::npos &&
+                  result.message.find("未配置反馈，触点动作未确认") != std::string::npos &&
+                  result.message.find("动作已确认") == std::string::npos, "latch read-back: " + result.message);
         }
     }
     MemoryPointStore::cleanupOrphanedSegment(storeName);
@@ -437,7 +439,8 @@ void feedbackConfirmation(const std::string& base) {
         });
         auto result = executor.executeByIndex("F1", 1300, 1.0, wallNow());
         contact.join();
-        check(result.success && result.verifyPassed && result.message.find("输出状态") != std::string::npos &&
+        check(result.success && !result.submittedOnly && result.verifyAttempted && result.verifyPassed &&
+              result.message.find("输出状态已置为1") != std::string::npos &&
               result.message.find("触点反馈(index 1301)=1，动作已确认") != std::string::npos,
               "contact confirms the action: " + result.message);
 
@@ -466,6 +469,42 @@ void feedbackConfirmation(const std::string& base) {
         result = executor.executeByIndex("F5", 1302, 1.0, wallNow());
         collector.join();
         check(result.success && result.verifyPassed, "a fresh store value confirms: " + result.message);
+        // Round 5: a fresh value of bad quality, or one already expired, is no feedback: outcome unknown.
+        std::thread bad([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            PointValue sample;
+            sample.index = 5000;
+            sample.machineCode = "GW";
+            sample.meterCode = "OTHER_DEVICE";
+            sample.pointCode = "breaker_closed";
+            sample.value = 1.0;
+            sample.quality = 0;
+            sample.ts = wallNow();
+            sample.expireAt = sample.ts + 600000;
+            store.putLatest(sample);
+        });
+        result = executor.executeByIndex("F5b", 1302, 1.0, wallNow());
+        bad.join();
+        check(!result.success && result.outcomeUnknown && !result.feedbackMismatch &&
+              result.message.find("stale or bad quality") != std::string::npos,
+              "bad-quality feedback is not a confirmation: " + result.message);
+        std::thread expired([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            PointValue sample;
+            sample.index = 5000;
+            sample.machineCode = "GW";
+            sample.meterCode = "OTHER_DEVICE";
+            sample.pointCode = "breaker_closed";
+            sample.value = 1.0;
+            sample.quality = 1;
+            sample.ts = wallNow();
+            sample.expireAt = sample.ts + 1;  // expired by the time it is read
+            store.putLatest(sample);
+        });
+        result = executor.executeByIndex("F5c", 1302, 1.0, wallNow());
+        expired.join();
+        check(!result.success && result.outcomeUnknown && !result.feedbackMismatch,
+              "expired feedback is not a confirmation: " + result.message);
         std::thread wrong([&] {
             std::this_thread::sleep_for(std::chrono::milliseconds(60));
             putBreaker(0.0, wallNow());
@@ -475,6 +514,7 @@ void feedbackConfirmation(const std::string& base) {
         check(!result.success && !result.outcomeUnknown && result.feedbackMismatch &&
               result.message.find("反馈不一致") != std::string::npos,
               "a fresh wrong store value is a mismatch: " + result.message);
+        check(result.message.size() <= 127, "mismatch message fits the 127-byte receipt field: " + result.message);
     }
     MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
@@ -591,6 +631,93 @@ void feedbackSupervision(const std::string& base) {
     MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
 
+// Round 5: a contact feedback that arrives only after verifyTimeoutMs. The command result is final
+// (outcome unknown); the late value never rewrites it, never produces another receipt and never makes
+// the driver write again. It shows only in the feedback point itself and in the continuous supervision:
+// agreement raises nothing, a lasting disagreement raises the mismatch alarm.
+void lateFeedback(const std::string& base) {
+    FakeSysfs sysfs(base + "/late");
+    sysfs.addGpio(410, "out\n", "1\n");  // DO, active low, off
+    const auto storeName = "dio_review_late_" + std::to_string(getpid());
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+    {
+        auto config = dioConfig(storeName, sysfs.root);
+        auto relay = doPoint(1410, 410, false);
+        relay.write.verifyIndex = 5100;  // contact of another IO device, from the point store
+        relay.write.verifyTimeoutMs = 100;
+        relay.write.feedbackAlarmDelayMs = 100;
+        relay.write.feedbackRecoveryMs = 100;
+        relay.write.feedbackAlarmIndex = 1411;
+        config.points.push_back(relay);
+        PointDefinition alarm;
+        alarm.index = 1411;
+        alarm.pointCode = "do_1410_feedback_alarm";
+        alarm.enabled = true;
+        alarm.read.enable = true;
+        alarm.read.dataType = "feedback_alarm";
+        alarm.read.intervalMs = 1;
+        alarm.read.cachePolicy.ttlMs = 600000;
+        config.points.push_back(alarm);
+        MemoryPointStore store(config.memoryStore);
+        PointDefinition contact;
+        contact.index = 5100;
+        contact.pointCode = "aux_contact";
+        contact.enabled = true;
+        contact.read.enable = true;
+        contact.read.cachePolicy.ttlMs = 600000;
+        store.registerPoints("GW", "OTHER_IO", {contact});
+        const auto putContact = [&](double value) {
+            PointValue sample;
+            sample.index = 5100;
+            sample.machineCode = "GW";
+            sample.meterCode = "OTHER_IO";
+            sample.pointCode = "aux_contact";
+            sample.value = value;
+            sample.quality = 1;
+            sample.ts = wallNow();
+            sample.expireAt = sample.ts + 600000;
+            store.putLatest(sample);
+        };
+        putContact(0.0);
+        auto port = std::make_shared<SysfsGpioPort>(sysfs.root);
+        DioCommandExecutor executor(config, store, port);
+        DioCollector collector(config, store, port);
+        const auto alarmValue = [&]() {
+            const auto stored = store.getLatestByIndex(1411, wallNow());
+            return stored ? stored->value : -1.0;
+        };
+        const auto runFor = [&](int ms) {
+            const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+            while (std::chrono::steady_clock::now() < until) {
+                (void)collector.collectOnce(wallNow());
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        auto result = executor.executeByIndex("L1", 1410, 1.0, wallNow());
+        check(!result.success && result.outcomeUnknown && !result.feedbackMismatch && result.verifyAttempted &&
+              result.message.find("结果未知") != std::string::npos && result.message.size() <= 127,
+              "no feedback within verifyTimeoutMs: outcome unknown: " + result.message);
+        // The contact closes late and agrees with the output: no alarm, nothing written again.
+        putContact(1.0);
+        runFor(400);
+        check(alarmValue() == 0.0, "a late agreeing contact raises no alarm");
+        check(slurp(sysfs.file(410, "value"))[0] == '0', "the output keeps the commanded state");
+        check(store.peekPendingWriteCommands().empty() && !store.getWritebackResult("L1"),
+              "a late feedback never re-sends the command or adds a receipt");
+        // Off command; the contact stays closed beyond the timeout and beyond grace + debounce.
+        result = executor.executeByIndex("L2", 1410, 0.0, wallNow());
+        check(!result.success && result.outcomeUnknown && !result.feedbackMismatch,
+              "the old contact value is no feedback for the new command: " + result.message);
+        putContact(1.0);  // late and still closed
+        runFor(400);
+        check(alarmValue() == 1.0, "a late disagreeing contact raises the mismatch alarm");
+        check(slurp(sysfs.file(410, "value"))[0] == '1' && store.peekPendingWriteCommands().empty(),
+              "the alarm never re-sends or changes the output");
+    }
+    MemoryPointStore::cleanupOrphanedSegment(storeName);
+}
+
 void feedbackAlarmValidation() {
     const std::string di = R"({"index":1,"pointCode":"di_1","enabled":true,"read":{"enable":true,"dataType":"digital_input","gpio":134,"debounceMs":20},"write":{"enable":false}})";
     const std::string alarm = R"({"index":3,"pointCode":"do_1_alarm","enabled":true,"read":{"enable":true,"dataType":"feedback_alarm"},"write":{"enable":false}})";
@@ -627,6 +754,7 @@ int main() {
         feedbackConfirmation(base);
         latchMismatchIsFeedbackMismatch();
         feedbackSupervision(base);
+        lateFeedback(base);
         feedbackAlarmValidation();
     } catch (const std::exception& ex) {
         std::cerr << "dio_driver_review_test exception: " << ex.what() << std::endl;
