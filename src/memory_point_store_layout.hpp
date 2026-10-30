@@ -115,6 +115,14 @@ static_assert(
     "control generation must occupy the previous reserved bytes"
 );
 
+// SharedWritebackResultSlot::occupied. Every release reads a receipt when occupied is non-zero.
+// Receipts written before three-state outcomes (occupied=1: dabb8fd, 29f5068, slots migrated from v10)
+// cannot say "unknown" reliably: their writeback-failed also covered a request sent without a
+// conclusive reply and a failed read-back verification.
+constexpr std::uint8_t kReceiptSlotLegacy = 1;
+// Written with stage and flags agreeing as in writeback_outcome.hpp.
+constexpr std::uint8_t kReceiptSlotThreeState = 2;
+
 struct SharedWritebackResultSlot {
     std::uint64_t sequence = 0;
     std::uint32_t index = 0;

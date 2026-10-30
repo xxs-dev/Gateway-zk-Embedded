@@ -467,6 +467,31 @@ Optional<ClusterWriteAuthorization> decodeAuthorization(const SharedClusterWrite
     return result;
 }
 
+// Outcome of a stored receipt. A three-state receipt is normalized as written. A legacy receipt keeps its
+// stage verbatim, and only a stage that never reaches a device stays a definite failure; anything else
+// that failed may have taken effect (e.g. a dabb8fd Modbus timeout or a 29f5068 read-back mismatch, both
+// recorded as writeback-failed), so it is reported unknown and never offered for a retry.
+void decodeReceiptOutcome(const SharedWritebackResultSlot& slot, WritebackResultRecord& result) {
+    result.success = (slot.success & 0x01U) != 0;
+    result.highPriority = (slot.success & 0x02U) != 0;
+    result.outcomeUnknown = (slot.success & 0x04U) != 0;
+    result.feedbackMismatch = (slot.success & 0x08U) != 0;
+    if (slot.occupied == kReceiptSlotThreeState) {
+        normalizeWritebackOutcome(result);
+        return;
+    }
+    result.feedbackMismatch = false;
+    if (result.success) {
+        result.outcomeUnknown = false;
+        return;
+    }
+    const auto& stage = result.stage;
+    const bool neverDispatched = stage == kWritebackExpiredStage || stage == "control-rejected" ||
+        stage == "rejected" || stage == "rate-limited" || stage == "writeback-skipped" ||
+        stage == "malformed-rejected" || stage == "owner-died";
+    if (!neverDispatched) result.outcomeUnknown = true;
+}
+
 // The stamp of a slot queued by a non-stamping release is padding, possibly any value: never trust it.
 std::uint32_t slotMonotonicStamp(const SharedPendingWriteSlot& slot) {
     return slot.occupied == kPendingSlotStamped ? slot.acceptedMonotonicMs : 0;
@@ -661,7 +686,7 @@ void pushWritebackResult(SharedStoreLayout* layout, const WritebackResultRecord&
     );
     slot.verifyAttempted = result.verifyAttempted ? 1 : 0;
     slot.verifyPassed = result.verifyPassed ? 1 : 0;
-    slot.occupied = 1;
+    slot.occupied = kReceiptSlotThreeState;
 
     layout->header.writebackResultTail =
         (layout->header.writebackResultTail + 1) % kMaxWritebackResultSlots;
@@ -703,10 +728,7 @@ Optional<WritebackResultRecord> findWritebackResult(
             result.totalElapsedMs = slot.totalElapsedMs;
             result.verifyAttempted = slot.verifyAttempted != 0;
             result.verifyPassed = slot.verifyPassed != 0;
-            result.highPriority = (slot.success & 0x02U) != 0;
-            result.outcomeUnknown = (slot.success & 0x04U) != 0;
-            result.feedbackMismatch = (slot.success & 0x08U) != 0;
-            normalizeWritebackOutcome(result);
+            decodeReceiptOutcome(slot, result);
             found = result;
         }
         head = (head + 1) % kMaxWritebackResultSlots;
@@ -2106,10 +2128,6 @@ std::vector<WritebackResultRecord> MemoryPointStore::recentWritebackResults(
         WritebackResultRecord r;
         r.cmdId = readString(slot.cmdId, kCmdIdSize);
         r.index = slot.index; r.value = slot.value;
-        r.success = (slot.success & 0x01U) != 0;
-        r.highPriority = (slot.success & 0x02U) != 0;
-        r.outcomeUnknown = (slot.success & 0x04U) != 0;
-        r.feedbackMismatch = (slot.success & 0x08U) != 0;
         r.message = readString(slot.message, kWritebackMessageSize);
         r.stage = readString(slot.stage, kWritebackStageSize);
         r.requestedAt = slot.requestedAt; r.acceptedAt = slot.acceptedAt;
@@ -2117,7 +2135,7 @@ std::vector<WritebackResultRecord> MemoryPointStore::recentWritebackResults(
         r.queueDelayMs = slot.queueDelayMs; r.deviceWriteMs = slot.deviceWriteMs;
         r.edgeElapsedMs = slot.edgeElapsedMs; r.totalElapsedMs = slot.totalElapsedMs;
         r.verifyAttempted = slot.verifyAttempted != 0; r.verifyPassed = slot.verifyPassed != 0;
-        normalizeWritebackOutcome(r);
+        decodeReceiptOutcome(slot, r);
         results.push_back(std::move(r));
     }
     return results;
