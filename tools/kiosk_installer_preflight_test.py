@@ -213,7 +213,7 @@ class InstallerPreflightTests(unittest.TestCase):
                    SYSTEMCTL_LOG=str(root / 'systemctl.log'), INIT_RUNTIME_MODE='gateway', INIT_LOCAL_QT_DISPLAY_ENABLED='0',
                    INIT_DIRECT_MAINTENANCE_ENABLED='0', INIT_MACHINE_CODE='LOCAL_ONLY_SYNTHETIC',
                    INIT_MQTT_BROKER='tcp://127.0.0.1:1883', INIT_MQTT_USERNAME='', INIT_MQTT_PASSWORD='',
-                   INIT_MQTT_TLS_ENABLED='false', INIT_DIRECT_LISTEN_HOSTS='127.0.0.1', INIT_DIRECT_ALLOWED_CIDRS='127.0.0.1/32',
+                   INIT_MQTT_TLS_ENABLED='false', INIT_MQTT_ALLOW_INSECURE_PLAINTEXT='true', INIT_DIRECT_LISTEN_HOSTS='127.0.0.1', INIT_DIRECT_ALLOWED_CIDRS='127.0.0.1/32',
                    OTA_PUBKEY_TARGET=(root / 'never-key').as_posix(), PYTHONDONTWRITEBYTECODE='1')
         for name in tuple(env):
             if name.startswith('INIT_TLS_') or name in ('OTA_SIGNING_PUBKEY', 'INIT_QT_ENV_FILE'):

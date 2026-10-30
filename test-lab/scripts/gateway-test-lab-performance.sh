@@ -19,6 +19,7 @@ can_driver_udp_port=19011
 can_simulator_udp_port=19012
 monitor_port=19443
 mqtt_broker=
+mqtt_plaintext_flag=
 warmup_sec=60
 duration_sec=600
 sample_interval_sec=1
@@ -60,6 +61,7 @@ Usage: gateway-test-lab performance [options]
   --warmup-sec N --duration-sec N --sample-interval-sec N
   --output-dir DIR
   --mqtt-broker URL
+  --mqtt-allow-insecure-plaintext  required for a tcp:// test broker (unencrypted, lab only)
   --expected-frame-rate N
   --min-protocol-success-pct N
   --min-schedule-achievement-pct N
@@ -110,6 +112,7 @@ while [ "$#" -gt 0 ]; do
         --can-simulator-udp-port) can_simulator_udp_port=$2; shift 2 ;;
         --monitor-port) monitor_port=$2; shift 2 ;;
         --mqtt-broker) mqtt_broker=$2; shift 2 ;;
+        --mqtt-allow-insecure-plaintext) mqtt_plaintext_flag=--mqtt-allow-insecure-plaintext; shift ;;
         --warmup-sec) warmup_sec=$2; shift 2 ;;
         --duration-sec) duration_sec=$2; shift 2 ;;
         --sample-interval-sec) sample_interval_sec=$2; shift 2 ;;
@@ -522,7 +525,7 @@ if [ -n "$mqtt_broker" ]; then
         --serial-device "$serial_device" --can-interface "$can_interface" \
         --can-driver-udp-port "$can_driver_udp_port" --can-simulator-udp-port "$can_simulator_udp_port" \
         --monitor-host 127.0.0.1 --monitor-port "$monitor_port" --mqtt-broker "$mqtt_broker" \
-        > "$RAW/start.log"
+        $mqtt_plaintext_flag > "$RAW/start.log"
 else
     "$LAB_COMMAND" start "$scenario" --protocol "$protocol" --mode "$mode" --host "$host" --port "$port" \
         --serial-device "$serial_device" --can-interface "$can_interface" \

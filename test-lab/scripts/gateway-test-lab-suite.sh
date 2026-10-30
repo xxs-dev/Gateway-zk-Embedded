@@ -15,6 +15,7 @@ duration_sec=600
 sample_interval_sec=1
 output_dir=
 mqtt_broker=
+mqtt_plaintext_flag=
 base_port=26020
 base_monitor_port=29540
 base_can_port=29110
@@ -30,6 +31,7 @@ Usage: gateway-test-lab suite [options]
   --sample-interval-sec N       Resource sample interval
   --output-dir DIR              Suite report directory
   --mqtt-broker URL             Optional test MQTT broker
+  --mqtt-allow-insecure-plaintext  Required for a tcp:// test broker (unencrypted, lab only)
   --base-port N                 Base simulator TCP port
   --base-monitor-port N         Base SystemMonitor HTTP port
   --base-can-port N             Base UDP port for virtual CAN
@@ -52,6 +54,7 @@ while [ "$#" -gt 0 ]; do
         --sample-interval-sec) sample_interval_sec=$2; shift 2 ;;
         --output-dir) output_dir=$2; shift 2 ;;
         --mqtt-broker) mqtt_broker=$2; shift 2 ;;
+        --mqtt-allow-insecure-plaintext) mqtt_plaintext_flag=--mqtt-allow-insecure-plaintext; shift ;;
         --base-port) base_port=$2; shift 2 ;;
         --base-monitor-port) base_monitor_port=$2; shift 2 ;;
         --base-can-port) base_can_port=$2; shift 2 ;;
@@ -102,7 +105,7 @@ for protocol in $protocol_list; do
                 --can-simulator-udp-port $((base_can_port + index * 2 + 1)) \
                 --warmup-sec "$warmup_sec" --duration-sec "$duration_sec" \
                 --sample-interval-sec "$sample_interval_sec" --output-dir "$protocol_report" \
-                --mqtt-broker "$mqtt_broker" \
+                --mqtt-broker "$mqtt_broker" $mqtt_plaintext_flag \
                 > "$output_dir/logs/$protocol.out" 2> "$output_dir/logs/$protocol.err"; then
             result=PASS
             exit_code=0

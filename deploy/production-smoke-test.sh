@@ -44,22 +44,6 @@ json_number() {
   sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" "$file" 2>/dev/null | head -n 1
 }
 
-tls_block() {
-  sed -n '/"tls"[[:space:]]*:/,/}/p' "$1" 2>/dev/null
-}
-
-tls_string() {
-  file="$1"
-  key="$2"
-  tls_block "$file" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1
-}
-
-tls_bool() {
-  file="$1"
-  key="$2"
-  tls_block "$file" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\\(true\\|false\\).*/\\1/p" | head -n 1
-}
-
 file_exists() {
   path="$1"
   label="$2"
@@ -462,60 +446,143 @@ EOF
   fi
 }
 
-check_tls_one() {
-  cfg="$1"
-  [ -f "$cfg" ] || return
-  broker=$(json_string "$cfg" broker)
-  tls_enabled=$(tls_bool "$cfg" enabled)
-  insecure=$(tls_bool "$cfg" insecureSkipVerify)
-  ca_file=$(tls_string "$cfg" caFile)
-  cert_file=$(tls_string "$cfg" certFile)
-  key_file=$(tls_string "$cfg" keyFile)
-  needs_tls=0
-
-  case "$broker" in
-    ssl://*|tls://*|mqtts://*) needs_tls=1 ;;
-  esac
-  [ "$tls_enabled" = "true" ] && needs_tls=1
-
-  if [ "$needs_tls" -eq 1 ]; then
-    pass "$(basename "$cfg") TLS enabled for broker: $broker"
-    if has_openssl_runtime; then
-      pass "OpenSSL runtime libraries available"
-    else
-      fail "OpenSSL runtime libraries missing while TLS is enabled"
-    fi
-    if [ "$insecure" = "true" ]; then
-      fail "tls.insecureSkipVerify=true is not allowed for production: $cfg"
-    else
-      pass "tls.insecureSkipVerify is not enabled"
-    fi
-    if [ -n "$ca_file" ]; then
-      if [ -f "$ca_file" ]; then
-        pass "TLS CA file exists: $ca_file"
-      else
-        fail "TLS CA file missing: $ca_file"
-      fi
-    else
-      warn "tls.caFile is empty; relying on system CA store for $(basename "$cfg")"
-    fi
-    if [ -n "$cert_file" ] || [ -n "$key_file" ]; then
-      if [ -n "$cert_file" ] && [ -n "$key_file" ]; then
-        [ -f "$cert_file" ] && pass "TLS client certificate exists: $cert_file" || fail "TLS client certificate missing: $cert_file"
-        [ -f "$key_file" ] && pass "TLS client key exists: $key_file" || fail "TLS client key missing: $key_file"
-      else
-        fail "tls.certFile and tls.keyFile must be configured together in $cfg"
-      fi
-    fi
-  else
-    warn "$(basename "$cfg") uses non-TLS broker: ${broker:-empty}"
+# Mirrors the MQTT client transport policy (src/builtin_mqtt_driver_publisher.cpp):
+# TLS always verifies chain and host; plaintext only with allowInsecurePlaintext=true,
+# which production acceptance rejects; insecureSkipVerify=true is refused.
+check_mqtt_transport() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 missing; cannot validate MQTT transport security"
+    return
   fi
+  transport_report=$(python3 - "$@" <<'PY'
+import json
+import os
+import ssl
+import subprocess
+import sys
+
+def emit(level, message):
+    print(f"{level}:{message}")
+
+def readable(path):
+    return os.path.isfile(path) and os.access(path, os.R_OK) and os.path.getsize(path) > 0
+
+def cert_expiry(path, label):
+    try:
+        expired = subprocess.run(["openssl", "x509", "-in", path, "-noout", "-checkend", "0"],
+                                 capture_output=True, timeout=10).returncode != 0
+        soon = subprocess.run(["openssl", "x509", "-in", path, "-noout", "-checkend", "2592000"],
+                              capture_output=True, timeout=10).returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        emit("WARN", f"{label} validity not checked (openssl CLI unavailable): {path}")
+        return
+    if expired:
+        emit("FAIL", f"{label} is expired or not a PEM certificate: {path}")
+    elif soon:
+        emit("WARN", f"{label} expires within 30 days: {path}")
+    else:
+        emit("PASS", f"{label} is valid for more than 30 days: {path}")
+
+def system_trust_store():
+    paths = ssl.get_default_verify_paths()
+    cafile = os.environ.get(paths.openssl_cafile_env) or paths.openssl_cafile
+    capath = os.environ.get(paths.openssl_capath_env) or paths.openssl_capath
+    if cafile and readable(cafile):
+        return cafile
+    for directory in str(capath or "").split(":"):
+        if directory and os.path.isdir(directory) and os.listdir(directory):
+            return directory
+    return ""
+
+def check(label, mqtt, allow_plaintext):
+    broker = str(mqtt.get("broker") or "").strip()
+    tls = mqtt.get("tls") if isinstance(mqtt.get("tls"), dict) else {}
+    if not broker:
+        emit("FAIL", f"{label}: broker not configured; MQTT connections are refused until "
+                     "ssl://<host>:8883 and tls.caFile are deployed")
+        return False
+    scheme = broker.split("://", 1)[0].lower() if "://" in broker else ""
+    if scheme not in ("", "ssl", "tls", "mqtts", "tcp", "mqtt"):
+        emit("FAIL", f"{label}: unsupported broker scheme {scheme}://; connection refused")
+        return False
+    if scheme in ("ssl", "tls", "mqtts") or tls.get("enabled") is True:
+        emit("PASS", f"{label}: TLS broker {broker} (chain and host verification enforced)")
+        if tls.get("insecureSkipVerify") is True:
+            emit("FAIL", f"{label}: tls.insecureSkipVerify=true is not supported; connection refused")
+        ca_file = str(tls.get("caFile") or "")
+        if ca_file:
+            if readable(ca_file):
+                emit("PASS", f"{label}: TLS CA file exists: {ca_file}")
+                cert_expiry(ca_file, f"{label} TLS CA")
+            else:
+                emit("FAIL", f"{label}: TLS CA file missing or unreadable (deploy the broker CA): {ca_file}")
+        else:
+            store = system_trust_store()
+            if store:
+                emit("WARN", f"{label}: tls.caFile empty; relying on system trust store {store}")
+            else:
+                emit("FAIL", f"{label}: tls.caFile empty and no system trust store found; connection refused")
+        cert_file, key_file = str(tls.get("certFile") or ""), str(tls.get("keyFile") or "")
+        if cert_file or key_file:
+            if not (cert_file and key_file):
+                emit("FAIL", f"{label}: tls.certFile and tls.keyFile must be configured together")
+            else:
+                if readable(cert_file):
+                    emit("PASS", f"{label}: TLS client certificate exists: {cert_file}")
+                    cert_expiry(cert_file, f"{label} TLS client certificate")
+                else:
+                    emit("FAIL", f"{label}: TLS client certificate missing: {cert_file}")
+                if readable(key_file):
+                    emit("PASS", f"{label}: TLS client key exists: {key_file}")
+                else:
+                    emit("FAIL", f"{label}: TLS client key missing: {key_file}")
+        return True
+    if allow_plaintext is True:
+        emit("FAIL", f"{label}: EXPERIMENTAL INSECURE plaintext broker {broker} "
+                     "(allowInsecurePlaintext=true) is not acceptable for production")
+    else:
+        emit("FAIL", f"{label}: plaintext broker {broker} is refused by the MQTT client; "
+                     "migrate to ssl://<host>:8883 with tls.caFile")
+    return False
+
+needs_tls = False
+for path in sys.argv[1:]:
+    if not path or not os.path.isfile(path):
+        continue
+    name = os.path.basename(path)
+    try:
+        with open(path, "r", encoding="utf-8") as stream:
+            root = json.load(stream)
+    except (OSError, ValueError) as error:
+        emit("FAIL", f"{name}: invalid app config: {error}")
+        continue
+    mqtt = root.get("mqtt")
+    if isinstance(mqtt, dict) and mqtt.get("enabled") is True:
+        needs_tls = check(f"{name} mqtt", mqtt, mqtt.get("allowInsecurePlaintext")) or needs_tls
+    forward = root.get("mqttForward")
+    if isinstance(forward, dict) and forward.get("enabled") is True:
+        needs_tls = check(f"{name} mqttForward", forward, forward.get("allowInsecurePlaintext")) or needs_tls
+if needs_tls:
+    print("NEEDS_OPENSSL:")
+PY
+) || { fail "MQTT transport validation failed to run"; return; }
+  case "$transport_report" in
+    *NEEDS_OPENSSL:*)
+      if has_openssl_runtime; then
+        pass "OpenSSL runtime libraries available"
+      else
+        fail "OpenSSL runtime libraries missing while TLS is required (no plaintext fallback)"
+      fi
+      ;;
+  esac
+  report_check_lines /dev/stdin <<TRANSPORT_EOF
+$transport_report
+TRANSPORT_EOF
 }
 
 check_tls() {
-  echo "== mqtt tls =="
-  check_tls_one "$APP_CONFIG"
-  check_tls_one "$MONITOR_CONFIG"
+  echo "== mqtt transport security =="
+  check_mqtt_transport "$APP_CONFIG" "$MONITOR_CONFIG" "$CAMERA_CONFIG"
   check_stunnel_brokers
 }
 
@@ -981,6 +1048,15 @@ check_optional_mqtt_connect() {
   fi
   rm -f /tmp/gateway-smoke-mqtt.$$ /tmp/gateway-smoke-mqtt.err
 }
+
+if [ "${1:-}" = "--mqtt-transport" ]; then
+  # Read-only preflight, e.g. before upgrading a field device to a release that
+  # refuses plaintext MQTT. Exit 1 means the new client would refuse to connect.
+  check_tls
+  echo "summary: pass=$PASS_COUNT warn=$WARN_COUNT fail=$FAIL_COUNT"
+  [ "$FAIL_COUNT" -eq 0 ]
+  exit $?
+fi
 
 echo "Gateway production smoke test"
 echo "GATEWAY_HOME=$GATEWAY_HOME"

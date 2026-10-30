@@ -1,7 +1,7 @@
 {
   "identityConfigFile": "__TEST_LAB_ROOT__/config/device_identity.json",
   "deviceConfigFiles": ["__DEVICE_CONFIG_FILE__", "__COMPUTE_CONFIG_FILE__"],
-  "mqtt": {"enabled": __MQTT_ENABLED__, "broker": "__MQTT_BROKER__", "clientId": "SIM_COMM202600999", "topicMachineCode": "SIM_COMM202600999"},
+  "mqtt": {"enabled": __MQTT_ENABLED__, "broker": "__MQTT_BROKER__", "allowInsecurePlaintext": __MQTT_ALLOW_INSECURE_PLAINTEXT__, "clientId": "SIM_COMM202600999", "topicMachineCode": "SIM_COMM202600999"},
   "mqttDriver": {
     "enabled": true,
     "sharedMemoryName": "__SHARED_MEMORY_NAME__",

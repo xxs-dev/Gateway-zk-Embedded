@@ -616,6 +616,9 @@ if(BUILD_TESTING AND UNIX AND NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(mqtt_tls_transport_test PRIVATE edge_gateway)
     add_test(NAME mqtt_tls_transport COMMAND mqtt_tls_transport_test ${CMAKE_SOURCE_DIR})
     set_tests_properties(mqtt_tls_transport PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
+    add_test(NAME mqtt_transport_deploy_policy
+        COMMAND sh "${CMAKE_SOURCE_DIR}/tools/mqtt_transport_deploy_policy_test.sh")
+    set_tests_properties(mqtt_transport_deploy_policy PROPERTIES TIMEOUT 60)
 endif()
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
