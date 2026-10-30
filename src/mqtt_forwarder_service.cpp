@@ -22,6 +22,8 @@
 #include <windows.h>
 #endif
 
+#include "edge_gateway/diagnostic_output_json.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "edge_gateway/legacy_telemetry_payload.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/mqtt_full_snapshot.hpp"
@@ -584,20 +586,9 @@ std::string controlCommandFingerprint(
     return sha256Hex(normalized.str());
 }
 
+// JSON string escaping per RFC 8259 (control characters as \u00XX, invalid UTF-8 replaced).
 std::string escapeJson(const std::string& value) {
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (const auto ch : value) {
-        switch (ch) {
-            case '\\': out += "\\\\"; break;
-            case '"': out += "\\\""; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default: out.push_back(ch); break;
-        }
-    }
-    return out;
+    return escapeDiagnosticOutputJson(value);
 }
 
 void sleepInterruptibly(const std::atomic<bool>& running, int intervalMs) {
@@ -1992,9 +1983,11 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
     std::string message = timedOut
         ? (submissionConfirmed ? "writeback result timeout" : "control submission outcome is uncertain")
         : "device write completed";
+    bool outcomeUnknown = timedOut;
     for (const auto& result : results) {
         resultsByIndex[result.index] = &result;
         success = success && result.success;
+        outcomeUnknown = outcomeUnknown || std::string(writebackOutcome(result)) == "unknown";
         if (!result.success && message == "device write completed") {
             message = result.message.empty() ? "device write failed" : result.message;
         }
@@ -2032,6 +2025,7 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
                 : "device-result")
             << "\""
             << ",\"success\":" << (success ? "true" : "false")
+            << ",\"outcome\":\"" << (success ? "succeeded" : (outcomeUnknown ? "unknown" : "failed")) << "\""
             << ",\"message\":\"" << escapeJson(message) << "\""
             << ",\"requestedAt\":" << requestedAt
             << ",\"acceptedAt\":" << pending.acceptedAtMs
@@ -2047,12 +2041,14 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
         const auto found = resultsByIndex.find(route.index);
         payload << (i == 0 ? "" : ",") << "{\"index\":" << route.index;
         if (found == resultsByIndex.end()) {
-            payload << ",\"success\":false,\"stage\":\"writeback-timeout\""
+            payload << ",\"success\":false,\"outcome\":\"unknown\",\"stage\":\"writeback-timeout\""
                     << ",\"message\":\"writeback result timeout\"";
         } else {
             const auto& result = *found->second;
             payload << ",\"value\":" << result.value
                     << ",\"success\":" << (result.success ? "true" : "false")
+                    << ",\"outcome\":\""
+                    << writebackOutcome(result) << "\""
                     << ",\"stage\":\"" << escapeJson(result.stage) << "\""
                     << ",\"message\":\"" << escapeJson(result.message) << "\""
                     << ",\"queueDelayMs\":" << result.queueDelayMs

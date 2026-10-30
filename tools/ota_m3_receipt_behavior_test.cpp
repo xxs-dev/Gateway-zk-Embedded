@@ -1,6 +1,5 @@
 #include "../src/ota_service.cpp"
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
-#include "edge_gateway/mosquitto_mqtt_driver_publisher.hpp"
 
 #include <filesystem>
 #include <functional>
@@ -95,7 +94,6 @@ void checkEncoded(const std::string& bytes, const OtaStatus& expected, bool prod
 
 void checkSerializers(const OtaStatus& status, bool production) {
     checkEncoded(encodeBuiltinOtaStatusJson(status), status, production);
-    checkEncoded(encodeMosquittoOtaStatusJson(status), status, production);
 }
 
 void checkPending(const std::string& staging, const OtaStatus& expected) {
@@ -1053,11 +1051,9 @@ int main(int argc, char** argv) {
             std::filesystem::create_directory(staging);
             const auto actual = edge_gateway::checkReconcile(staging, status);
             const auto builtin = edge_gateway::encodeBuiltinOtaStatusJson(actual);
-            const auto mosquitto = edge_gateway::encodeMosquittoOtaStatusJson(actual);
             edge_gateway::checkEncoded(builtin, actual, true);
-            edge_gateway::checkEncoded(mosquitto, actual, true);
             std::filesystem::remove_all(root);
-            std::cout << builtin << '\n' << mosquitto << '\n';
+            std::cout << builtin << '\n';
             return 0;
         }
         const auto production = root + "/production";

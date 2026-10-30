@@ -1,5 +1,7 @@
 #include "edge_gateway/mqtt_driver_service.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/ems_control_mode.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -22,6 +24,7 @@
 #endif
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/diagnostic_output_json.hpp"
 #include "edge_gateway/json_value.hpp"
 #include "edge_gateway/ota_request_json.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
@@ -89,20 +92,9 @@ void writeMqttHealthFile(const std::string& path, const std::string& payload) {
     }
 }
 
+// JSON string escaping per RFC 8259 (control characters as \u00XX, invalid UTF-8 replaced).
 std::string escapeJson(const std::string& value) {
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (const auto ch : value) {
-        switch (ch) {
-            case '\\': out += "\\\\"; break;
-            case '"': out += "\\\""; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default: out.push_back(ch); break;
-        }
-    }
-    return out;
+    return escapeDiagnosticOutputJson(value);
 }
 
 void applyWritebackResultToReply(
@@ -129,6 +121,10 @@ void applyWritebackResultToReply(
     reply.verifyAttempted = result.verifyAttempted;
     reply.verifyPassed = result.verifyPassed;
     reply.highPriority = result.highPriority;
+    reply.outcome = writebackOutcome(result);
+    // A ledger replay of a reserved dispatch without a recorded result can still be followed by the
+    // final result; every other receipt is final.
+    reply.isFinal = !isUnconfirmedWriteback(result);
     reply.ts = result.completedAt > 0 ? result.completedAt : reply.ts;
 }
 
@@ -792,14 +788,18 @@ bool isRealtimeStartAction(const std::string& action) {
            normalized == "renew";
 }
 
-std::vector<PointDefinition> effectiveMeterPoints(const DeviceConfig& config, const LogicalDeviceConfig& device) {
-    if (!device.points.empty()) {
+std::vector<PointDefinition> effectiveMeterPoints(
+    const DeviceConfig& config,
+    const LogicalDeviceConfig& device,
+    std::size_t meterIndex
+) {
+    if (!isDlt645Protocol(config.protocol.type)) {
         return device.points;
     }
-    if (config.protocol.type != "dlt645_2007" || config.protocol.standardPointsFile.empty()) {
-        return {};
-    }
-    return ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile);
+    const auto standardPoints = device.points.empty() && !config.protocol.standardPointsFile.empty()
+        ? ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile)
+        : std::vector<PointDefinition>();
+    return expandDlt645MeterPoints(config, meterIndex, standardPoints);
 }
 
 std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<DeviceConfig>& deviceConfigs) {
@@ -808,13 +808,7 @@ std::vector<std::uint32_t> collectConfiguredFullUploadIndexes(const std::vector<
         if (!config.meters.empty()) {
             std::size_t meterIndex = 0;
             for (const auto& device : config.meters) {
-                auto points = effectiveMeterPoints(config, device);
-                if (config.protocol.type == "dlt645_2007" && device.points.empty()) {
-                    const std::uint32_t indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
-                    for (std::size_t i = 0; i < points.size(); ++i) {
-                        points[i].index = indexBase + static_cast<std::uint32_t>(i);
-                    }
-                }
+                auto points = effectiveMeterPoints(config, device, meterIndex);
                 for (const auto& point : points) {
                     if (point.fullUpload) {
                         indexes.push_back(point.index);
@@ -870,6 +864,23 @@ std::int64_t currentMonotonicTimeMs() {
     ).count();
 }
 
+// A queued write may still start until memoryStore.pendingWriteMaxAgeMs; the device daemon records
+// the expiry on its next writeback cycle.
+constexpr std::int64_t kPendingWriteExpirySettleMs = 2000;
+
+// How long a command waits for its result before the "unknown" (non-final) reply: never shorter
+// than the time a queued write can still start, so a timeout reply normally means "outcome unknown"
+// and not "will run later".
+int effectiveControlResultWaitMs(const MqttDriverConfig& driverConfig, const std::vector<DeviceConfig>& deviceConfigs) {
+    std::int64_t waitMs = std::max(0, driverConfig.controlResultWaitTimeoutMs);
+    for (const auto& config : deviceConfigs) {
+        if (config.memoryStore.pendingWriteMaxAgeMs > 0) {
+            waitMs = std::max(waitMs, config.memoryStore.pendingWriteMaxAgeMs + kPendingWriteExpirySettleMs);
+        }
+    }
+    return static_cast<int>(std::min<std::int64_t>(waitMs, std::numeric_limits<int>::max() / 2));
+}
+
 MqttDriverService::MqttDriverService(
     MqttConfig mqttConfig,
     MqttDriverConfig driverConfig,
@@ -898,6 +909,7 @@ MqttDriverService::MqttDriverService(
     scadaSafetyConfig_(std::move(scadaSafetyConfig)) {
     router_.addStore(driverConfig_.sharedMemoryName, store);
     router_.addRoutesFromDeviceConfigs(deviceConfigs, driverConfig_.sharedMemoryName);
+    resultWaitMs_ = effectiveControlResultWaitMs(driverConfig_, deviceConfigs);
 
     if (static_cast<bool>(businessReplayFactory_) != static_cast<bool>(managementReplayFactory_) ||
         (eventOutbox_ && businessReplayFactory_) ||
@@ -963,6 +975,7 @@ MqttDriverService::MqttDriverService(
     if (!publisher_) {
         throw std::invalid_argument("mqtt driver publisher is required");
     }
+    resultWaitMs_ = effectiveControlResultWaitMs(driverConfig_, deviceConfigs);
     for (const auto& config : deviceConfigs) {
         machineCodes_.insert(config.machineCode);
     }
@@ -1095,6 +1108,22 @@ void MqttDriverService::runScanOnce(std::int64_t nowMs) {
         std::chrono::steady_clock::now() - started
     ).count();
     recordScanHealth(durationMs, false, nowMs);
+}
+
+void MqttDriverService::observeWallClock(std::int64_t wallMs, std::int64_t monotonicMs) {
+    if (lastObservedWallMs_ != 0) {
+        const auto stepMs = (wallMs - lastObservedWallMs_) - (monotonicMs - lastObservedMonotonicMs_);
+        if (stepMs >= 1000 || stepMs <= -1000) {
+            for (auto& pending : pendingCommandReplies_) {
+                pending.deadlineMs += stepMs;
+                pending.horizonMs += stepMs;
+            }
+            std::cerr << "mqtt driver wall clock stepped deltaMs=" << stepMs
+                      << "; command reply deadlines shifted" << std::endl;
+        }
+    }
+    lastObservedWallMs_ = wallMs;
+    lastObservedMonotonicMs_ = monotonicMs;
 }
 
 void MqttDriverService::runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs) {
@@ -2014,6 +2043,9 @@ void MqttDriverService::publishDueRealtimeSessions(std::int64_t nowMs) {
     }
 }
 
+// A command without a result by its deadline gets a non-final "unknown" reply (it may still be
+// executing or about to); the service keeps watching until the horizon and publishes the final
+// result under the same cmdId when it appears, or a final "unknown" reply at the horizon.
 void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
     for (auto it = pendingCommandReplies_.begin(); it != pendingCommandReplies_.end();) {
         auto reply = it->reply;
@@ -2023,9 +2055,21 @@ void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
         if (writeback) {
             applyWritebackResultToReply(reply, *writeback, it->route);
             reply.highPriority = it->reply.highPriority;
-        } else if (nowMs >= it->deadlineMs) {
+            if (it->timeoutReported) {
+                publishStatusEvent(
+                    "command-late-result",
+                    nowMs,
+                    std::string(R"("cmdId":")") + escapeJson(reply.cmdId) +
+                        R"(","index":)" + std::to_string(reply.index) +
+                        R"(,"outcome":")" + reply.outcome + R"(")"
+                );
+            }
+        } else if (!it->timeoutReported && nowMs >= it->deadlineMs) {
             reply.success = false;
-            reply.message = "writeback result timeout";
+            reply.outcome = "unknown";
+            reply.isFinal = false;
+            reply.message = "no writeback result yet; the command may still take effect, the final result "
+                            "follows with the same cmdId (do not retry with a new cmdId)";
             reply.stage = "writeback-timeout";
             reply.ts = nowMs;
             reply.edgeElapsedMs = std::max<std::int64_t>(0, nowMs - reply.acceptedAt);
@@ -2038,6 +2082,21 @@ void MqttDriverService::processPendingCommandReplies(std::int64_t nowMs) {
                     R"(,"meterCode":")" + escapeJson(reply.meterCode) +
                     R"(","totalElapsedMs":)" + std::to_string(reply.totalElapsedMs)
             );
+            it->timeoutReported = true;
+            ++it;
+            publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
+            continue;
+        } else if (nowMs >= it->horizonMs) {
+            reply.success = false;
+            reply.outcome = "unknown";
+            reply.isFinal = true;
+            if (reply.stage != kWritebackUnconfirmedStage) {
+                reply.stage = kWritebackTimeoutStage;
+            }
+            reply.message = "no writeback result; outcome unknown (resend the same cmdId to query it)";
+            reply.ts = nowMs;
+            reply.edgeElapsedMs = std::max<std::int64_t>(0, nowMs - reply.acceptedAt);
+            reply.totalElapsedMs = reply.edgeElapsedMs;
         } else {
             ++it;
             continue;
@@ -2094,7 +2153,8 @@ int MqttDriverService::scanLoopIncomingTimeoutMs(std::int64_t nowMs) const {
     }
 
     for (const auto& pending : pendingCommandReplies_) {
-        waitMs = std::min(waitMs, std::max(0, static_cast<int>(pending.deadlineMs - nowMs)));
+        const auto dueMs = pending.timeoutReported ? pending.horizonMs : pending.deadlineMs;
+        waitMs = std::min(waitMs, std::max(0, static_cast<int>(std::min<std::int64_t>(dueMs - nowMs, 1000))));
         waitMs = std::min(waitMs, 20);
     }
 
@@ -2105,6 +2165,7 @@ int MqttDriverService::scanLoopIncomingTimeoutMs(std::int64_t nowMs) const {
 void MqttDriverService::scanLoop() {
     while (running_.load()) {
         const auto nowMs = currentTimeMs();
+        observeWallClock(nowMs, currentMonotonicTimeMs());
         const auto timeoutMs = scanLoopIncomingTimeoutMs(nowMs);
         const auto started = std::chrono::steady_clock::now();
         bool failed = false;
@@ -2170,7 +2231,7 @@ bool MqttDriverService::admitMailboxCommand(const std::string& meterCode, std::i
     return true;
 }
 
-bool MqttDriverService::admitCommand(
+MqttDriverService::CommandAdmission MqttDriverService::admitCommand(
     const std::string& meterCode,
     const std::string& cmdId,
     std::int64_t nowMs,
@@ -2189,7 +2250,7 @@ bool MqttDriverService::admitCommand(
             if (nowMs - it->second > ttl) it = recentCommandIds_.erase(it);
             else ++it;
         }
-        if (recentCommandIds_.find(cmdId) != recentCommandIds_.end()) return false;
+        if (recentCommandIds_.find(cmdId) != recentCommandIds_.end()) return CommandAdmission::Duplicate;
     }
 
     // Sliding-window rate limit per meterCode (0 disables the limit).
@@ -2199,12 +2260,12 @@ bool MqttDriverService::admitCommand(
             window.pop_front();
         }
         if (window.size() >= maxInWindow) {
-            return false;
+            return CommandAdmission::RateLimited;
         }
         window.push_back(nowMs);
     }
     if (!durableControl && !cmdId.empty() && ttl > 0) recentCommandIds_[cmdId] = nowMs;
-    return true;
+    return CommandAdmission::Admitted;
 }
 
 void MqttDriverService::handleCommandRequest(const std::string& payload, std::int64_t nowMs, bool retained) {
@@ -2305,6 +2366,7 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             reply.pointCode = route.pointCode;
             reply.value = request.value;
             reply.success = true;
+            reply.outcome = "succeeded";
             reply.message = submitted.message;
             reply.stage = "mailbox-committed";
             reply.requestedAt = mailboxCommand.ts;
@@ -2315,13 +2377,69 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
             return;
         }
+        // The same cmdId is still being tracked here: never submit it again. Its tracked entry
+        // publishes the result under this cmdId.
+        for (const auto& inFlight : pendingCommandReplies_) {
+            if (inFlight.reply.cmdId != request.cmdId) {
+                continue;
+            }
+            if (inFlight.reply.index != request.index || inFlight.reply.value != request.value) {
+                throw std::invalid_argument("cmdId is already in use by a different command");
+            }
+            auto duplicate = inFlight.reply;
+            duplicate.success = false;
+            duplicate.outcome = "unknown";
+            duplicate.isFinal = false;
+            duplicate.stage = "duplicate-in-flight";
+            duplicate.message = "same cmdId is already being executed; its final result follows with this cmdId";
+            duplicate.ts = nowMs;
+            publishStatusEvent(
+                "command-duplicate",
+                nowMs,
+                std::string(R"("cmdId":")") + escapeJson(request.cmdId) +
+                    R"(","index":)" + std::to_string(request.index) + R"(,"state":"in-flight")"
+            );
+            publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, duplicate);
+            return;
+        }
         const auto activePriorityLease = priorityControlLease_.activeLease(nowMs);
         if (activePriorityLease && activePriorityLease->cmdId != request.cmdId) {
             throw std::invalid_argument("priority control in progress");
         }
         const bool durableControl = router_.isOrdinaryPhysicalWrite(request.index);
-        if (!admitCommand(route.meterCode, request.cmdId, nowMs, durableControl)) {
-            throw std::invalid_argument("command rate limit exceeded");
+        const auto admission = admitCommand(route.meterCode, request.cmdId, nowMs, durableControl);
+        if (admission != CommandAdmission::Admitted) {
+            reply.machineCode = route.machineCode;
+            reply.meterCode = route.meterCode;
+            reply.pointCode = route.pointCode;
+            reply.value = request.value;
+            reply.success = false;
+            const auto storeRoute = router_.routeByIndex(request.index);
+            Optional<WritebackResultRecord> previous;
+            if (admission == CommandAdmission::Duplicate && storeRoute) {
+                previous = router_.getWritebackResult(*storeRoute, request.cmdId);
+            }
+            if (previous) {
+                // Duplicate within commandDedupTtlMs: replay the original result, never re-execute.
+                applyWritebackResultToReply(reply, *previous, *storeRoute);
+            } else if (admission == CommandAdmission::Duplicate) {
+                reply.outcome = "unknown";
+                reply.stage = "duplicate";
+                reply.message = "duplicate cmdId within commandDedupTtlMs; not executed again, original result unavailable";
+            } else {
+                reply.outcome = "failed";
+                reply.stage = "rate-limited";
+                reply.message = "command rate limit exceeded (commandRateMaxPerWindow); not executed";
+            }
+            publishStatusEvent(
+                admission == CommandAdmission::Duplicate ? "command-duplicate" : "command-rate-limited",
+                nowMs,
+                std::string(R"("cmdId":")") + escapeJson(request.cmdId) +
+                    R"(","index":)" + std::to_string(request.index) +
+                    R"(,"stage":")" + escapeJson(reply.stage) + R"(")"
+            );
+            publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
+            return;
         }
         if (request.highPriority) {
             priorityControlLease_.acquire(
@@ -2360,6 +2478,19 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             applyWritebackResultToReply(reply, *submitResult.writeback, submitResult.route);
             if (request.highPriority) priorityControlLease_.release(request.cmdId);
             publisher_->publishCommandReply(mqttConfig_.commandReplyTopic, reply);
+            if (!reply.isFinal && durableControl) {
+                // Reserved earlier (e.g. before this service restarted) without a recorded result: it is
+                // never dispatched again, but a final result may still be recorded. Keep watching it
+                // like a command past its result deadline.
+                PendingCommandReply pending;
+                pending.reply = reply;
+                pending.route = submitResult.route;
+                pending.durableControl = true;
+                pending.timeoutReported = true;
+                pending.deadlineMs = nowMs;
+                pending.horizonMs = nowMs + resultWaitMs_;
+                pendingCommandReplies_.push_back(std::move(pending));
+            }
             return;
         }
         std::cout << "mqtt command accepted"
@@ -2380,7 +2511,8 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         pending.reply = reply;
         pending.route = submitResult.route;
         pending.durableControl = durableControl;
-        pending.deadlineMs = nowMs + std::max(0, driverConfig_.controlResultWaitTimeoutMs);
+        pending.deadlineMs = nowMs + resultWaitMs_;
+        pending.horizonMs = pending.deadlineMs + resultWaitMs_;
         pendingCommandReplies_.push_back(std::move(pending));
         return;
     } catch (const std::exception& ex) {

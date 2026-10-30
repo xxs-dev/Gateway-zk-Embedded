@@ -175,6 +175,11 @@ public:
     }
 
     JsonValue parse() {
+        // Files saved by Windows tools (PowerShell 5.1 Set-Content -Encoding UTF8) start with a UTF-8 BOM.
+        if (pos_ == 0 && text_.size() >= 3 && static_cast<unsigned char>(text_[0]) == 0xEF &&
+            static_cast<unsigned char>(text_[1]) == 0xBB && static_cast<unsigned char>(text_[2]) == 0xBF) {
+            pos_ = 3;
+        }
         skipWhitespace();
         auto value = parseValue();
         skipWhitespace();

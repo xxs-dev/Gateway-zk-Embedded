@@ -96,9 +96,11 @@ int main(int argc, char** argv) {
         serial->drop = true;
         auto result = executor.executeByIndex("timeout", point.index, 1, 1000);
         require(!result.success && serial->frames.size() == before + 2, "no retry on lost acknowledgement");
+        require(result.outcomeUnknown && !result.feedbackMismatch, "lost acknowledgement is unknown, not definite failure");
         serial->drop = false; serial->wrongEcho = true;
         result = executor.executeByIndex("wrong-echo", point.index, 1, 1000);
         require(!result.success && serial->frames.size() == before + 3, "wrong echo rejected without retry");
+        require(result.outcomeUnknown && !result.feedbackMismatch, "wrong echo cannot prove the command was not executed");
         serial->wrongEcho = false;
     }
     require(count == 7, "exactly seven write-only controls");

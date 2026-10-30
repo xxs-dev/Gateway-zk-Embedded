@@ -42,7 +42,7 @@ PointValue CollectorBase::buildFailedPointValue(
     value.quality = 0;
     value.qualityMsg = message;
     value.ts = nowMs;
-    value.expireAt = nowMs + point.read.cachePolicy.ttlMs;
+    value.expireAt = valueExpireAt(point, nowMs);
     value.stale = false;
     value.function = point.read.function;
     value.address = point.address;
@@ -70,7 +70,7 @@ PointValue CollectorBase::buildPointValue(
     value.text = decoded.text;
     value.rawHex = decoded.rawHex;
     value.ts = nowMs;
-    value.expireAt = nowMs + point.read.cachePolicy.ttlMs;
+    value.expireAt = valueExpireAt(point, nowMs);
     value.function = point.read.function;
     value.address = point.address;
     value.length = point.read.length;
@@ -126,6 +126,32 @@ std::vector<PointDefinition> CollectorBase::duePoints(std::int64_t nowMs, bool f
         points.push_back(point);
     }
     return points;
+}
+
+std::int64_t CollectorBase::valueExpireAt(const PointDefinition& point, std::int64_t nowMs) const {
+    std::int64_t lifetime = point.read.cachePolicy.ttlMs;
+    if (config_.collect.staleAfterIntervals > 0) {
+        const auto horizon = std::max<std::int64_t>(
+            static_cast<std::int64_t>(config_.collect.staleAfterIntervals) * effectiveIntervalMs(point),
+            config_.collect.staleAfterMinMs
+        );
+        lifetime = lifetime > 0 ? std::min(lifetime, horizon) : horizon;
+    }
+    return nowMs + lifetime;
+}
+
+std::int64_t CollectorBase::observeSchedulingClock(std::int64_t nowMs) {
+    std::int64_t delta = 0;
+    if (lastObservedNowMs_ > 0 && nowMs < lastObservedNowMs_) {
+        delta = nowMs - lastObservedNowMs_;
+        for (auto& entry : lastReadMs_) entry.second += delta;
+        for (auto& entry : lastValueUpdateMs_) entry.second += delta;
+        onSchedulingClockStepped(delta);
+        std::cerr << "collector clock stepped back meter=" << config_.meterCode
+                  << " deltaMs=" << delta << "; scheduling times shifted" << std::endl;
+    }
+    lastObservedNowMs_ = nowMs;
+    return delta;
 }
 
 int CollectorBase::effectiveIntervalMs(const PointDefinition& point) const {

@@ -8,6 +8,7 @@
 
 #include "edge_gateway/command_executor.hpp"
 #include "edge_gateway/dlt645_collector.hpp"
+#include "edge_gateway/dlt645_version.hpp"
 #include "edge_gateway/modbus_northbound_server.hpp"
 #include "edge_gateway/modbus_collector.hpp"
 
@@ -24,8 +25,9 @@ GatewayDaemon::GatewayDaemon(
 ) : GatewayDaemon(
         std::move(config),
         store,
-        [modbusClient, dlt645Client](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
-            if (runtimeConfig.protocol.type == "dlt645_2007") {
+        [modbusClient, dlt645Client, lineSchedule = std::make_shared<ModbusLineSchedule>()](
+            const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
+            if (isDlt645Protocol(runtimeConfig.protocol.type)) {
                 return std::unique_ptr<ICollector>(
                     new Dlt645Collector(runtimeConfig, runtimeStore, dlt645Client)
                 );
@@ -33,8 +35,9 @@ GatewayDaemon::GatewayDaemon(
             if (runtimeConfig.protocol.type == "local_dio") {
                 throw std::invalid_argument("local_dio requires DioDriver");
             }
+            // All meters of this daemon share one line.
             return std::unique_ptr<ICollector>(
-                new Collector(runtimeConfig, runtimeStore, modbusClient)
+                new Collector(runtimeConfig, runtimeStore, modbusClient, nullptr, {}, lineSchedule)
             );
         },
         [modbusClient, mqttPublisher, gpioPort](const DeviceConfig& runtimeConfig, MemoryPointStore& runtimeStore) {
@@ -47,28 +50,29 @@ GatewayDaemon::GatewayDaemon(
         std::move(realtimeMeterLeaseFile)
     ) {
     if (config_.northboundServer.enabled) {
-        std::shared_ptr<ModbusNorthboundServer> server(
-            new ModbusNorthboundServer(config_, store_)
-        );
-        auxiliaryService_ = [this, server](bool start) {
+        // Northbound problems (config refusal, bind failure) are reported on the daemon status
+        // channel and never stop collection.
+        std::shared_ptr<ModbusNorthboundServer> server(new ModbusNorthboundServer(
+            config_,
+            store_,
+            [this](const std::string& event, const std::string& message) {
+                std::string escaped;
+                for (const auto ch : message) {
+                    if (ch == '"' || ch == '\\') {
+                        escaped.push_back('\\');
+                    }
+                    escaped.push_back(static_cast<unsigned char>(ch) < 0x20 ? ' ' : ch);
+                }
+                publishStatusEvent(
+                    event,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count(),
+                    std::string(R"("message":")") + escaped + "\"");
+            }
+        ));
+        auxiliaryService_ = [server](bool start) {
             if (start) {
                 server->start();
-                const auto refusal = server->startError();
-                if (!refusal.empty()) {
-                    // Surface the refusal on the daemon status channel, not only stderr.
-                    std::string escaped;
-                    for (const auto ch : refusal) {
-                        if (ch == '"' || ch == '\\') {
-                            escaped.push_back('\\');
-                        }
-                        escaped.push_back(ch);
-                    }
-                    publishStatusEvent(
-                        "northbound-refused",
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count(),
-                        std::string(R"("message":")") + escaped + "\"");
-                }
             } else {
                 server->stop();
             }

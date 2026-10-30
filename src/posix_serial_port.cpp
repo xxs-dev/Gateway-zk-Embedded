@@ -9,9 +9,13 @@
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 
 #include <fcntl.h>
+#include <linux/serial.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
@@ -37,8 +41,26 @@ void PosixSerialPort::open() {
 
     fd_ = ::open(options_.device.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
     if (fd_ < 0) {
-        throw std::runtime_error("failed to open serial device: " + options_.device);
+        const auto err = errno;
+        if (err == EBUSY) {
+            throw std::runtime_error("serial device busy (opened exclusively by another process): " +
+                                     options_.device);
+        }
+        throw std::runtime_error("failed to open serial device: " + options_.device + ": " + std::strerror(err));
     }
+    // One owner per line: two configurations on the same port would overwrite each other's line
+    // settings and interleave frames. flock() covers every gateway process (also root); TIOCEXCL
+    // additionally refuses other unprivileged openers while we hold the port.
+    if (flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+        const auto err = errno;
+        ::close(fd_);
+        fd_ = -1;
+        if (err == EWOULDBLOCK) {
+            throw std::runtime_error("serial device busy (locked by another driver or tool): " + options_.device);
+        }
+        throw std::system_error(err, std::generic_category(), "serial device lock failed: " + options_.device);
+    }
+    (void)ioctl(fd_, TIOCEXCL);
 
     termios tty{};
     if (tcgetattr(fd_, &tty) != 0) {
@@ -62,10 +84,16 @@ void PosixSerialPort::open() {
     }
 
     tty.c_cflag &= ~(PARENB | PARODD);
+    tty.c_iflag &= ~(INPCK | IGNPAR | PARMRK);
     if (options_.parity == "E") {
         tty.c_cflag |= PARENB;
     } else if (options_.parity == "O") {
         tty.c_cflag |= PARENB | PARODD;
+    }
+    if (options_.parity == "E" || options_.parity == "O") {
+        // Check received parity and drop characters with parity/framing errors, so a corrupted byte
+        // shortens the frame (rejected by length/CRC) instead of passing on as data.
+        tty.c_iflag |= INPCK | IGNPAR;
     }
 
     tty.c_cc[VMIN] = 0;
@@ -76,12 +104,50 @@ void PosixSerialPort::open() {
         close();
         throw std::system_error(err, std::generic_category(), "tcsetattr failed");
     }
+    if (options_.rs485.enabled) {
+        applyRs485();
+    }
     // Drop bytes received before the port was configured.
     (void)tcflush(fd_, TCIFLUSH);
 }
 
+void PosixSerialPort::applyRs485() {
+    // Hand the transceiver direction to the UART driver, then read the settings back: a driver that
+    // lacks RS-485 support or silently adjusts a field would otherwise leave the line half-working.
+    const auto& wanted = options_.rs485;
+    serial_rs485 rs485{};
+    rs485.flags = SER_RS485_ENABLED;
+    if (wanted.rtsOnSend) rs485.flags |= SER_RS485_RTS_ON_SEND;
+    if (wanted.rtsAfterSend) rs485.flags |= SER_RS485_RTS_AFTER_SEND;
+    rs485.delay_rts_before_send = static_cast<std::uint32_t>(wanted.delayRtsBeforeSendMs);
+    rs485.delay_rts_after_send = static_cast<std::uint32_t>(wanted.delayRtsAfterSendMs);
+    const auto fail = [this](const std::string& what) {
+        const auto err = errno;
+        close();
+        throw std::runtime_error("RS-485 " + what + " failed on " + options_.device + ": " + std::strerror(err) +
+                                 " (errno " + std::to_string(err) + ")");
+    };
+    if (ioctl(fd_, TIOCSRS485, &rs485) != 0) fail("TIOCSRS485");
+    serial_rs485 actual{};
+    if (ioctl(fd_, TIOCGRS485, &actual) != 0) fail("TIOCGRS485");
+    const auto controlled = static_cast<std::uint32_t>(SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND |
+                                                       SER_RS485_RTS_AFTER_SEND);
+    if ((actual.flags & controlled) != rs485.flags ||
+        actual.delay_rts_before_send != rs485.delay_rts_before_send ||
+        actual.delay_rts_after_send != rs485.delay_rts_after_send) {
+        close();
+        throw std::runtime_error(
+            "RS-485 settings not applied on " + options_.device + ": requested flags=" +
+            std::to_string(rs485.flags) + " delays=" + std::to_string(rs485.delay_rts_before_send) + "/" +
+            std::to_string(rs485.delay_rts_after_send) + " ms, driver reports flags=" +
+            std::to_string(actual.flags & controlled) + " delays=" + std::to_string(actual.delay_rts_before_send) +
+            "/" + std::to_string(actual.delay_rts_after_send) + " ms");
+    }
+}
+
 void PosixSerialPort::close() {
     if (fd_ >= 0) {
+        (void)ioctl(fd_, TIOCNXCL);
         ::close(fd_);
         fd_ = -1;
     }

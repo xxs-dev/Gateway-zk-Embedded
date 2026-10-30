@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "edge_gateway/common/command_executor_interface.hpp"
 #include "edge_gateway/interfaces.hpp"
@@ -8,6 +10,20 @@
 #include "edge_gateway/models.hpp"
 
 namespace edge_gateway {
+
+// A DO the gateway drives: write.enable with write.dataType "digital_output".
+bool isDioOutputPoint(const PointDefinition& point);
+// Contact feedback expected for a DO output state: write.verifyValue is the feedback while the output
+// is 1 (unset: 1, normally-open auxiliary contact); output 0 expects the opposite.
+double dioExpectedFeedback(const PointDefinition& point, double outputState);
+// GPIO level of a DO's startup state: write.startupValue (0/1) when configured, else 0 (inactive);
+// activeHigh=false inverts it.
+bool dioStartupGpioHigh(const PointDefinition& point);
+// Drives every DO of the config (enabled meters, or the top-level points) to its startup state as an
+// output. Call once at driver start, before collection and writeback run. A pin that fails is
+// logged and listed in the result; the collector drives it once it becomes available. Outputs are
+// left as they are when the driver exits.
+std::vector<std::string> applyDioStartupOutputs(const DeviceConfig& config, IGpioPort& gpioPort);
 
 class DioCommandExecutor : public ICommandExecutor {
 public:
@@ -33,7 +49,14 @@ public:
 
 private:
     const PointDefinition& findPointByIndex(std::uint32_t index) const;
-    void dispatchLocalDioWrite(const PointDefinition& point, double value, std::int64_t nowMs) const;
+    // Validates and drives the output; returns the GPIO level written.
+    bool driveOutput(const PointDefinition& point, double value) const;
+    void publishOutputState(const PointDefinition& point, double value, bool gpioHigh, std::int64_t nowMs) const;
+    // Action confirmation by the feedback DI write.verifyIndex: a DI of this device is read from its
+    // GPIO (debounced like the collector, independent of the collection thread); any other point
+    // from the shared point store, counting only values collected after sentAtWallMs.
+    void confirmByFeedback(const PointDefinition& point, double written, std::int64_t sentAtWallMs,
+                           CommandResult& result) const;
 
     DeviceConfig config_;
     MemoryPointStore& store_;

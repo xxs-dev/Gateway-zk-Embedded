@@ -43,6 +43,7 @@
 #include <QWidget>
 
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/priority_control_lease.hpp"
@@ -168,15 +169,16 @@ struct DisplayPoint {
 
 std::vector<edge_gateway::PointDefinition> effectiveMeterPoints(
     const edge_gateway::DeviceConfig& config,
-    const edge_gateway::LogicalDeviceConfig& device
+    std::size_t meterIndex
 ) {
-    if (!device.points.empty()) {
+    const auto& device = config.meters[meterIndex];
+    if (!edge_gateway::isDlt645Protocol(config.protocol.type)) {
         return device.points;
     }
-    if (config.protocol.type != "dlt645_2007" || config.protocol.standardPointsFile.empty()) {
-        return {};
-    }
-    return edge_gateway::ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile);
+    const auto standardPoints = device.points.empty() && !config.protocol.standardPointsFile.empty()
+        ? edge_gateway::ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile)
+        : std::vector<edge_gateway::PointDefinition>();
+    return edge_gateway::expandDlt645MeterPoints(config, meterIndex, standardPoints);
 }
 
 std::unordered_map<std::uint32_t, PointMeta> buildPointMeta(
@@ -191,13 +193,7 @@ std::unordered_map<std::uint32_t, PointMeta> buildPointMeta(
 
         std::size_t meterIndex = 0;
         for (const auto& meter : config.meters) {
-            auto points = effectiveMeterPoints(config, meter);
-            if (config.protocol.type == "dlt645_2007" && meter.points.empty()) {
-                const std::uint32_t indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
-                for (std::size_t i = 0; i < points.size(); ++i) {
-                    points[i].index = indexBase + static_cast<std::uint32_t>(i);
-                }
-            }
+            auto points = effectiveMeterPoints(config, meterIndex);
             for (const auto& point : points) {
                 PointMeta meta;
                 meta.index = point.index;

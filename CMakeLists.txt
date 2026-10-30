@@ -35,6 +35,13 @@ add_test(NAME ems_control_mode_test COMMAND ems_control_mode_test)
 
 add_library(edge_gateway
     src/channel_trace.cpp
+    src/validation/device_config_validation.cpp
+    src/validation/modbus_validation.cpp
+    src/validation/dlt645_validation.cpp
+    src/validation/iec_validation.cpp
+    src/validation/can_validation.cpp
+    src/validation/dio_validation.cpp
+    src/validation/northbound_validation.cpp
     src/agc_avc_controller.cpp
     src/agc_avc_command_mailbox.cpp
     src/agc_avc_service.cpp
@@ -43,6 +50,8 @@ add_library(edge_gateway
     src/soe_store.cpp
     src/alarm_service.cpp
     src/can_driver_service.cpp
+    src/can_driver_writeback.cpp
+    src/can_frame_state.cpp
     src/can_signal_codec.cpp
     src/collector.cpp
     src/common/collector_base.cpp
@@ -57,6 +66,8 @@ add_library(edge_gateway
     src/dlt645_command_executor.cpp
     src/dlt645_collector.cpp
     src/dlt645_codec.cpp
+    src/dlt645_mock_serial_port.cpp
+    src/dlt645_time_sync.cpp
     src/dlt645_standard_points_loader.cpp
     src/event_engine_service.cpp
     src/event_commit_status.cpp
@@ -74,6 +85,9 @@ add_library(edge_gateway
     src/grid_friendly_dispatch.cpp
     src/iec_client.cpp
     src/iec_codec.cpp
+    src/iec103_codec.cpp
+    src/iec_ft12_link.cpp
+    src/iec_ft12_client.cpp
     src/iec103_recording_command.cpp
     src/iec103_recording_transfer_service.cpp
     src/iec_command_executor.cpp
@@ -517,6 +531,86 @@ add_executable(timing_policy_test tools/timing_policy_test.cpp)
 target_link_libraries(timing_policy_test PRIVATE edge_gateway)
 target_compile_options(timing_policy_test PRIVATE -fdiagnostics-color=never)
 
+add_executable(config_corpus_load_test tools/config_corpus_load_test.cpp)
+target_link_libraries(config_corpus_load_test PRIVATE edge_gateway)
+add_executable(collector_clock_and_expiry_test tools/collector_clock_and_expiry_test.cpp)
+target_link_libraries(collector_clock_and_expiry_test PRIVATE edge_gateway)
+
+# driver-review: modbus
+foreach(driver_review_modbus_test
+        modbus_command_write_test modbus_rtu_link_test modbus_tcp_link_test
+        modbus_config_validation_test gateway_daemon_modbus_test)
+    add_executable(${driver_review_modbus_test} tools/${driver_review_modbus_test}.cpp)
+    target_link_libraries(${driver_review_modbus_test} PRIVATE edge_gateway)
+    target_compile_options(${driver_review_modbus_test} PRIVATE -fdiagnostics-color=never)
+endforeach()
+# driver-review: serial (kernel RS-485 direction control; POSIX only)
+if(UNIX)
+    add_executable(posix_serial_rs485_test tools/posix_serial_rs485_test.cpp)
+    target_link_libraries(posix_serial_rs485_test PRIVATE edge_gateway)
+    target_compile_options(posix_serial_rs485_test PRIVATE -fdiagnostics-color=never)
+endif()
+# driver-review: shm-upgrade (pending-write queue mixed-version check; see doc/部署运维/共享待写队列升级规程.md)
+if(UNIX)
+    add_executable(shm_pending_write_mix tools/shm_pending_write_mix.cpp)
+    target_compile_definitions(shm_pending_write_mix PRIVATE PWMIX_STAMPED_QUEUE)
+    target_include_directories(shm_pending_write_mix PRIVATE src)
+    target_link_libraries(shm_pending_write_mix PRIVATE edge_gateway pthread rt)
+    # Old-release builds of the same tool, e.g. -DEDGE_SHM_MIX_OLD_TOOLS="/tmp/pwmix-dabb8fd;/tmp/pwmix-29f5068".
+    set(EDGE_SHM_MIX_OLD_TOOLS "" CACHE STRING "shm_pending_write_mix binaries built from earlier releases")
+endif()
+# driver-review: dlt645
+foreach(dlt645_review_test dlt645_codec_test dlt645_link_test dlt645_collector_schedule_test dlt645_config_test
+        dlt645_extensions_test)
+    add_executable(${dlt645_review_test} tools/${dlt645_review_test}.cpp)
+    target_link_libraries(${dlt645_review_test} PRIVATE edge_gateway)
+    target_compile_options(${dlt645_review_test} PRIVATE -fdiagnostics-color=never)
+endforeach()
+# driver-review: iec
+add_executable(iec_ft12_link_test tools/iec_ft12_link_test.cpp)
+target_link_libraries(iec_ft12_link_test PRIVATE edge_gateway)
+target_compile_options(iec_ft12_link_test PRIVATE -fdiagnostics-color=never)
+add_executable(iec104_semantics_test tools/iec104_semantics_test.cpp)
+target_link_libraries(iec104_semantics_test PRIVATE edge_gateway)
+target_compile_options(iec104_semantics_test PRIVATE -fdiagnostics-color=never)
+add_executable(iec_validation_test tools/iec_validation_test.cpp)
+target_link_libraries(iec_validation_test PRIVATE edge_gateway)
+target_compile_options(iec_validation_test PRIVATE -fdiagnostics-color=never)
+# driver-review: can-dio
+add_executable(can_signal_layout_test tools/can_signal_layout_test.cpp)
+target_link_libraries(can_signal_layout_test PRIVATE edge_gateway)
+add_executable(can_driver_runtime_test tools/can_driver_runtime_test.cpp)
+target_link_libraries(can_driver_runtime_test PRIVATE edge_gateway)
+target_include_directories(can_driver_runtime_test PRIVATE src)
+add_executable(dio_driver_review_test tools/dio_driver_review_test.cpp)
+target_link_libraries(dio_driver_review_test PRIVATE edge_gateway ${CMAKE_DL_LIBS})
+if(BUILD_TESTING)
+    add_test(NAME can_signal_layout COMMAND can_signal_layout_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME can_driver_runtime COMMAND can_driver_runtime_test)
+    add_test(NAME dio_driver_review COMMAND dio_driver_review_test)
+endif()
+# driver-review: nb-mqtt
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING
+   AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # ThreadSanitizer build of the northbound server alone (point store read stubbed in the test).
+    add_executable(modbus_northbound_tsan_test tools/modbus_northbound_tsan_test.cpp src/modbus_northbound_server.cpp)
+    target_include_directories(modbus_northbound_tsan_test PRIVATE include)
+    target_compile_options(modbus_northbound_tsan_test PRIVATE -fsanitize=thread -O1 -g)
+    target_link_options(modbus_northbound_tsan_test PRIVATE -fsanitize=thread)
+    target_link_libraries(modbus_northbound_tsan_test PRIVATE pthread)
+    add_test(NAME modbus_northbound_tsan COMMAND modbus_northbound_tsan_test)
+endif()
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(mqtt_command_outcome_test tools/mqtt_command_outcome_test.cpp)
+    target_link_libraries(mqtt_command_outcome_test PRIVATE edge_gateway)
+    add_test(NAME mqtt_command_outcome COMMAND mqtt_command_outcome_test)
+    # driver-review: nb-mqtt (round 3) — result classes consistent across first reply, ledger, replay,
+    # late reply and a real process restart.
+    add_executable(control_outcome_consistency_test tools/control_outcome_consistency_test.cpp)
+    target_link_libraries(control_outcome_consistency_test PRIVATE edge_gateway)
+    add_test(NAME control_outcome_consistency COMMAND control_outcome_consistency_test)
+endif()
+
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)
 target_compile_options(collector_partial_failure_test PRIVATE -fdiagnostics-color=never)
@@ -880,6 +974,46 @@ if(BUILD_TESTING)
     add_test(NAME iec104_client_integration COMMAND iec104_client_integration_test)
     add_test(NAME iec_collector_incremental COMMAND iec_collector_incremental_test)
     add_test(NAME can_signal_codec COMMAND can_signal_codec_test)
+    add_test(NAME config_corpus_load COMMAND config_corpus_load_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME collector_clock_and_expiry COMMAND collector_clock_and_expiry_test)
+    # driver-review: modbus
+    add_test(NAME modbus_command_write COMMAND modbus_command_write_test)
+    add_test(NAME modbus_rtu_link COMMAND modbus_rtu_link_test)
+    add_test(NAME modbus_tcp_link COMMAND modbus_tcp_link_test)
+    add_test(NAME modbus_config_validation COMMAND modbus_config_validation_test)
+    add_test(NAME gateway_daemon_modbus COMMAND gateway_daemon_modbus_test)
+    # driver-review: serial
+    if(TARGET posix_serial_rs485_test)
+        add_test(NAME posix_serial_rs485 COMMAND posix_serial_rs485_test)
+        set_tests_properties(posix_serial_rs485 PROPERTIES TIMEOUT 5)
+    endif()
+    # driver-review: shm-upgrade
+    if(UNIX)
+        add_test(NAME gateway_services_queue
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_queue_test.sh")
+        set_tests_properties(gateway_services_queue PROPERTIES TIMEOUT 30)
+        add_test(NAME pointctl_queue_view
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/pointctl_queue_view_test.sh" $<TARGET_FILE:pointctl>)
+        set_tests_properties(pointctl_queue_view PROPERTIES TIMEOUT 30)
+    endif()
+    # Registered only when old-release tools are given.
+    if(TARGET shm_pending_write_mix AND EDGE_SHM_MIX_OLD_TOOLS)
+        add_test(NAME shm_pending_write_mix_check
+            COMMAND sh ${CMAKE_SOURCE_DIR}/tools/shm_pending_write_mix_check.sh
+                $<TARGET_FILE:shm_pending_write_mix> ${EDGE_SHM_MIX_OLD_TOOLS})
+        set_tests_properties(shm_pending_write_mix_check PROPERTIES TIMEOUT 120)
+    endif()
+    # driver-review: dlt645
+    add_test(NAME dlt645_codec COMMAND dlt645_codec_test)
+    add_test(NAME dlt645_link COMMAND dlt645_link_test)
+    add_test(NAME dlt645_collector_schedule COMMAND dlt645_collector_schedule_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME dlt645_config COMMAND dlt645_config_test ${CMAKE_SOURCE_DIR})
+    add_test(NAME dlt645_extensions COMMAND dlt645_extensions_test)
+    # driver-review: iec
+    add_test(NAME iec_ft12_link COMMAND iec_ft12_link_test)
+    add_test(NAME iec104_semantics COMMAND iec104_semantics_test)
+    add_test(NAME iec_validation COMMAND iec_validation_test)
+    set_tests_properties(iec_ft12_link iec104_semantics iec_validation PROPERTIES TIMEOUT 60)
     add_test(NAME collector_partial_failure COMMAND collector_partial_failure_test)
     add_test(NAME compute_engine_service COMMAND compute_engine_service_test)
     add_test(NAME config_loader COMMAND config_loader_test)

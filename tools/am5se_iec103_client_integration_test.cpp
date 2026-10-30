@@ -1,39 +1,31 @@
+// AM5SE IEC 103 network client against a scripted FT1.2 secondary on loopback TCP, in both
+// connection modes: GI, recording directory and COMTRADE transfer, ASDU 1 DPI changes, late
+// replies, events during a recording transfer and GI after a link reset.
 #include "edge_gateway/am5se_iec103_client.hpp"
 
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <exception>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
-#ifdef _WIN32
-#include <direct.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
-#endif
+
+#include "iec_ft12_test_station.hpp"
 
 namespace {
 
-#ifdef _WIN32
-using SocketHandle = SOCKET;
-constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
-#else
-using SocketHandle = int;
-constexpr SocketHandle kInvalidSocket = -1;
-#endif
+using namespace edge_gateway;
+using ft12_test::Ft12TestStation;
+using ft12_test::TcpStation;
 
 void requireTrue(bool condition, const std::string& message) {
     if (!condition) {
@@ -41,39 +33,12 @@ void requireTrue(bool condition, const std::string& message) {
     }
 }
 
-void closeSocket(SocketHandle socketHandle) {
-#ifdef _WIN32
-    closesocket(socketHandle);
-#else
-    close(socketHandle);
-#endif
-}
-
-std::string temporaryDirectory(int port) {
-    const char* base = std::getenv(
-#ifdef _WIN32
-        "TEMP"
-#else
-        "TMPDIR"
-#endif
-    );
-    if (base == nullptr || *base == '\0') {
-#ifdef _WIN32
-        base = ".";
-#else
-        base = "/tmp";
-#endif
-    }
-    std::string path(base);
-    if (!path.empty() && path.back() != '/' && path.back() != '\\') {
-        path.push_back('/');
-    }
-    path += "am5se-iec103-test-" + std::to_string(port);
-#ifdef _WIN32
-    _mkdir(path.c_str());
-#else
+std::string temporaryDirectory(const std::string& suffix) {
+    const char* base = std::getenv("TMPDIR");
+    std::string path = base != nullptr && *base != '\0' ? base : "/tmp";
+    if (path.back() != '/') path.push_back('/');
+    path += "am5se-iec103-test-" + std::to_string(getpid()) + "-" + suffix;
     mkdir(path.c_str(), 0775);
-#endif
     return path;
 }
 
@@ -85,457 +50,383 @@ bool fileExists(const std::string& path) {
 void removeTestOutput(const std::string& directory) {
     std::remove((directory + "/FAN00015.CFG").c_str());
     std::remove((directory + "/FAN00015.DAT").c_str());
-#ifdef _WIN32
-    _rmdir(directory.c_str());
-#else
     rmdir(directory.c_str());
-#endif
-}
-
-void sendAll(SocketHandle socketHandle, const std::vector<std::uint8_t>& bytes) {
-    std::size_t sent = 0;
-    while (sent < bytes.size()) {
-#ifdef _WIN32
-        const auto result = send(socketHandle, reinterpret_cast<const char*>(bytes.data() + sent),
-            static_cast<int>(bytes.size() - sent), 0);
-#else
-        const auto result = send(socketHandle, bytes.data() + sent, bytes.size() - sent, 0);
-#endif
-        if (result <= 0) {
-            throw std::runtime_error("mock send failed");
-        }
-        sent += static_cast<std::size_t>(result);
-    }
-}
-
-std::vector<std::uint8_t> receiveExact(SocketHandle socketHandle, std::size_t size) {
-    std::vector<std::uint8_t> result(size);
-    std::size_t received = 0;
-    while (received < size) {
-#ifdef _WIN32
-        const auto count = recv(socketHandle, reinterpret_cast<char*>(result.data() + received),
-            static_cast<int>(size - received), 0);
-#else
-        const auto count = recv(socketHandle, result.data() + received, size - received, 0);
-#endif
-        if (count <= 0) {
-            throw std::runtime_error("mock receive failed");
-        }
-        received += static_cast<std::size_t>(count);
-    }
-    return result;
-}
-
-std::vector<std::uint8_t> receiveFrame(SocketHandle socketHandle) {
-    auto first = receiveExact(socketHandle, 1);
-    if (first[0] == 0x10) {
-        auto rest = receiveExact(socketHandle, 4);
-        first.insert(first.end(), rest.begin(), rest.end());
-        return first;
-    }
-    if (first[0] != 0x68) {
-        throw std::runtime_error("mock received invalid frame start");
-    }
-    auto header = receiveExact(socketHandle, 3);
-    first.insert(first.end(), header.begin(), header.end());
-    auto rest = receiveExact(socketHandle, static_cast<std::size_t>(first[1]) + 2U);
-    first.insert(first.end(), rest.begin(), rest.end());
-    return first;
-}
-
-std::vector<std::uint8_t> variableFrame(const std::vector<std::uint8_t>& userData) {
-    std::vector<std::uint8_t> frame = {
-        0x68,
-        static_cast<std::uint8_t>(userData.size()),
-        static_cast<std::uint8_t>(userData.size()),
-        0x68
-    };
-    frame.insert(frame.end(), userData.begin(), userData.end());
-    std::uint32_t checksum = 0;
-    for (const auto byte : userData) {
-        checksum += byte;
-    }
-    frame.push_back(static_cast<std::uint8_t>(checksum & 0xFF));
-    frame.push_back(0x16);
-    return frame;
 }
 
 int availablePort() {
-    const auto socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (socketHandle == kInvalidSocket) {
-        throw std::runtime_error("cannot allocate test socket");
-    }
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    address.sin_port = 0;
-    if (bind(socketHandle, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
-        closeSocket(socketHandle);
+    if (bind(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+        close(fd);
         throw std::runtime_error("cannot bind test socket");
     }
-#ifdef _WIN32
-    int length = sizeof(address);
-#else
     socklen_t length = sizeof(address);
-#endif
-    getsockname(socketHandle, reinterpret_cast<sockaddr*>(&address), &length);
-    const auto port = ntohs(address.sin_port);
-    closeSocket(socketHandle);
-    return port;
+    getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length);
+    close(fd);
+    return ntohs(address.sin_port);
 }
 
-void mockDevice(int port) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    const auto socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    sockaddr_in destination{};
-    destination.sin_family = AF_INET;
-    destination.sin_port = htons(static_cast<std::uint16_t>(port));
-    inet_pton(AF_INET, "127.0.0.1", &destination.sin_addr);
-    if (connect(socketHandle, reinterpret_cast<const sockaddr*>(&destination), sizeof(destination)) != 0) {
-        closeSocket(socketHandle);
-        throw std::runtime_error("mock reverse TCP connect failed");
-    }
+std::vector<std::uint8_t> asdu44(std::uint16_t states) {
+    return {0x2C, 0x01, 0x09, 0x01, 0x01, 0x64,
+        static_cast<std::uint8_t>(states & 0xFF), static_cast<std::uint8_t>(states >> 8), 0x00, 0x00, 0x00, 0xE9};
+}
 
-    const std::vector<std::uint8_t> acknowledge = {0x10, 0x20, 0x01, 0x21, 0x16};
-    receiveFrame(socketHandle);  // Reset communication.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // General interrogation.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // Class 1.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x2C, 0x01, 0x09, 0x01, 0x01, 0x64,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0xE9
-    }));
+// ASDU 1 (time-tagged message): FUN 1, INF 100, DPI, CP32Time2a, SIN.
+std::vector<std::uint8_t> asdu1(int dpi) {
+    return {0x01, 0x81, 0x01, 0x01, 0x01, 0x64, static_cast<std::uint8_t>(dpi), 0x10, 0x27, 0x05, 0x0A, 0x00};
+}
 
-    receiveFrame(socketHandle);  // Directory ASDU24.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // Class 1 directory response.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x17, 0x01, 0x1F, 0x01, 0xFF, 0x00,
-        0x0F, 0x00, 0x01, 0x00, 0x00, 0x01, 0x02, 0x01, 0x01, 0x1A
-    }));
+std::vector<std::uint8_t> comtradePacket(int fileType, int packet, bool last, std::vector<std::uint8_t> data) {
+    std::vector<std::uint8_t> asdu = {0x50, 0x81, 0x14, 0x01, 0x01, static_cast<std::uint8_t>(fileType),
+        static_cast<std::uint8_t>(packet & 0xFF),
+        static_cast<std::uint8_t>(((packet >> 8) & 0x7F) | (last ? 0x80 : 0x00))};
+    asdu.insert(asdu.end(), data.begin(), data.end());
+    return asdu;
+}
 
-    receiveFrame(socketHandle);  // CFG ASDU68.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // CFG class 1 response.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x51,
-        0x00, 0x80, 'C', 'F', 'G'
-    }));
+struct Am5seBehaviour {
+    int datPackets = 1;
+    std::vector<std::vector<std::uint8_t>> eventsDuringDat;
 
-    receiveFrame(socketHandle);  // DAT ASDU68.
-    sendAll(socketHandle, acknowledge);
-    for (int packet = 0; packet < 12; ++packet) {
-        if (packet == 1) {
-            for (int dpi : {2, 1}) {
-                receiveFrame(socketHandle);
-                sendAll(socketHandle, variableFrame({0x28,1,1,0x81,1,1,1,100,
-                    static_cast<std::uint8_t>(dpi),0x88,0x13,0,0,0}));
+    void operator()(const std::vector<std::uint8_t>& asdu, Ft12TestStation& station) const {
+        if (asdu.empty()) return;
+        if (asdu[0] == 0x07) {
+            requireTrue(asdu[2] == 9, "AM5SE GI must use COT 9");
+            station.class1.push_back(asdu44(0x0001));
+            station.class1.push_back({0x08, 0x81, 0x0A, 0x01, 0xFF, 0x00, 0xE9});
+        } else if (asdu[0] == 0x18) {
+            station.class1.push_back({0x17, 0x01, 0x1F, 0x01, 0xFF, 0x00,
+                0x0F, 0x00, 0x01, 0x00, 0x00, 0x01, 0x02, 0x01, 0x01, 0x1A});
+        } else if (asdu[0] == 0x44 && asdu[5] == 0x51) {
+            station.class1.push_back(comtradePacket(0x51, 0, true, {'C', 'F', 'G'}));
+        } else if (asdu[0] == 0x44 && asdu[5] == 0x52) {
+            for (const auto& event : eventsDuringDat) {
+                station.class1.push_back(event);
+            }
+            for (int packet = 0; packet < datPackets; ++packet) {
+                station.class1.push_back(comtradePacket(0x52, packet, packet == datPackets - 1,
+                    {static_cast<std::uint8_t>(packet), 0x02, 0x03}));
             }
         }
-        receiveFrame(socketHandle);  // DAT class 1 response.
-        sendAll(socketHandle, variableFrame({
-            0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x52,
-            static_cast<std::uint8_t>(packet),
-            static_cast<std::uint8_t>(packet == 11 ? 0x80 : 0x00),
-            static_cast<std::uint8_t>(packet), 0x02, 0x03
-        }));
     }
-    closeSocket(socketHandle);
+};
+
+IecProtocolConfig baseConfig() {
+    IecProtocolConfig config;
+    config.linkAddress = 1;
+    config.commonAddress = 1;
+    config.linkAddressSize = 1;
+    config.deviceFunctionType = 1;
+    config.pollTimeoutMs = 100;
+    config.t0Ms = 3000;
+    config.maxPollFrames = 8;
+    config.recordingMaxFileBytes = 1024;
+    return config;
 }
 
-void mockActiveDevice(int port) {
-    const auto listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listener == kInvalidSocket) {
-        throw std::runtime_error("cannot create mock active TCP listener");
-    }
-    int reuse = 1;
-#ifdef _WIN32
-    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
-        reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-#else
-    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#endif
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    address.sin_port = htons(static_cast<std::uint16_t>(port));
-    if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 ||
-        listen(listener, 1) != 0) {
-        closeSocket(listener);
-        throw std::runtime_error("cannot listen for mock active TCP client");
-    }
-    const auto socketHandle = accept(listener, nullptr, nullptr);
-    closeSocket(listener);
-    if (socketHandle == kInvalidSocket) {
-        throw std::runtime_error("mock active TCP accept failed");
-    }
-
-    const std::vector<std::uint8_t> acknowledge = {0x10, 0x20, 0x01, 0x21, 0x16};
-    receiveFrame(socketHandle);  // Reset communication.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // General interrogation.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // Class 1.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x2C, 0x01, 0x09, 0x01, 0x01, 0x64,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0xE9
-    }));
-
-    receiveFrame(socketHandle);  // Class 2, ACD advertises an event.
-    sendAll(socketHandle, acknowledge);
-    const auto lostRequest = receiveFrame(socketHandle);
-    const auto retryRequest = receiveFrame(socketHandle);
-    requireTrue(lostRequest == retryRequest, "lost event response must retry identical FCB");
-    sendAll(socketHandle, variableFrame({0x08,1,1,0x81,1,1,1,100,2,0x88,0x13,0,0,0}));
-    // The sink fails once. A later poll must flush that event before this request.
-    receiveFrame(socketHandle);
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);
-    sendAll(socketHandle, variableFrame({0x08,1,1,0x81,1,1,1,100,1,0x89,0x13,0,0,0}));
-
-    receiveFrame(socketHandle);  // Directory ASDU24.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // SOE interleaved in directory transfer.
-    sendAll(socketHandle, variableFrame({0x28,1,1,0x81,1,1,1,100,2,0x90,0x13,0,0,0}));
-    receiveFrame(socketHandle);  // Class 1 directory response.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x17, 0x01, 0x1F, 0x01, 0xFF, 0x00,
-        0x0F, 0x00, 0x01, 0x00, 0x00, 0x01, 0x02, 0x01, 0x01, 0x1A
-    }));
-
-    receiveFrame(socketHandle);  // CFG ASDU68.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // CFG class 1 response.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x51,
-        0x00, 0x80, 'C', 'F', 'G'
-    }));
-
-    receiveFrame(socketHandle);  // DAT ASDU68.
-    sendAll(socketHandle, acknowledge);
-    receiveFrame(socketHandle);  // DAT class 1 response.
-    sendAll(socketHandle, variableFrame({
-        0x08, 0x01, 0x50, 0x81, 0x14, 0x01, 0x01, 0x52,
-        0x00, 0x80, 0x01, 0x02, 0x03
-    }));
-    closeSocket(socketHandle);
-}
-
-void testRecordingAssociation(int scenario) {
-    using namespace edge_gateway;
-    const int port=availablePort();std::exception_ptr error;
-    std::thread device([&]{try{
-        const auto listener=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
-        sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);address.sin_port=htons(port);
-        requireTrue(bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))==0 && listen(listener,1)==0,"association mock listen");
-        const auto s=accept(listener,nullptr,nullptr);closeSocket(listener);
-        const std::vector<std::uint8_t> ack={0x10,0x20,1,0x21,0x16};
-        receiveFrame(s);sendAll(s,ack);receiveFrame(s);sendAll(s,ack);
-        receiveFrame(s);sendAll(s,variableFrame({0x08,1,0x2c,1,9,1,1,100,1,0,0,0,0,0xe9}));
-        auto directory=[&](bool recycled,bool partial){
-            auto f=receiveFrame(s);requireTrue(f.size()>6&&f[6]==24,"directory uses existing connection");sendAll(s,ack);
-            f=receiveFrame(s);requireTrue(f[0]==0x10&&(f[1]&15)==10,"class1 directory read");
-            if(scenario==3){std::this_thread::sleep_for(std::chrono::milliseconds(750));return;}
-            std::vector<std::uint8_t> reply={static_cast<std::uint8_t>(partial?0x28:0x08),1,23,1,31,1,255,0,
-                15,0,6,0x88,0x13,0,0,static_cast<std::uint8_t>(recycled?30:29),10,26};
-            if(scenario==4)reply[1]=2;
-            if(scenario==5)reply.push_back(0);
-            if(scenario==6)reply[5]=2;
-            if(scenario==7)reply[4]|=0x40;
-            sendAll(s,variableFrame(reply));
-        };
-        directory(false,scenario==2);
-        if(scenario>=2){closeSocket(s);return;}
-        auto f=receiveFrame(s);requireTrue(f[0]==0x10&&(f[1]&15)==11,"automatic directory refresh is throttled");
-        sendAll(s,variableFrame({0x08,1,2,0x81,1,1,1,101,2,25,0,15,0,0x88,0x13,0,0}));
-        directory(false,false);
-        for(int kind:{0x51,0x52}){
-            f=receiveFrame(s);requireTrue(f[6]==0x44,"only recording file request");sendAll(s,ack);
-            receiveFrame(s);sendAll(s,variableFrame({0x08,1,0x50,0x81,0x14,1,1,static_cast<std::uint8_t>(kind),0,0x80,1,2,3}));
+std::string onBits(const std::vector<IecDataValue>& values) {
+    std::string text;
+    for (const auto& value : values) {
+        if (value.typeId == 44 && value.value > 0.0) {
+            text += "INF" + std::to_string(value.informationNumber) + " ";
         }
-        directory(scenario==1,false);closeSocket(s);
-    }catch(...){error=std::current_exception();}});
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    const auto output=temporaryDirectory(port);
-    std::string cfg,dat;
-    try{
-        IecProtocolConfig c;c.transportMode="am5se_active_tcp";c.linkAddress=c.commonAddress=c.linkAddressSize=1;
-        c.deviceFunctionType=1;c.interrogationCot=9;c.pollTimeoutMs=1000;c.maxPollFrames=scenario==2?1:8;
-        c.soe.enabled=true;c.soe.recordingLinkEnabled=true;c.soe.recordingDirectoryTimeoutMs=500;c.soe.utcOffsetMinutes=0;
-        TcpTransportConfig tcp;tcp.host="127.0.0.1";tcp.port=port;tcp.connectTimeoutMs=1000;
-        Am5seIec103Client client(c,tcp);int snapshots=0,downloads=0;bool complete=false,success=true;
-        client.setSoeSink([](const std::vector<Iec103SoeEvent>&){});
-        client.setSoeRecordingSinks([&](const std::vector<Iec103DisturbanceRecord>&,bool done,bool ok,std::int64_t){++snapshots;complete=done;success=ok;},
-            [&](const Iec103DisturbanceRecord& r,const Iec103ComtradeFiles& files,std::int64_t){requireTrue(r.fan==15&&fileExists(files.cfgPath)&&fileExists(files.datPath),"download callback only after files exist");++downloads;});
-        const auto start=std::chrono::steady_clock::now();bool failed=false;
-        try{client.poll();}catch(...){failed=true;}
-        if(scenario>=4){
-            requireTrue(failed&&!success&&!complete&&snapshots==1,"invalid directory cannot certify a complete catalogue");
-        }else if(scenario==3){
-            requireTrue(failed&&!success&&snapshots==1,"directory timeout surfaced without negative association");
-            requireTrue(std::chrono::steady_clock::now()-start<std::chrono::milliseconds(1000),"directory has a total deadline including retries");
-        }else{
-            requireTrue(!failed&&snapshots==1&&success,"automatic startup directory snapshot");
-            requireTrue(complete==(scenario!=2),"directory completeness retained");
-            if(scenario<2){
-                client.poll();requireTrue(snapshots==1,"no repeated immediate automatic query");
-                const auto files=client.pullComtradeRecording(15,output,1000);cfg=files.cfgPath;dat=files.datPath;
-                requireTrue(snapshots==3,"download checks directory before and after");
-                requireTrue(downloads==(scenario==0?1:0),"recycled FAN cannot attach downloaded files");
-                requireTrue(cfg.find("FAN00015_")!=std::string::npos,"associated downloads use unique names");
-            }
-        }
-    }catch(...){device.join();if(!cfg.empty())std::remove(cfg.c_str());if(!dat.empty())std::remove(dat.c_str());removeTestOutput(output);throw;}
-    device.join();if(error)std::rethrow_exception(error);
-    if(!cfg.empty())std::remove(cfg.c_str());if(!dat.empty())std::remove(dat.c_str());removeTestOutput(output);
+    }
+    return text;
 }
 
-}  // namespace
+void verifyRoundTrip(Am5seIec103Client& client, Ft12TestStation& station, const std::string& output, std::size_t datBytes) {
+    const auto values = client.poll();
+    requireTrue(values.size() == 16, "general interrogation values");
+    requireTrue(values.front().informationNumber == 100 && values.front().value == 1.0, "ASDU44 value");
+    requireTrue(station.countUserData(0x07) == 1, "one GI after the link reset");
 
-int main() {
-    using namespace edge_gateway;
+    const auto records = client.listDisturbanceRecords(2000);
+    requireTrue(records.size() == 1 && records.front().fan == 15, "recording directory");
 
-#ifdef _WIN32
-    WSADATA data{};
-    WSAStartup(MAKEWORD(2, 2), &data);
-#endif
+    const auto files = client.pullComtradeRecording(15, output, 3000);
+    requireTrue(files.cfgBytes == 3 && files.datBytes == datBytes, "COMTRADE sizes");
+    requireTrue(fileExists(files.cfgPath) && fileExists(files.datPath), "COMTRADE files");
+}
+
+void verifyPassiveMode() {
+    Ft12TestStation station;
+    Am5seBehaviour behaviour;
+    behaviour.datPackets = 12;  // more class 1 requests than maxPollFrames
+    behaviour.eventsDuringDat = {asdu1(2), asdu1(1)};
+    station.onUserData = behaviour;
     const int port = availablePort();
-    std::exception_ptr mockError;
-    std::thread device([&] {
-        try {
-            mockDevice(port);
-        } catch (...) {
-            mockError = std::current_exception();
-        }
-    });
-
-    const auto output = temporaryDirectory(port);
+    TcpStation device(station);
+    device.connectTo(port);
+    const auto output = temporaryDirectory("passive");
     removeTestOutput(output);
     try {
-        IecProtocolConfig config;
+        auto config = baseConfig();
         config.transportMode = "am5se_passive_tcp";
         config.listenAddress = "127.0.0.1";
         config.listenPort = port;
         config.udpBindAddress = "127.0.0.1";
         config.udpBroadcastAddress = "127.0.0.1";
         config.udpPort = port + 1;
-        config.linkAddress = 1;
-        config.commonAddress = 1;
-        config.linkAddressSize = 1;
-        config.deviceFunctionType = 1;
-        config.interrogationCot = 9;
-        config.pollTimeoutMs = 1000;
-        config.t0Ms = 3000;
-        config.maxPollFrames = 8;
-        config.recordingMaxFileBytes = 1024;
-
         Am5seIec103Client client(config);
         std::vector<Iec103SoeEvent> soe;
-        client.setSoeSink([&](const std::vector<Iec103SoeEvent>& events){soe.insert(soe.end(),events.begin(),events.end());});
-        const auto values = client.poll();
-        requireTrue(soe.empty(), "general interrogation must not create SOE");
-        requireTrue(values.size() == 16, "passive TCP general interrogation values");
-        requireTrue(values.front().informationNumber == 100 && values.front().value == 1.0,
-            "passive TCP ASDU44 value");
-
-        const auto records = client.listDisturbanceRecords(1000);
-        requireTrue(records.size() == 1 && records.front().fan == 15, "passive TCP recording directory");
-
-        const auto files = client.pullComtradeRecording(15, output, 1000);
-        requireTrue(files.cfgBytes == 3 && files.datBytes == 36,
-            "passive TCP COMTRADE should continue beyond maxPollFrames");
-        requireTrue(fileExists(files.cfgPath) && fileExists(files.datPath),
-            "passive TCP COMTRADE files");
-        requireTrue(soe.size()==2 && soe[0].dpi==2 && soe[1].dpi==1 && soe[0].eventId!=soe[1].eventId,
-            "SOE action/return during recording must be retained in order");
+        client.setSoeSink([&](const std::vector<Iec103SoeEvent>& events) {
+            soe.insert(soe.end(), events.begin(), events.end());
+        });
+        verifyRoundTrip(client, station, output, 36);
+        requireTrue(soe.size() == 2 && soe[0].dpi == 2 && soe[1].dpi == 1 &&
+            soe[0].eventId != soe[1].eventId, "recording SOE action/return retained in order");
     } catch (...) {
-        if (device.joinable()) {
-            device.join();
-        }
+        device.stop();
         removeTestOutput(output);
         throw;
     }
-    device.join();
-    if (mockError) {
-        std::rethrow_exception(mockError);
-    }
+    device.stop();
     removeTestOutput(output);
+}
 
-    const int activePort = availablePort();
-    std::exception_ptr activeMockError;
-    std::thread activeDevice([&] {
-        try {
-            mockActiveDevice(activePort);
-        } catch (...) {
-            activeMockError = std::current_exception();
-        }
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    const auto activeOutput = temporaryDirectory(activePort);
-    removeTestOutput(activeOutput);
-    try {
-        IecProtocolConfig config;
+struct ActiveFixture {
+    Ft12TestStation station;
+    TcpStation device{station};
+    std::unique_ptr<Am5seIec103Client> client;
+
+    explicit ActiveFixture(Am5seBehaviour behaviour, IecProtocolConfig config = baseConfig()) {
+        station.onUserData = behaviour;
+        const int port = device.listen();
         config.transportMode = "am5se_active_tcp";
-        config.linkAddress = 1;
-        config.commonAddress = 1;
-        config.linkAddressSize = 1;
-        config.deviceFunctionType = 1;
-        config.interrogationCot = 9;
-        config.pollTimeoutMs = 1000;
-        config.maxPollFrames = 8;
-        config.recordingMaxFileBytes = 1024;
         TcpTransportConfig tcp;
         tcp.host = "127.0.0.1";
-        tcp.port = activePort;
+        tcp.port = port;
         tcp.connectTimeoutMs = 1000;
+        client.reset(new Am5seIec103Client(config, tcp));
+    }
 
-        Am5seIec103Client client(config, tcp);
-        std::vector<Iec103SoeEvent> soe;
-        std::string failedId;
-        int sinkAttempts = 0;
-        client.setSoeSink([&](const std::vector<Iec103SoeEvent>& events) {
-            if (++sinkAttempts == 1) {
-                failedId = events.at(0).eventId;
-                throw std::runtime_error("injected storage failure");
-            }
-            if (sinkAttempts == 2) requireTrue(events.at(0).eventId == failedId, "pending SOE ID retained");
-            soe.insert(soe.end(), events.begin(), events.end());
-        });
-        const auto values = client.poll();
-        requireTrue(values.size() == 16, "active TCP general interrogation values");
-        requireTrue(values.front().informationNumber == 100 && values.front().value == 1.0,
-            "active TCP ASDU44 value");
+    ~ActiveFixture() {
+        client.reset();
+        device.stop();
+    }
+};
 
-        bool storageFailed = false;
-        try { client.poll(); } catch (const std::runtime_error& error) {
-            storageFailed = std::string(error.what()) == "injected storage failure";
-        }
-        requireTrue(storageFailed && soe.empty(), "storage failure surfaced");
-        client.poll();
-        requireTrue(soe.size() == 2 && soe[0].dpi == 2 && soe[1].dpi == 1,
-            "ACD events and pending storage recovered in order");
-        const auto records = client.listDisturbanceRecords(1000);
-        requireTrue(records.size() == 1 && records.front().fan == 15, "active TCP recording directory");
-        requireTrue(soe.size() == 3, "SOE during directory transfer retained");
-
-        const auto files = client.pullComtradeRecording(15, activeOutput, 1000);
-        requireTrue(files.cfgBytes == 3 && files.datBytes == 3, "active TCP COMTRADE sizes");
-        requireTrue(fileExists(files.cfgPath) && fileExists(files.datPath),
-            "active TCP COMTRADE files");
+void verifyActiveMode() {
+    ActiveFixture fixture{Am5seBehaviour()};
+    const auto output = temporaryDirectory("active");
+    removeTestOutput(output);
+    try {
+        verifyRoundTrip(*fixture.client, fixture.station, output, 3);
     } catch (...) {
-        if (activeDevice.joinable()) {
-            activeDevice.join();
-        }
-        removeTestOutput(activeOutput);
+        removeTestOutput(output);
         throw;
     }
-    activeDevice.join();
-    if (activeMockError) {
-        std::rethrow_exception(activeMockError);
+    removeTestOutput(output);
+}
+
+// Finding 3: the code's adopted mapping of ASDU 1 DPI on a boolean point (1 -> 0, 2 -> 1, 0/3 bad
+// quality). It tests the code, not the AM5SE firmware semantics, which are still unverified.
+void verifyDoublePointChanges() {
+    ActiveFixture fixture{Am5seBehaviour()};
+    (void)fixture.client->poll();
+    PointDefinition breaker;
+    breaker.read.enable = true;
+    breaker.read.dataType = "bool";
+    breaker.read.iec.functionType = 1;
+    breaker.read.iec.informationNumber = 100;
+    breaker.read.iec.typeId = 44;
+    const int dpis[] = {2, 1, 3};
+    const double expected[] = {1.0, 0.0, 0.0};
+    for (int i = 0; i < 3; ++i) {
+        fixture.station.pushClass1(asdu1(dpis[i]));
+        const auto values = fixture.client->poll();
+        requireTrue(values.size() == 1 && values[0].typeId == 1 && values[0].doublePoint, "ASDU1 change received");
+        requireTrue(IecCodec::pointMatches(breaker, values[0]), "ASDU1 matches the ASDU44 signal point");
+        requireTrue(IecCodec::decodePointValue(breaker, values[0]).value == expected[i],
+            "DPI " + std::to_string(dpis[i]) + " mapped to " + std::to_string(expected[i]));
+        requireTrue((dpis[i] == 3) == IecCodec::holdsPreviousValue(breaker, values[0]) &&
+            (dpis[i] == 3) == (values[0].quality == 0), "DPI 3 holds the previous value with bad quality");
     }
-    removeTestOutput(activeOutput);
-    for(int scenario=0;scenario<8;++scenario)testRecordingAssociation(scenario);
+}
+
+// Finding 6: one late reply must not make every later poll return the previous answer.
+void verifyLateReplyRecovers() {
+    ActiveFixture fixture{Am5seBehaviour()};
+    (void)fixture.client->poll();
+    {
+        std::lock_guard<std::mutex> lock(fixture.station.mutex());
+        fixture.station.class2.push_back(asdu44(0x0002));
+        fixture.station.class2.push_back(asdu44(0x0004));
+        fixture.station.class2.push_back(asdu44(0x0008));
+        fixture.station.replyDelaysMs = {150, 150};  // > pollTimeoutMs (100 ms)
+    }
+    requireTrue(onBits(fixture.client->poll()) == "INF101 ", "poll 1 returns A");
+    requireTrue(onBits(fixture.client->poll()) == "INF102 ", "poll 2 returns B");
+    requireTrue(onBits(fixture.client->poll()) == "INF103 ", "poll 3 returns C");
+}
+
+// Finding 7: class 1 events during a COMTRADE transfer are delivered, and poll() does not
+// wait for the transfer.
+void verifyEventsDuringRecording() {
+    Am5seBehaviour behaviour;
+    behaviour.datPackets = 10;
+    behaviour.eventsDuringDat = {asdu1(2)};
+    ActiveFixture fixture{behaviour};
+    (void)fixture.client->poll();
+    {
+        std::lock_guard<std::mutex> lock(fixture.station.mutex());
+        for (int i = 0; i < 40; ++i) fixture.station.replyDelaysMs.push_back(25);
+    }
+    const auto output = temporaryDirectory("events");
+    removeTestOutput(output);
+    auto transfer = std::async(std::launch::async, [&] {
+        return fixture.client->pullComtradeRecording(15, output, 5000);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const auto pollStarted = ft12_test::steadyMs();
+    (void)fixture.client->poll();
+    requireTrue(ft12_test::steadyMs() - pollStarted < 80, "poll must not wait for the recording transfer");
+    const auto files = transfer.get();
+    removeTestOutput(output);
+    requireTrue(files.datBytes == 30, "DAT transferred around the event");
+    const auto events = fixture.client->drainBufferedValues();
+    requireTrue(events.size() == 1 && events[0].typeId == 1 && events[0].value == 2.0,
+        "the trip event received during the transfer must be delivered");
+}
+
+// Finding 7: after a link timeout the reset link starts over with a general interrogation.
+void verifyGiAfterLinkReset() {
+    ActiveFixture fixture{Am5seBehaviour()};
+    (void)fixture.client->poll();
+    {
+        std::lock_guard<std::mutex> lock(fixture.station.mutex());
+        fixture.station.dropRequests = 3;
+    }
+    bool failed = false;
+    try {
+        (void)fixture.client->poll();
+    } catch (const std::exception&) {
+        failed = true;
+    }
+    requireTrue(failed, "three lost replies fail the poll");
+    const auto values = fixture.client->poll();
+    requireTrue(fixture.station.countUserData(0x07) == 2, "GI repeated after the link reset");
+    requireTrue(values.size() == 16, "GI data after the link reset");
+}
+
+void verifySoePersistenceBackpressure() {
+    ActiveFixture fixture{Am5seBehaviour()};
+    std::vector<Iec103SoeEvent> stored;
+    bool fail = true;
+    std::string pendingId;
+    fixture.client->setSoeSink([&](const std::vector<Iec103SoeEvent>& events) {
+        if (fail) {
+            if (pendingId.empty()) pendingId = events.at(0).eventId;
+            requireTrue(events.at(0).eventId == pendingId, "retry keeps SOE identity");
+            throw std::runtime_error("injected storage failure");
+        }
+        stored.insert(stored.end(), events.begin(), events.end());
+    });
+    (void)fixture.client->poll();
+    requireTrue(stored.empty(), "GI is not spontaneous SOE");
+    fixture.station.pushClass1(asdu1(2));
+    fixture.station.pushClass1(asdu1(1));
+    for (int i = 0; i < 2; ++i) {
+        const auto before = fixture.station.requestCount();
+        bool failed = false;
+        try { fixture.client->poll(); }
+        catch (const std::runtime_error& e) { failed = std::string(e.what()) == "injected storage failure"; }
+        requireTrue(failed, "storage failure is surfaced");
+        if (i == 1) requireTrue(fixture.station.requestCount() == before,
+            "no request or FCB advancement until pending SOE is committed");
+    }
+    fail = false;
+    fixture.client->poll();
+    requireTrue(stored.size() == 2 && stored[0].eventId == pendingId &&
+        stored[0].dpi == 2 && stored[1].dpi == 1, "pending and next SOE committed once in order");
+}
+
+void verifyRecordingAssociation(int scenario) {
+    auto config = baseConfig();
+    config.soe.enabled = true;
+    config.soe.recordingLinkEnabled = true;
+    config.soe.recordingDirectoryTimeoutMs = 150;
+    config.soe.utcOffsetMinutes = 0;
+    if (scenario == 2) config.maxPollFrames = 1;
+    ActiveFixture fixture{Am5seBehaviour(), config};
+    fixture.client->poll();
+    fixture.client->poll(); // finish GI even with a one-frame poll budget
+    int directoryCalls = 0, snapshots = 0, downloads = 0;
+    bool complete = false, success = true;
+    std::vector<Iec103SoeEvent> soe;
+    fixture.client->setSoeSink([&](const std::vector<Iec103SoeEvent>& events) {
+        soe.insert(soe.end(), events.begin(), events.end());
+    });
+    {
+        std::lock_guard<std::mutex> lock(fixture.station.mutex());
+        fixture.station.onUserData = [&](const std::vector<std::uint8_t>& asdu, Ft12TestStation& station) {
+            if (asdu[0] != 24) { Am5seBehaviour()(asdu, station); return; }
+            ++directoryCalls;
+            if (scenario == 3) { station.dropRequests = 10; return; }
+            if (scenario == 4) station.address = 2;
+            std::vector<std::uint8_t> directory = {23,1,31,1,255,0,15,0,6,
+                0x88,0x13,0,0,static_cast<std::uint8_t>(scenario == 1 && directoryCalls == 3 ? 30 : 29),10,26};
+            if (scenario == 5) directory.push_back(0);
+            if (scenario == 6) directory[3] = 2;
+            if (scenario == 7) directory[2] |= 0x40;
+            if (scenario < 2) station.class1.push_back(asdu1(2));
+            station.class1.push_back(directory);
+            if (scenario == 2) station.class1.push_back(directory);
+        };
+    }
+    fixture.client->setSoeRecordingSinks(
+        [&](const std::vector<Iec103DisturbanceRecord>&, bool done, bool ok, std::int64_t) {
+            ++snapshots; complete = done; success = ok;
+        },
+        [&](const Iec103DisturbanceRecord& r, const Iec103ComtradeFiles& files, std::int64_t) {
+            requireTrue(r.fan == 15 && fileExists(files.cfgPath) && fileExists(files.datPath),
+                "association callback only after complete files");
+            ++downloads;
+        });
+    const auto start = ft12_test::steadyMs();
+    bool failed = false;
+    try { fixture.client->poll(); } catch (const std::exception&) { failed = true; }
+    if (scenario >= 3) {
+        requireTrue(failed && snapshots == 1 && !success && !complete,
+            "invalid/timeout directory cannot certify an association");
+        if (scenario == 3) requireTrue(ft12_test::steadyMs() - start < 450,
+            "total directory deadline also bounds retries");
+        return;
+    }
+    requireTrue(!failed && snapshots == 1 && success && complete == (scenario != 2),
+        "automatic catalogue records completeness");
+    if (scenario == 2) return;
+    fixture.client->poll();
+    requireTrue(snapshots == 1, "automatic refresh throttled");
+    const auto output = temporaryDirectory("association-" + std::to_string(scenario));
+    const auto files = fixture.client->pullComtradeRecording(15, output, 1000);
+    std::remove(files.cfgPath.c_str());
+    std::remove(files.datPath.c_str());
+    rmdir(output.c_str());
+    requireTrue(snapshots == 3 && downloads == (scenario == 0 ? 1 : 0),
+        "before/after directory identity prevents recycled FAN association");
+    requireTrue(soe.size() == 3, "SOE during each catalogue retained");
+    requireTrue(files.cfgPath.find("FAN00015_") != std::string::npos, "unique recording file name");
+}
+
+}  // namespace
+
+int main() {
+    try {
+        verifyPassiveMode();
+        verifyActiveMode();
+        verifyDoublePointChanges();
+        verifyLateReplyRecovers();
+        verifyEventsDuringRecording();
+        verifyGiAfterLinkReset();
+        verifySoePersistenceBackpressure();
+        for (int scenario = 0; scenario < 8; ++scenario) verifyRecordingAssociation(scenario);
+    } catch (const std::exception& ex) {
+        std::cerr << "AM5SE IEC103 integration test failed: " << ex.what() << std::endl;
+        return EXIT_FAILURE;
+    }
     std::cout << "AM5SE IEC103 passive and active TCP integration tests passed" << std::endl;
     return EXIT_SUCCESS;
 }

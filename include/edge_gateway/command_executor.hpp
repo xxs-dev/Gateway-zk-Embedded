@@ -42,6 +42,7 @@ private:
     void verifyWrite(
         const CommandRequest& request,
         const PointDefinition& point,
+        const std::vector<std::uint16_t>& encoded,
         std::int64_t nowMs
     ) const;
 

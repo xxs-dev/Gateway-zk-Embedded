@@ -1,4 +1,5 @@
 #include "edge_gateway/command_executor.hpp"
+#include "edge_gateway/dlt645_version.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -9,10 +10,55 @@
 #include <utility>
 
 #include "edge_gateway/modbus_codec.hpp"
+#include "edge_gateway/modbus_error.hpp"
 
 namespace edge_gateway {
 
 namespace {
+
+// The request reached the device side but no conclusive reply came back (timeout, broken reply,
+// lost connection, or an acknowledged write whose verification read failed). The device may have
+// executed it: report CommandResult.outcomeUnknown and never retry under a new cmdId.
+class WriteOutcomeUnknown : public std::runtime_error {
+public:
+    explicit WriteOutcomeUnknown(const std::string& message) : std::runtime_error(message) {}
+};
+
+// The device acknowledged the write (FC05/06/16 echo matched) but the verification read shows another
+// value. Not a definite failure: the device acted on the request in some way. Reported as
+// CommandResult.feedbackMismatch; never retried.
+class WriteFeedbackMismatch : public std::runtime_error {
+public:
+    explicit WriteFeedbackMismatch(const std::string& message) : std::runtime_error(message) {}
+};
+
+template <typename Write>
+void physicalWrite(Write write) {
+    try {
+        write();
+    } catch (const std::exception& ex) {
+        if (isWriteOutcomeUnknown(ex)) {
+            throw WriteOutcomeUnknown(std::string("write outcome unknown: ") + ex.what());
+        }
+        throw;
+    }
+}
+
+bool isFloatType(const std::string& dataType) {
+    return dataType == "float32" || dataType == "float64";
+}
+
+// Half a quantization step of the read decode: the readback cannot be closer to the written value.
+double readbackTolerance(const PointDefinition& point, double expected) {
+    const auto relative = 1e-9 * std::max(1.0, std::abs(expected));
+    if (point.read.dataType == "float32") {
+        return std::abs(expected) * 2.4e-7 + relative;
+    }
+    if (point.read.dataType == "float64") {
+        return relative;
+    }
+    return 0.5 * std::abs(point.read.scale) + relative;
+}
 
 bool isBitWrite(const PointDefinition& point) {
     return point.write.dataType == "bit" || point.write.dataType == "bool";
@@ -60,7 +106,7 @@ CommandExecutor::CommandExecutor(
         if (!gpioPort_) {
             throw std::invalid_argument("gpioPort is required");
         }
-    } else if (config_.protocol.type != "dlt645_2007" && !modbusClient_) {
+    } else if (!isDlt645Protocol(config_.protocol.type) && !modbusClient_) {
         throw std::invalid_argument("modbusClient is required");
     }
     store_.registerPoints(config_.machineCode, config_.meterCode, config_.points);
@@ -123,8 +169,8 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
             }
             return result;
         }
-        if (config_.protocol.type == "dlt645_2007") {
-            throw std::invalid_argument("unsupported write for dlt645_2007");
+        if (isDlt645Protocol(config_.protocol.type)) {
+            throw std::invalid_argument("unsupported write for " + config_.protocol.type);
         }
         const auto& point = findPoint(request.pointCode);
         result.index = point.index;
@@ -134,17 +180,34 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
         }
 
         const auto encoded = ModbusCodec::encodeWriteValue(request.value, point);
+        const bool verify = point.write.verifyAfterWrite && point.write.verifyByRead;
+        // Refuse an unverifiable configuration before writing, not after the device has acted.
+        if (verify && !point.read.enable) {
+            throw std::invalid_argument("verify requires read capability");
+        }
+        if (verify && (point.read.function < 1 || point.read.function > 4)) {
+            throw std::invalid_argument("unsupported verify read function");
+        }
         ModbusPriorityWriteGuard priority(modbusClient_);
         dispatchWrite(point, encoded, beforeWrite);
 
-        if (point.write.verifyAfterWrite && point.write.verifyByRead) {
+        if (verify) {
             result.verifyAttempted = true;
-            verifyWrite(request, point, nowMs);
+            verifyWrite(request, point, encoded, nowMs);
             result.verifyPassed = true;
         }
 
         result.success = true;
         result.message = "ok";
+    } catch (const WriteOutcomeUnknown& ex) {
+        result.success = false;
+        result.outcomeUnknown = true;
+        result.message = ex.what();
+    } catch (const WriteFeedbackMismatch& ex) {
+        result.success = false;
+        result.feedbackMismatch = true;
+        result.verifyPassed = false;
+        result.message = ex.what();
     } catch (const std::exception& ex) {
         result.success = false;
         result.message = ex.what();
@@ -204,29 +267,26 @@ void CommandExecutor::dispatchWrite(
     const std::vector<std::uint16_t>& encoded,
     const BeforePhysicalWrite& beforeWrite
 ) const {
+    const auto slave = config_.protocol.slave;
+    const auto address = writeAddressOf(point);
     switch (point.write.function) {
         case 5:
             if (encoded.size() != 1) {
                 throw std::invalid_argument("function 5 requires one coil value");
             }
-            modbusClient_->writeSingleCoil(config_.protocol.slave, writeAddressOf(point), encoded.front() != 0, beforeWrite);
+            physicalWrite([&] { modbusClient_->writeSingleCoil(slave, address, encoded.front() != 0, beforeWrite); });
             return;
-        case 6:
+        case 6: {
             if (encoded.size() != 1) {
                 throw std::invalid_argument("function 6 requires one register");
             }
-            if (isBitWrite(point)) {
-                modbusClient_->writeSingleRegister(
-                    config_.protocol.slave,
-                    writeAddressOf(point),
-                    mergeBitWrite(point, encoded.front() != 0), beforeWrite
-                );
-                return;
-            }
-            modbusClient_->writeSingleRegister(config_.protocol.slave, writeAddressOf(point), encoded.front(), beforeWrite);
+            // Read-modify-write of one bit happens before the write; a failure there is a plain failure.
+            const auto value = isBitWrite(point) ? mergeBitWrite(point, encoded.front() != 0) : encoded.front();
+            physicalWrite([&] { modbusClient_->writeSingleRegister(slave, address, value, beforeWrite); });
             return;
+        }
         case 16:
-            modbusClient_->writeMultipleRegisters(config_.protocol.slave, writeAddressOf(point), encoded, beforeWrite);
+            physicalWrite([&] { modbusClient_->writeMultipleRegisters(slave, address, encoded, beforeWrite); });
             return;
         default:
             throw std::invalid_argument("unsupported write function: " + std::to_string(point.write.function));
@@ -319,20 +379,14 @@ std::uint16_t CommandExecutor::mergeBitWrite(const PointDefinition& point, bool 
     if (registers.empty()) {
         throw std::runtime_error("register bit write readback returned no data");
     }
-
-    auto merged = registers.front();
-    const auto mask = static_cast<std::uint16_t>(1U << point.read.bit);
-    if (value) {
-        merged = static_cast<std::uint16_t>(merged | mask);
-    } else {
-        merged = static_cast<std::uint16_t>(merged & static_cast<std::uint16_t>(~mask));
-    }
-    return merged;
+    // The bit index is defined on the register as the read side decodes it (read.byteOrder).
+    return ModbusCodec::setRegisterBit(registers.front(), point.read.bit, value, point.read.byteOrder);
 }
 
 void CommandExecutor::verifyWrite(
     const CommandRequest& request,
     const PointDefinition& point,
+    const std::vector<std::uint16_t>& encoded,
     std::int64_t nowMs
 ) const {
     if (!point.read.enable) {
@@ -344,42 +398,61 @@ void CommandExecutor::verifyWrite(
     }
 
     std::vector<std::uint16_t> registers;
-    switch (point.read.function) {
-        case 1:
-            registers = modbusClient_->readCoils(
-                config_.protocol.slave,
-                point.address,
-                point.read.length
-            );
-            break;
-        case 2:
-            registers = modbusClient_->readDiscreteInputs(
-                config_.protocol.slave,
-                point.address,
-                point.read.length
-            );
-            break;
-        case 3:
-            registers = modbusClient_->readHoldingRegisters(
-                config_.protocol.slave,
-                point.address,
-                point.read.length
-            );
-            break;
-        case 4:
-            registers = modbusClient_->readInputRegisters(
-                config_.protocol.slave,
-                point.address,
-                point.read.length
-            );
-            break;
-        default:
-            throw std::invalid_argument("unsupported verify read function");
+    try {
+        switch (point.read.function) {
+            case 1:
+                registers = modbusClient_->readCoils(config_.protocol.slave, point.address, point.read.length);
+                break;
+            case 2:
+                registers = modbusClient_->readDiscreteInputs(config_.protocol.slave, point.address, point.read.length);
+                break;
+            case 3:
+                registers = modbusClient_->readHoldingRegisters(config_.protocol.slave, point.address, point.read.length);
+                break;
+            case 4:
+                registers = modbusClient_->readInputRegisters(config_.protocol.slave, point.address, point.read.length);
+                break;
+            default:
+                throw std::invalid_argument("unsupported verify read function");
+        }
+    } catch (const std::invalid_argument&) {
+        throw;
+    } catch (const std::exception& ex) {
+        // The device acknowledged the write; only the confirmation is missing.
+        throw WriteOutcomeUnknown(std::string("write acknowledged, verify read failed: ") + ex.what());
     }
 
     const auto decoded = ModbusCodec::decodeReadValue(registers, point);
-    if (std::abs(decoded.value - request.value) > 1e-6) {
-        throw std::runtime_error("verify failed");
+    // Compare against what was actually written (after scaling, rounding and float32 encoding), not the
+    // requested value: 230.7 written as float32 reads back as 230.699997.
+    bool matches = false;
+    double expected = request.value;
+    if (isBitWrite(point)) {
+        matches = (decoded.value != 0.0) == (request.value != 0.0);
+    } else {
+        const bool sameRegisters = (point.read.function == 3 || point.read.function == 4) &&
+            point.address == writeAddressOf(point) &&
+            registers.size() == encoded.size() &&
+            point.read.dataType == point.write.dataType &&
+            point.read.byteOrder == point.write.byteOrder;
+        if (sameRegisters && std::equal(registers.begin(), registers.end(), encoded.begin())) {
+            matches = true;
+        } else {
+            PointDefinition written = point;
+            written.read.dataType = point.write.dataType;
+            written.read.length = static_cast<int>(encoded.size());
+            written.read.byteOrder = point.write.byteOrder;
+            written.read.scale = point.write.scale;
+            written.read.offset = point.write.offset;
+            written.read.bit = -1;
+            expected = ModbusCodec::decodeReadValue(encoded, written).value;
+            matches = std::abs(decoded.value - expected) <= readbackTolerance(point, expected) ||
+                (isFloatType(point.read.dataType) && decoded.value == expected);
+        }
+    }
+    if (!matches) {
+        throw WriteFeedbackMismatch("verify failed: wrote " + std::to_string(expected) +
+                                    ", read back " + std::to_string(decoded.value));
     }
 
     PointValue value;

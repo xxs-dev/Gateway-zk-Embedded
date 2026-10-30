@@ -21,6 +21,7 @@
 #include <grp.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
 #endif
@@ -30,6 +31,10 @@ namespace edge_gateway {
 namespace {
 
 constexpr std::size_t kMaxCommandBytes = 8192;
+// A peer that connects and never sends (or never reads) must not hold the accept loop.
+constexpr int kCommandIoTimeoutMs = 2000;
+// The driver answers every request immediately; status polling must not hang on a stuck driver.
+constexpr int kClientIoTimeoutMs = 5000;
 constexpr std::size_t kMaxQueuedJobs = 32;
 constexpr std::size_t kMaxRememberedJobs = 128;
 
@@ -238,6 +243,16 @@ void ensureDirectory(const std::string& path) {
     }
 }
 
+void setIoTimeouts(int socketHandle, int timeoutMs) {
+    timeval timeout{};
+    timeout.tv_sec = timeoutMs / 1000;
+    timeout.tv_usec = (timeoutMs % 1000) * 1000;
+    if (setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        throw std::runtime_error("cannot set IEC103 recording command socket timeout");
+    }
+}
+
 void writeAll(int socketHandle, const std::string& value) {
     std::size_t written = 0;
     while (written < value.size()) {
@@ -257,6 +272,9 @@ std::string readLine(int socketHandle) {
         const auto count = recv(socketHandle, buffer, sizeof(buffer), 0);
         if (count < 0 && errno == EINTR) {
             continue;
+        }
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            throw std::runtime_error("IEC103 recording command read timeout");
         }
         if (count <= 0) {
             break;
@@ -297,6 +315,7 @@ int connectUnixSocket(const std::string& path) {
 Iec103RecordingJobStatus requestUnixSocket(const std::string& path, const std::string& request) {
     const auto socketHandle = connectUnixSocket(path);
     try {
+        setIoTimeouts(socketHandle, kClientIoTimeoutMs);
         writeAll(socketHandle, request);
         shutdown(socketHandle, SHUT_WR);
         const auto response = readLine(socketHandle);
@@ -504,6 +523,7 @@ public:
                 continue;
             }
             try {
+                setIoTimeouts(accepted, kCommandIoTimeoutMs);
                 const auto response = handleCommand(readLine(accepted));
                 writeAll(accepted, serializeStatus(response));
             } catch (const std::exception& ex) {

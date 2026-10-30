@@ -41,7 +41,7 @@
         {"index": 970000, "pointCode": "SIM_64501_ONLINE", "name": "设备在线状态", "enabled": true, "read": {"enable": true, "dataType": "device_online", "intervalMs": 500}, "write": {"enable": false}},
         {"index": 970001, "pointCode": "SIM_64501_ENERGY", "name": "正向有功总电能", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "00010000", "byteCount": 4}, "scale": 0.01, "unit": "kWh", "intervalMs": 500}, "write": {"enable": false}},
         {"index": 970002, "pointCode": "SIM_64501_VOLTAGE_A", "name": "A 相电压", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02010100", "byteCount": 2}, "scale": 0.1, "unit": "V", "intervalMs": 500}, "write": {"enable": false}},
-        {"index": 970003, "pointCode": "SIM_64501_CURRENT_A", "name": "A 相电流", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02020100", "byteCount": 3}, "scale": 0.001, "unit": "A", "intervalMs": 500}, "write": {"enable": false}}
+        {"index": 970003, "pointCode": "SIM_64501_CURRENT_A", "name": "A 相电流", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd_signed", "dlt645": {"di": "02020100", "byteCount": 3}, "scale": 0.001, "unit": "A", "intervalMs": 500}, "write": {"enable": false}}
       ]
     },
     {
@@ -53,7 +53,7 @@
         {"index": 980000, "pointCode": "SIM_64502_ONLINE", "name": "设备在线状态", "enabled": true, "read": {"enable": true, "dataType": "device_online", "intervalMs": 500}, "write": {"enable": false}},
         {"index": 980001, "pointCode": "SIM_64502_ENERGY", "name": "正向有功总电能", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "00010000", "byteCount": 4}, "scale": 0.01, "unit": "kWh", "intervalMs": 500}, "write": {"enable": false}},
         {"index": 980002, "pointCode": "SIM_64502_VOLTAGE_A", "name": "A 相电压", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02010100", "byteCount": 2}, "scale": 0.1, "unit": "V", "intervalMs": 500}, "write": {"enable": false}},
-        {"index": 980003, "pointCode": "SIM_64502_CURRENT_A", "name": "A 相电流", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd", "dlt645": {"di": "02020100", "byteCount": 3}, "scale": 0.001, "unit": "A", "intervalMs": 500}, "write": {"enable": false}}
+        {"index": 980003, "pointCode": "SIM_64502_CURRENT_A", "name": "A 相电流", "enabled": true, "read": {"enable": true, "dataType": "dlt645_bcd_signed", "dlt645": {"di": "02020100", "byteCount": 3}, "scale": 0.001, "unit": "A", "intervalMs": 500}, "write": {"enable": false}}
       ]
     }
   ]

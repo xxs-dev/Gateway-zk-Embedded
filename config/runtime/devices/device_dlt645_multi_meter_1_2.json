@@ -18,11 +18,11 @@
       "timeoutMs": 1000
     },
     "standardPointsFile": "config/templates/dlt645_2007_standard_points.json",
-    "standardPointsVersion": "1.1.0"
+    "standardPointsVersion": "1.3.0"
   },
   "dlt645": {
     "standardPointsFile": "config/templates/dlt645_2007_standard_points.json",
-    "standardPointsVersion": "1.1.0"
+    "standardPointsVersion": "1.3.0"
   },
   "collect": {
     "defaultIntervalMs": 1000,

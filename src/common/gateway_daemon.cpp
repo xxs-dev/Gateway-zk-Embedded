@@ -1,4 +1,5 @@
 #include "edge_gateway/gateway_daemon.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
 
@@ -23,6 +24,9 @@ namespace {
 
 constexpr int kStoreHeartbeatIntervalMs = 5000;
 constexpr int kStoreExpirySweepIntervalMs = 5000;
+// Upper bound for one idle sleep of the collect loop, so lease changes and due work are noticed
+// even when the configured interval is long.
+constexpr int kMaxCollectSleepMs = 1000;
 
 std::string escapeJson(const std::string& value) {
     std::string out;
@@ -40,9 +44,17 @@ std::string escapeJson(const std::string& value) {
     return out;
 }
 
+// Wall clock: timestamps only.
 std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
+// Monotonic clock: loop deadlines and sleeps, immune to NTP or manual clock steps.
+std::int64_t steadyMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
     ).count();
 }
 
@@ -158,7 +170,7 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
     }
 
     std::vector<PointDefinition> dlt645StandardPoints;
-    if (config.protocol.type == "dlt645_2007" && !config.protocol.standardPointsFile.empty()) {
+    if (isDlt645Protocol(config.protocol.type) && !config.protocol.standardPointsFile.empty()) {
         dlt645StandardPoints = ConfigLoader::loadDlt645StandardPointsFromFile(config.protocol.standardPointsFile);
     }
 
@@ -175,12 +187,12 @@ std::vector<DeviceConfig> expandRuntimeConfigs(const DeviceConfig& config) {
         item.deviceName = logicalDevice.deviceName;
         item.address = logicalDevice.address;
         item.protocol.slave = logicalDevice.slave;
-        item.points = logicalDevice.points.empty() ? dlt645StandardPoints : logicalDevice.points;
-        if (config.protocol.type == "dlt645_2007" && logicalDevice.points.empty()) {
-            const std::uint32_t indexBase = 200000U + static_cast<std::uint32_t>(meterIndex) * 10000U;
-            for (std::size_t i = 0; i < item.points.size(); ++i) {
-                item.points[i].index = indexBase + static_cast<std::uint32_t>(i);
-            }
+        if (isDlt645Protocol(config.protocol.type)) {
+            item.points = expandDlt645MeterPoints(config, meterIndex, dlt645StandardPoints);
+            // The template is checked without per-meter read-back targets; check the meter as run.
+            validateDlt645PointList(item.points, "meter " + item.meterCode, dlt645VersionOf(config.protocol.type));
+        } else {
+            item.points = logicalDevice.points;
         }
         item.meters.clear();
         expanded.push_back(item);
@@ -298,7 +310,9 @@ bool GatewayDaemon::isRunning() const {
 
 void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
     collectionWorkDeferred_ = false;
-    collectionNextDelayMs_ = 0;
+    if (roundVisited_ == 0) {
+        collectionWakeAtMs_ = 0;
+    }
     if (runtimeDevices_.empty()) {
         return;
     }
@@ -319,11 +333,12 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
             const auto result = runtimeDevice.collector->collectOnce(nowMsValue, realtimeFocused);
             collectionWorkDeferred_ = collectionWorkDeferred_ || result.workDeferred;
             if (result.nextDelayMs > 0) {
-                collectionNextDelayMs_ = collectionNextDelayMs_ > 0
-                    ? std::min(collectionNextDelayMs_, result.nextDelayMs) : result.nextDelayMs;
+                const auto wakeAtMs = steadyMs() + result.nextDelayMs;
+                collectionWakeAtMs_ = collectionWakeAtMs_ > 0 ? std::min(collectionWakeAtMs_, wakeAtMs) : wakeAtMs;
             }
         } catch (const std::exception& ex) {
-            runtimeDevice.collector->publishDeviceOnlineStatus(false, nowMsValue);
+            // The collector applies its own failure thresholds; one failed cycle is not offline.
+            runtimeDevice.collector->publishDeviceOnlineStatus(runtimeDevice.collector->deviceOnline(), nowMsValue);
             std::cerr << "collect failed"
                       << " device=" << runtimeDevice.config.meterCode
                       << " slave=" << runtimeDevice.config.protocol.slave
@@ -345,6 +360,7 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
         collectDevice(index, true);
     }
     if (!activeIndexes.empty()) {
+        roundVisited_ = 0;
         std::size_t attempts = 0;
         while (attempts < runtimeDevices_.size()) {
             const auto index = collectCursor_ % runtimeDevices_.size();
@@ -369,6 +385,14 @@ void GatewayDaemon::collectOnce(std::int64_t nowMsValue) {
             continue;
         }
         collectDevice(index, false);
+    }
+    // A batch covers only part of the meters: finish the round before sleeping, otherwise meters
+    // outside this batch would wait a whole loop interval although the bus is idle.
+    roundVisited_ += collectedIndexes.size();
+    if (roundVisited_ < runtimeDevices_.size()) {
+        collectionWorkDeferred_ = true;
+    } else {
+        roundVisited_ = 0;
     }
 }
 
@@ -449,7 +473,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
         const auto startedAt = nowMs();
         const auto commandNowMs = currentTime();
         auto writebackResult = beginWritebackResult(command, startedAt);
-        if (isPendingWriteExpired(command, commandNowMs, maxAgeMs)) {
+        if (isPendingWriteExpired(command, pendingWriteMonotonicNowMs(), maxAgeMs)) {
             // Never execute a stale setpoint late (e.g. queued while this daemon was down).
             const auto message = "pending write expired before execution (memoryStore.pendingWriteMaxAgeMs=" +
                 std::to_string(maxAgeMs) + ")";
@@ -545,7 +569,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                 auto guard = clusterGuard ? std::make_shared<ClusterWriteGuard>(config_.emsCluster) : nullptr;
                 beforeWrite = [&, guard] {
                     if (guard) guard->check(command);
-                    if (isPendingWriteExpired(command, currentTime(), maxAgeMs)) {
+                    if (isPendingWriteExpired(command, pendingWriteMonotonicNowMs(), maxAgeMs)) {
                         expiredBeforeSend = true;
                         throw std::runtime_error("pending write expired before physical send");
                     }
@@ -561,9 +585,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                     command, startedAt, [&] {
                         const auto result = executePending();
                         auto receipt = beginWritebackResult(command, startedAt);
-                        completeWritebackResult(receipt, result.success, result.message,
-                            result.success ? "writeback-succeeded" : "writeback-failed", nowMs(),
-                            result.verifyAttempted, result.verifyPassed);
+                        completeWritebackFromCommand(receipt, result, expiredBeforeSend, nowMs());
                         return receipt;
                     });
             } catch (const std::exception& ex) {
@@ -581,16 +603,10 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             const auto result = executePending();
             const auto& runtimeDevice = runtimeDevices_[it->second];
             if (!result.success) {
-                const auto completedAt = nowMs();
-                completeWritebackResult(
-                    writebackResult,
-                    false,
-                    result.message,
-                    expiredBeforeSend ? "expired" : "writeback-failed",
-                    completedAt,
-                    result.verifyAttempted,
-                    result.verifyPassed
-                );
+                // Definite failure, feedback mismatch or no conclusive reply: the receipt keeps the
+                // cause (stage) and the executor message; the latter two are outcome unknown.
+                completeWritebackFromCommand(writebackResult, result, expiredBeforeSend, nowMs());
+                const auto stage = writebackResult.stage;
                 store_.recordWritebackResult(writebackResult);
                 std::cerr << "writeback failed"
                           << " device=" << runtimeDevice.config.meterCode
@@ -599,7 +615,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                           << " error=" << result.message
                           << std::endl;
                 publishStatusEvent(
-                    expiredBeforeSend ? "expired" : "writeback-failed",
+                    stage,
                     commandNowMs,
                     std::string(R"("meterCode":")") + runtimeDevice.config.meterCode +
                         R"(","index":)" + std::to_string(command.index) +
@@ -670,43 +686,47 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
 
 void GatewayDaemon::collectLoop() {
     const auto intervalMs = collectLoopIntervalMs();
-    auto nextDeadline = nowMs() + intervalMs;
+    auto nextDeadline = steadyMs() + intervalMs;
     std::int64_t lastStoreHeartbeatMs = 0;
     std::int64_t lastExpirySweepMs = 0;
     while (running_.load()) {
-        collectionWorkDeferred_ = false;
-        collectionNextDelayMs_ = 0;
         try {
             const auto ts = nowMs();
-            if (lastStoreHeartbeatMs <= 0 || ts - lastStoreHeartbeatMs >= kStoreHeartbeatIntervalMs) {
+            const auto tick = steadyMs();
+            if (lastStoreHeartbeatMs <= 0 || tick - lastStoreHeartbeatMs >= kStoreHeartbeatIntervalMs) {
                 store_.heartbeatRegisteredPoints(ts);
-                lastStoreHeartbeatMs = ts;
+                lastStoreHeartbeatMs = tick;
             }
             if (!priorityControlBlocked(ts)) {
                 collectOnce(ts);
-                if (lastExpirySweepMs <= 0 || ts - lastExpirySweepMs >= kStoreExpirySweepIntervalMs) {
+                if (lastExpirySweepMs <= 0 || tick - lastExpirySweepMs >= kStoreExpirySweepIntervalMs) {
                     store_.removeExpired(ts);
-                    lastExpirySweepMs = ts;
+                    lastExpirySweepMs = tick;
                 }
+            } else {
+                collectionWorkDeferred_ = false;
             }
         } catch (...) {
+            collectionWorkDeferred_ = false;
         }
         if (collectionWorkDeferred_) {
             sleepInterruptibly(running_, 1);
-            nextDeadline = nowMs() + intervalMs;
+            nextDeadline = steadyMs() + intervalMs;
             continue;
         }
-        const auto afterCollection = nowMs();
-        auto remaining = static_cast<int>(nextDeadline - afterCollection);
-        if (collectionNextDelayMs_ > 0 && collectionNextDelayMs_ < remaining) {
-            remaining = collectionNextDelayMs_;
-            nextDeadline = afterCollection + remaining;
+        const auto afterCollection = steadyMs();
+        auto remaining = static_cast<int>(std::max<std::int64_t>(0, nextDeadline - afterCollection));
+        if (collectionWakeAtMs_ > 0) {
+            remaining = static_cast<int>(std::min<std::int64_t>(
+                remaining, std::max<std::int64_t>(0, collectionWakeAtMs_ - afterCollection)));
         }
-        sleepInterruptibly(running_, std::max(1, remaining));
-        nextDeadline += intervalMs;
-        const auto now = nowMs();
-        if (nextDeadline < now) {
-            nextDeadline = now + intervalMs;
+        sleepInterruptibly(running_, std::min(kMaxCollectSleepMs, std::max(1, remaining)));
+        const auto now = steadyMs();
+        if (now >= nextDeadline) {
+            nextDeadline += intervalMs;
+            if (nextDeadline < now) {
+                nextDeadline = now + intervalMs;
+            }
         }
     }
 }
@@ -800,17 +820,17 @@ void GatewayDaemon::persistLoop() {
 
 void GatewayDaemon::writebackLoop() {
     const auto intervalMs = std::max(100, config_.memoryStore.writebackIntervalMs);
-    auto nextDeadline = nowMs() + intervalMs;
+    auto nextDeadline = steadyMs() + intervalMs;
     while (running_.load()) {
         try {
             const auto ts = nowMs();
             processWritebackOnce(ts);
         } catch (...) {
         }
-        const auto remaining = static_cast<int>(nextDeadline - nowMs());
-        sleepInterruptibly(running_, std::max(1, remaining));
+        const auto remaining = static_cast<int>(std::max<std::int64_t>(0, nextDeadline - steadyMs()));
+        sleepInterruptibly(running_, std::min(intervalMs, std::max(1, remaining)));
         nextDeadline += intervalMs;
-        const auto now = nowMs();
+        const auto now = steadyMs();
         if (nextDeadline < now) {
             nextDeadline = now + intervalMs;
         }
@@ -825,7 +845,7 @@ void GatewayDaemon::publishStatusEvent(
     if (!mqttPublisher_) {
         return;
     }
-    const auto serviceName = config_.protocol.type == "dlt645_2007"
+    const auto serviceName = isDlt645Protocol(config_.protocol.type)
         ? "dlt645-daemon"
         : config_.protocol.type == "local_dio"
             ? "dio-daemon"

@@ -1,5 +1,7 @@
 #include "edge_gateway/memory_point_store.hpp"
 #include "../src/memory_point_store_layout_v10.hpp"
+#include "../src/memory_point_store_layout.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <iostream>
 #include <memory>
@@ -167,9 +169,145 @@ void incompatibleSegmentIsNeverResized() {
 #endif
 }
 
+// Queued writes carry the producer's CLOCK_MONOTONIC stamp; the age check uses only that stamp.
+void monotonicStampCrossesSharedQueue() {
+    using namespace edge_gateway;
+    const auto name = "shm11_stamp_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/" + name).c_str()); } } cleanup{name};
+    MemoryPointStore store(name);
+    PendingWriteCommand command;
+    command.index = 77;
+    command.cmdId = "stamped";
+    command.acceptedAt = 1;  // wall time from another epoch: irrelevant to the age
+    store.submitWriteCommand(command);
+    const auto peeked = store.peekPendingWriteCommands();
+    require(peeked.size() == 1 && peeked.front().acceptedMonotonicMs != 0, "the producer must stamp an unstamped write");
+    const auto age = pendingWriteAgeMs(peeked.front(), pendingWriteMonotonicNowMs());
+    require(age >= 0 && age < 1000, "a just-queued write must be fresh");
+    require(!isPendingWriteExpired(peeked.front(), pendingWriteMonotonicNowMs(), 10000), "fresh write expired");
+    const auto pid = fork();
+    require(pid >= 0, "fork consumer");
+    if (pid == 0) {
+        // CLOCK_MONOTONIC is system-wide: another process measures the same age.
+        try {
+            MemoryPointStore consumer(name, MemoryStoreOpenMode::OpenExisting);
+            const auto drained = consumer.drainPendingWriteCommands();
+            const auto childAge = drained.size() == 1 ? pendingWriteAgeMs(drained.front(), pendingWriteMonotonicNowMs()) : -1;
+            _exit(childAge >= 0 && childAge < 1000 ? 0 : 1);
+        } catch (...) { _exit(1); }
+    }
+    int status = 0;
+    require(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+            "another process must see the producer's stamp as fresh");
+    command.acceptedMonotonicMs = 12345;
+    store.submitWriteCommand(command);
+    require(store.drainPendingWriteCommands().front().acceptedMonotonicMs == 12345, "an explicit stamp must be kept");
+
+    PendingWriteCommand probe;
+    require(isPendingWriteExpired(probe, 5000, 10000), "an unstamped write must never run");
+    require(!isPendingWriteExpired(probe, 5000, 0), "maxAge 0 disables expiry");
+    probe.acceptedMonotonicMs = 0xFFFFFF00u;
+    require(pendingWriteAgeMs(probe, 0x00000010u) == 0x110 && !isPendingWriteExpired(probe, 0x00000010u, 10000),
+            "the age must survive the 32-bit wrap");
+    probe.acceptedMonotonicMs = 1000;
+    require(isPendingWriteExpired(probe, 1000 + 10001, 10000), "older than maxAge expires");
+    require(!isPendingWriteExpired(probe, 1000 + 10000, 10000), "exactly maxAge is still valid");
+    require(isPendingWriteExpired(probe, 1000 - 10001 + 0x100000000ull, 10000),
+            "a stamp ahead of now by more than maxAge (not this boot) expires");
+}
+
+// A slot queued by a release that does not stamp has occupied=1 and arbitrary padding where the stamp
+// now lives. Even a padding value that looks like a fresh stamp must never make such a command run.
+void unstampedSlotIsNeverTrusted() {
+    using namespace edge_gateway;
+    namespace layout = edge_gateway::memory_layout;
+    const auto name = "shm11_unstamped_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/" + name).c_str()); } } cleanup{name};
+    MemoryPointStore store(name);
+    PendingWriteCommand command;
+    command.index = 78;
+    command.cmdId = "queued-by-old-release";
+    store.submitWriteCommand(command);
+    const int fd = shm_open(("/" + name).c_str(), O_RDWR, 0);
+    require(fd >= 0, "map segment");
+    void* base = mmap(nullptr, sizeof(layout::SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    require(base != MAP_FAILED, "mmap segment");
+    auto* mapped = static_cast<layout::SharedStoreLayout*>(base);
+    auto& slot = mapped->pendingWrites[mapped->header.pendingWriteHead];
+    require(slot.occupied == layout::kPendingSlotStamped && slot.acceptedMonotonicMs != 0,
+            "a stamping producer marks its slot stamped");
+    const auto freshLooking = pendingWriteMonotonicNowMs();
+    slot.occupied = layout::kPendingSlotUnstamped;  // what every earlier release writes
+    slot.acceptedMonotonicMs = freshLooking;       // padding that happens to look fresh
+    const auto peeked = store.peekPendingWriteCommands();
+    require(peeked.size() == 1 && peeked.front().acceptedMonotonicMs == 0,
+            "the padding of an unstamped slot must never be read as a stamp");
+    require(isPendingWriteExpired(peeked.front(), freshLooking, 10000), "an unstamped write must expire");
+    munmap(base, sizeof(layout::SharedStoreLayout));
+    const auto drained = store.drainPendingWriteCommands();
+    require(drained.size() == 1 && drained.front().acceptedMonotonicMs == 0, "drain decodes the same way as peek");
+}
+
+// Receipts are marked occupied=2 when stage and flags follow writeback_outcome.hpp. A receipt from an
+// earlier release (occupied=1) only knows success and the stage; its writeback-failed also covered a
+// request sent without a conclusive reply and a read-back mismatch, so it must never read as a definite,
+// retry-safe failure. Stages that never reach a device stay definite failures.
+void legacyReceiptsNeverReadAsDefiniteFailure() {
+    using namespace edge_gateway;
+    namespace layout = edge_gateway::memory_layout;
+    const auto name = "shm11_receipt_" + std::to_string(getpid());
+    struct Cleanup { std::string name; ~Cleanup() { shm_unlink(("/" + name).c_str()); } } cleanup{name};
+    MemoryPointStore store(name);
+    const auto record = [&](const std::string& cmdId, const std::string& stage, bool success) {
+        WritebackResultRecord result;
+        result.cmdId = cmdId;
+        result.index = 91;
+        result.stage = stage;
+        result.success = success;
+        store.recordWritebackResult(result);
+    };
+    record("NEW_FAILED", "writeback-failed", false);
+    record("OLD_FAILED", "writeback-failed", false);
+    record("OLD_EXPIRED", "expired", false);
+    record("OLD_REJECTED", "control-rejected", false);
+    record("OLD_OK", "writeback-succeeded", true);
+    const int fd = shm_open(("/" + name).c_str(), O_RDWR, 0);
+    require(fd >= 0, "map segment");
+    void* base = mmap(nullptr, sizeof(layout::SharedStoreLayout), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    require(base != MAP_FAILED, "mmap segment");
+    auto* mapped = static_cast<layout::SharedStoreLayout*>(base);
+    for (auto head = mapped->header.writebackResultHead; head != mapped->header.writebackResultTail;
+         head = (head + 1) % layout::kMaxWritebackResultSlots) {
+        auto& slot = mapped->writebackResults[head];
+        require(slot.occupied == layout::kReceiptSlotThreeState, "receipts are written three-state");
+        if (std::string(slot.cmdId).compare(0, 4, "OLD_") == 0) slot.occupied = layout::kReceiptSlotLegacy;
+    }
+    munmap(base, sizeof(layout::SharedStoreLayout));
+    const auto outcome = [&](const std::string& cmdId) {
+        const auto found = store.getWritebackResult(cmdId, 91);
+        require(static_cast<bool>(found), "receipt " + cmdId);
+        std::string recent;
+        for (const auto& item : store.recentWritebackResults(91, 20)) {
+            if (item.cmdId == cmdId) recent = writebackOutcome(item);
+        }
+        require(recent == writebackOutcome(*found), "both decode paths agree for " + cmdId);
+        return std::string(writebackOutcome(*found)) + "/" + found->stage;
+    };
+    require(outcome("NEW_FAILED") == "failed/writeback-failed", "a three-state writeback-failed is definite");
+    require(outcome("OLD_FAILED") == "unknown/writeback-failed", "a legacy writeback-failed may have taken effect");
+    require(outcome("OLD_EXPIRED") == "failed/expired", "a legacy expired never reached a device");
+    require(outcome("OLD_REJECTED") == "failed/control-rejected", "a legacy control-rejected never reached a device");
+    require(outcome("OLD_OK") == "succeeded/writeback-succeeded", "a legacy success stays a success");
+}
+
 int main() {
     try {
 #ifndef _WIN32
+        monotonicStampCrossesSharedQueue();
+        legacyReceiptsNeverReadAsDefiniteFailure();
+        unstampedSlotIsNeverTrusted();
         incompatibleSegmentIsNeverResized();
         legacySegmentIsRejectedWithoutMutation();
         authorizationSurvivesSharedQueue();

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocol": {
+    "type": "dlt645_1997",
+    "transport": {
+      "serialPort": "/dev/ttyS2",
+      "baudRate": 1200,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "E",
+      "timeoutMs": 1500,
+      "frameIntervalMs": 200,
+      "readRetryCount": 1,
+      "wakeupBytes": 4
+    },
+    "standardPointsFile": "config/templates/dlt645_1997_standard_points.json",
+    "standardPointsVersion": "1.0.0"
+  },
+  "dlt645": {
+    "standardPointsFile": "config/templates/dlt645_1997_standard_points.json",
+    "standardPointsVersion": "1.0.0",
+    "autoIndexBase": 300000,
+    "timeSync": {
+      "enabled": false,
+      "intervalMs": 86400000
+    },
+    "write": {
+      "enabled": false
+    }
+  },
+  "collect": {
+    "defaultIntervalMs": 1000
+  },
+  "memoryStore": {
+    "enabled": true,
+    "backend": "memory",
+    "keepHistory": 100,
+    "defaultTtlMs": 600000,
+    "indexBy": [
+      "machineCode",
+      "meterCode",
+      "pointCode"
+    ],
+    "sharedMemoryName": "gateway_point_store_ttyS2",
+    "maxLatestPoints": 100000,
+    "maxPendingWrites": 4096,
+    "maxPersistentSamples": 20000,
+    "sqlitePath": "/opt/modbus-gateway/data/point_samples_ttyS2.db",
+    "sqliteLibraryPath": "",
+    "persistFlushIntervalMs": 60000,
+    "writebackIntervalMs": 500,
+    "writebackBatchSize": 100
+  },
+  "meters": [
+    {
+      "meterCode": "METER1997_01",
+      "deviceName": "DL/T 645-1997 电表 1",
+      "address": "000000000011",
+      "points": []
+    },
+    {
+      "meterCode": "METER1997_02",
+      "deviceName": "DL/T 645-1997 电表 2",
+      "address": "000000000012",
+      "points": []
+    }
+  ]
+}

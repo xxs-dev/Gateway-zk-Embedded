@@ -22,14 +22,30 @@ struct CanSignalSpec {
     std::string frameId;
     bool extended = false;
     int dlc = 8;
+    // Signal position, see doc/协议与驱动/CAN接口接入设计.md: little = Intel (LSB at byteOffset, bitOffset
+    // counted from the byte's LSB); big = Motorola (MSB at byteOffset, bitOffset counted from the byte's MSB).
     int byteOffset = 0;
     int bitOffset = 0;
     int bitLength = 0;
-    std::string bitOrder = "lsb0";
-    std::string endian = "little";
+    std::string bitOrder = "lsb0";  // only "lsb0" is accepted (rejected otherwise at load time)
+    std::string endian = "little";  // "little" or "big"
     int receiveTimeoutMs = 5000;
     bool receiveTimeoutExplicit = false;
     bool remoteRequest = false;
+    // Read: raw (unscaled, unsigned) bit patterns that mean "not available", e.g. 0xFFFF in J1939.
+    std::vector<std::uint64_t> invalidRawValues;
+    // Write: initial content of the frame's payload mirror (hex, dlc bytes); empty = all zero.
+    std::string payloadTemplate;
+    // Write: send this frame as CAN FD (needs protocol.can.fdEnabled); default classic CAN.
+    bool fd = false;
+    // Write: one-shot command bit (start/reset/clear fault). The commanded value goes out in one
+    // frame only; the frame mirror then holds pulseIdleValue, so later frames never repeat it.
+    bool pulse = false;
+    double pulseIdleValue = 0.0;
+    // Write: payloadTemplate is a safe state of the device, so the frame may start from it when no
+    // trusted requested state exists. Default false: such a frame only accepts a write of all its
+    // non-pulse signals together until a requested state is recorded. Same on every signal of a frame.
+    bool templateSafe = false;
 };
 
 struct IecPointSpec {
@@ -39,6 +55,9 @@ struct IecPointSpec {
     int commonAddress = 0;
     int functionType = -1;
     int informationNumber = -1;
+    // Element inside a multi-element object: IEC 103 ASDU 3/9 measurand position,
+    // IEC 101/104 type 20 status bit. 0 for single-element objects.
+    int elementIndex = 0;
     std::string valueKind;
     bool selectBeforeExecute = false;
     bool waitActivationTermination = false;
@@ -52,6 +71,20 @@ struct Dlt645WriteSpec {
     int byteCount = 0;
     int unit = 2;
     std::string fixedDataHex;
+    // Read-back confirmation (requires write.verifyAfterWrite && write.verifyByRead), exactly one of:
+    //  - verifyPointCode: a readable DL/T 645 point of the same meter, read from the meter;
+    //  - verifyIndex: a point of another device on this gateway (e.g. a DIO auxiliary contact),
+    //    read from the shared point store; only values collected after the command count.
+    // verifyValue: the value it must show once the command took effect (unset: the written value;
+    // required for verifyIndex and for trip/close). Polled for verifyTimeoutMs after 94H.
+    std::string verifyPointCode;
+    std::uint32_t verifyIndex = 0;
+    Optional<double> verifyValue;
+    int verifyTimeoutMs = 3000;
+    // dlt645_remote_control (DL/T 645-2007 C=1CH, no DI): trip, close_permit, close, alarm,
+    // alarm_release, keep_power, keep_power_release; the command stays valid for validitySeconds.
+    std::string controlType;
+    int validitySeconds = 300;
 };
 
 struct ReadSpec {
@@ -74,7 +107,8 @@ struct ReadSpec {
     int debounceMs = 0;
     std::string dlt645Di;
     int dlt645ByteCount = 0;
-    std::string dlt645Decoder;
+    // Byte offset of this value inside the DI's data (block reads such as 0201FF00).
+    int dlt645Offset = 0;
     CanSignalSpec can;
     IecPointSpec iec;
     CachePolicy cachePolicy;
@@ -97,6 +131,19 @@ struct WriteSpec {
     bool verifyAfterWrite = false;
     int verifyDelayMs = 200;
     bool verifyByRead = true;
+    // local_dio DO: action confirmed by a feedback DI (auxiliary contact) at gateway index
+    // verifyIndex within verifyTimeoutMs. verifyValue: feedback value while the output state is 1
+    // (unset: 1, a normally-open contact; 0: normally closed); output 0 expects the opposite.
+    std::uint32_t verifyIndex = 0;
+    Optional<double> verifyValue;
+    int verifyTimeoutMs = 3000;
+    // Continuous "output state vs contact feedback" supervision of a DO with verifyIndex: after a
+    // change of the output (grace: verifyTimeoutMs) a mismatch lasting feedbackAlarmDelayMs raises
+    // the alarm, agreement lasting feedbackRecoveryMs clears it. feedbackAlarmIndex: optional
+    // local_dio point (read.dataType "feedback_alarm") carrying the alarm state 0/1.
+    int feedbackAlarmDelayMs = 2000;
+    int feedbackRecoveryMs = 2000;
+    std::uint32_t feedbackAlarmIndex = 0;
     Dlt645WriteSpec dlt645;
     CanSignalSpec can;
     IecPointSpec iec;
@@ -122,7 +169,11 @@ struct ModbusNorthboundMappingConfig {
     std::string byteOrder = "AB";
     bool writeEnabled = false;
     int writeFunction = 6;
-    std::string stalePolicy = "exception";
+    // What a read returns for a value that is missing, bad quality, stale or not encodable in
+    // dataType: "sentinel" (default; the sentinel raw value, or the dataType's "not available"
+    // marker) or "hold" (the last valid value served since start, sentinel before that).
+    std::string onInvalid = "sentinel";
+    Optional<double> sentinel;
 };
 
 struct ValueNormalizeMapping {
@@ -297,6 +348,9 @@ struct PendingWriteCommand {
     bool durableControl = false; // Set by trusted external ingress, never parsed from user JSON.
     Optional<ClusterWriteAuthorization> clusterAuthorization;
     bool platformControl = false; // Trusted ingress flag; persisted in the v11 reserved byte.
+    // Producer's CLOCK_MONOTONIC stamp (low 32 bits, ms) set when the command is queued; the age
+    // check uses it so a wall-clock step cannot expire or revive a queued command. 0 = unstamped.
+    std::uint32_t acceptedMonotonicMs = 0;
 };
 
 struct WritebackResultRecord {
@@ -317,6 +371,13 @@ struct WritebackResultRecord {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
+    // The outcome is not determined (success is then false): the device may have executed the write,
+    // so it is never retried automatically or under a new cmdId. Set for CommandResult.outcomeUnknown
+    // (stage writeback-timeout), CommandResult.feedbackMismatch (stage writeback-mismatch, together with
+    // feedbackMismatch below) and a dispatch whose result was never recorded (writeback-unconfirmed).
+    bool outcomeUnknown = false;
+    // The device accepted the write but its read-back/feedback shows another value.
+    bool feedbackMismatch = false;
 };
 
 struct MqttCommandRequest {
@@ -353,6 +414,12 @@ struct MqttCommandReply {
     bool verifyAttempted = false;
     bool verifyPassed = false;
     bool highPriority = false;
+    // "succeeded", "failed" or "unknown" (the write may or may not have taken effect; do not
+    // retry with a new cmdId). success is true only for "succeeded".
+    std::string outcome = "failed";
+    // false only for the result-wait timeout reply: a later reply with the same cmdId carries the
+    // final result.
+    bool isFinal = true;
 };
 
 struct OtaRequest {
@@ -424,6 +491,17 @@ struct PointBinding {
     std::string pointCode;
 };
 
+// Kernel RS-485 direction control (TIOCSRS485). Only for adapters whose transceiver direction is
+// driven by the UART's RTS line; auto-direction transceivers need none of this. Default off: the
+// port is then opened without any RS-485 ioctl.
+struct SerialRs485Config {
+    bool enabled = false;
+    bool rtsOnSend = true;       // RTS level while sending (true = high)
+    bool rtsAfterSend = false;   // RTS level after sending; must differ from rtsOnSend
+    int delayRtsBeforeSendMs = 0;  // 0..100, the kernel's limit
+    int delayRtsAfterSendMs = 0;   // 0..100
+};
+
 struct SerialTransportConfig {
     std::string serialPort;
     int baudRate = 9600;
@@ -438,6 +516,7 @@ struct SerialTransportConfig {
     // Modbus RTU client discards the echo of its own request, so an FC05/FC06
     // echo can never be mistaken for the slave's reply. Default false.
     bool localEcho = false;
+    SerialRs485Config rs485;
 };
 
 struct TcpTransportConfig {
@@ -465,11 +544,9 @@ struct CanProtocolConfig {
     int udpListenPort = 19011;
     std::string udpPeerAddress = "127.0.0.1";
     int udpPeerPort = 19012;
-    // When true, a write of one signal starts from the last payload written to
-    // the same frame so other signals keep their commanded values. Default
-    // false (legacy): every write starts from an all-zero payload, which never
-    // re-asserts one-shot bits (start/reset/clear-fault) of other signals.
-    bool preserveFrameSignals = false;
+    // Last sent payload of every transmit frame, kept across restarts. Empty: can-frame-state-
+    // <interfaceName>.json next to memoryStore.controlDedupPath (the driver data directory).
+    std::string frameStateFile;
 };
 
 struct Iec103SoeMapping {
@@ -499,17 +576,26 @@ struct IecProtocolConfig {
     int linkAddress = 1;
     int linkAddressSize = 1;
     int interrogationQualifier = 20;
-    int interrogationCot = 6;
     int activationTerminationCot = 10;
     int pollTimeoutMs = 1000;
     int idleReadTimeoutMs = 50;
     int maxPollFrames = 64;
     bool pollOnCollect = true;
-    // Minimum spacing between IEC104 general interrogations sent by poll().
-    // 0 keeps the legacy behaviour (a GI on every collect poll); a GI is
-    // always sent after (re)connect.
-    int interrogationIntervalMs = 0;
+    // General interrogation (pollOnCollect=true): once after the link is (re)established, then
+    // every interrogationIntervalMs; 0 = only after (re)connection. A GI that has not been
+    // terminated (ACT_TERM / IEC 103 ASDU 8) is not repeated.
+    int interrogationIntervalMs = 900000;
+    // IEC 101/104 counter interrogation (C_CI_NA_1): after the link is established and every
+    // counterInterrogationIntervalMs (0 = only after connection). QCC default 5 = general
+    // request, read without freeze/reset.
+    bool counterInterrogation = true;
+    int counterInterrogationIntervalMs = 900000;
+    int counterInterrogationQualifier = 5;
+    // Only unbalanced FT1.2 transmission is implemented; true is rejected at load time.
     bool balanced = false;
+    // Zone of the time tags exchanged with the station (CP56Time2a/CP24Time2a, IEC 103
+    // CP32Time2a, C_CS_NA_1, AM5SE broadcast): "local" = gateway time zone, "utc" = UTC.
+    std::string timestampZone = "local";
     int t0Ms = 30000;
     int t1Ms = 15000;
     int t2Ms = 10000;
@@ -541,8 +627,18 @@ struct Dlt645WriteSecurityConfig {
     std::string operatorCode;
 };
 
+// Broadcast time sync (C=08H to 999999999999, no reply). Off unless enabled; sent only while the
+// gateway clock is synchronized and never around midnight.
+struct Dlt645TimeSyncConfig {
+    bool enabled = false;
+    int intervalMs = 86400000;
+};
+
 struct Dlt645ProtocolConfig {
     Dlt645WriteSecurityConfig write;
+    // Meters without points[] expand the standard template to autoIndexBase + meter*10000 + position.
+    std::uint32_t autoIndexBase = 200000;
+    Dlt645TimeSyncConfig timeSync;
 };
 
 struct ProtocolConfig {
@@ -599,6 +695,10 @@ struct LogicalDeviceConfig {
     bool onlineTimeoutExplicit = false;
     std::vector<std::string> onlineFrameIds;
     std::vector<PointDefinition> points;
+    // DL/T 645: gateway index of this meter's position point on another device (e.g. the DIO
+    // auxiliary contact of a breaker whose firmware has no position DI). Applied as
+    // write.dlt645.verifyIndex to this meter's trip/close points that have no read-back target.
+    std::uint32_t positionReadBackIndex = 0;
 };
 
 struct CollectConfig {
@@ -623,6 +723,11 @@ struct CollectConfig {
     int realtimeTaskFailureBackoffMaxMs = 30000;
     int failureGoodValueGraceMs = 0;
     int failureBadQualityThreshold = 3;
+    // A successfully read value expires (reads as stale, then leaves the store) when it has not been
+    // refreshed for max(staleAfterIntervals x point interval, staleAfterMinMs), never later than the
+    // point's cachePolicy.ttlMs. staleAfterIntervals <= 0 keeps the TTL only.
+    int staleAfterIntervals = 20;
+    int staleAfterMinMs = 120000;
     bool adaptiveSplitOnFailure = true;
     int adaptiveSplitMaxRegisters = 1;
     int adaptiveSplitMaxDepth = 2;
@@ -634,11 +739,17 @@ struct CollectConfig {
     // the legacy cycle-only behavior.
     int offlineProbeIntervalMs = 0;
     int runtimeMeterBatchSize = 16;
+    // Modbus: requests one meter may issue per turn before the next meter on the bus is served (a
+    // fairness quantum, not a rate limit: due work left over continues on the next turn at once).
     int maxTasksPerMeterPerCycle = 2;
     int realtimeMaxTasksPerMeterPerCycle = 6;
+    // Modbus: points with collectPriority > 0 run whenever no realtime (priority 0) read of the meter
+    // is due; while realtime reads keep the meter busy they still get one request per this interval
+    // (0: one per turn), so they are never starved.
     int backgroundTaskIntervalMs = 5000;
-    int maxBackgroundTasksPerMeterPerCycle = 1;
-    int realtimeMaxBackgroundTasksPerMeterPerCycle = 4;
+    // Modbus: one request may span up to this many unconfigured registers between two points.
+    // 0 (default) reads only adjacent or overlapping points together.
+    int maxGapRegisters = 0;
     int realtimeAdaptiveSplitLeafProbeBudget = 12;
     int writebackIntervalMs = 50;
     int interfaceCheckIntervalMs = 1000;
@@ -696,6 +807,8 @@ struct NorthboundServerConfig {
     // Secure default: a wildcard bindHost (0.0.0.0 / :: / empty) without an
     // allowedClientCidrs list is refused unless this is explicitly true.
     bool allowUnrestrictedClients = false;
+    // A failed bind/listen is retried at this interval (and reported as northbound-bind-failed).
+    int bindRetryIntervalMs = 5000;
 };
 
 struct MemoryStoreStats {
@@ -1773,6 +1886,14 @@ struct CommandResult {
     double requestedValue = 0.0;
     bool verifyAttempted = false;
     bool verifyPassed = false;
+    // The request reached the wire but no conclusive reply came back (timeout, mismatched reply):
+    // the device may have executed it. Reported as neither success nor a plain failure; callers
+    // must not retry with a new command id.
+    bool outcomeUnknown = false;
+    // The device accepted/executed the request but the read-back or feedback (register read-back,
+    // breaker position, DI auxiliary contact) shows another value. Not a definite failure: the
+    // device may have acted. Never retried automatically. success is false.
+    bool feedbackMismatch = false;
 };
 
 struct CommandExecutionException {

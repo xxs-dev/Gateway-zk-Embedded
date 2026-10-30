@@ -206,13 +206,14 @@ void gatewayTest() {
     require(f.router.submitWriteCommand(c).accepted, "fault command submit");
     f.hardware->afterWrite = [&] { dedup_test::Database db(f.config.memoryStore.controlDedupPath); db.failFinalize(); };
     const auto failure = f.consume(c);
-    require(!failure.success && failure.stage == "writeback-timeout" && f.hardware->writes == 2,
-            "actual Modbus write then SQLite finalize failure must be unknown");
+    require(!failure.success && failure.stage == "writeback-unconfirmed" && failure.outcomeUnknown &&
+            failure.message.find("executor reported writeback-succeeded") == 0 && f.hardware->writes == 2,
+            "actual Modbus write then SQLite finalize failure must be unconfirmed (outcome unknown): " + failure.message);
     f.hardware->afterWrite = {};
     { dedup_test::Database db(f.config.memoryStore.controlDedupPath); db.sql("DROP TRIGGER fail_finalize;"); }
     f.restart();
     const auto pending = f.router.submitWriteCommand(c);
-    require(pending.writeback && pending.writeback->stage == "writeback-timeout" && f.hardware->writes == 2,
+    require(pending.writeback && pending.writeback->stage == "writeback-unconfirmed" && f.hardware->writes == 2,
             "restart cannot reexecute post-write unknown");
 
     c = f.command("reserve-crash");
@@ -220,7 +221,7 @@ void gatewayTest() {
     ControlDedupStore ledger(f.config.memoryStore.controlDedupPath);
     require(ledger.claim("GW", "METER", c, 101).owner, "reserve before simulated crash");
     f.restart();
-    require(f.consume(c).stage == "writeback-timeout" && f.hardware->writes == 2, "reserved-before-write cannot execute");
+    require(f.consume(c).stage == "writeback-unconfirmed" && f.hardware->writes == 2, "reserved-before-write cannot execute");
 
     c = f.command("busy-consumer");
     require(f.router.submitWriteCommand(c).accepted, "busy submit");
@@ -246,7 +247,7 @@ void gatewayTest() {
     c = f.command("non-standard");
     require(f.router.submitWriteCommand(c).accepted, "non-standard exception submit");
     f.hardware->afterWrite = [] { throw 42; };
-    require(f.consume(c).stage == "writeback-timeout" && f.hardware->writes == 5, "non-std write exception unknown");
+    require(f.consume(c).stage == "writeback-unconfirmed" && f.hardware->writes == 5, "non-std write exception unknown");
     f.hardware->afterWrite = {};
 
     const auto count = dedup_test::Database(f.config.memoryStore.controlDedupPath).count();
@@ -304,6 +305,7 @@ void canTest() {
     for (auto& p : config.points) {
         p.write.can.frameId = "0x123"; p.write.can.extended = false;
         p.write.can.dlc = 8; p.write.can.bitLength = 16;
+        p.write.can.templateSafe = true;  // both points share frame 0x123; its zero template is the safe state
     }
     auto c = f.command("can-id");
     require(f.router.submitWriteCommand(c).accepted && f.router.submitWriteCommand(c).accepted, "CAN duplicate submit");
@@ -320,7 +322,7 @@ void canTest() {
         can.processWritebackOnce(103);
         require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) > 0, "CAN fault window actually sent");
         const auto r = f.store->getWritebackResult(c.cmdId);
-        require(r && !r->success && r->stage == "writeback-timeout", "CAN finalize failure unknown");
+        require(r && !r->success && r->stage == "writeback-unconfirmed", "CAN finalize failure unknown");
         f.store->submitWriteCommand(c); can.processWritebackOnce(104);
         require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) < 0, "CAN pending cannot resend");
     }
@@ -332,6 +334,12 @@ void directTest() {
     Fixture f;
     LogicalDeviceConfig firstMeter; firstMeter.meterCode = "METER"; firstMeter.slave = 1;
     firstMeter.points = f.config.points;
+    // Verified write: the fake device acknowledges the write but reads back 0 (feedback mismatch).
+    PointDefinition verified = firstMeter.points.front();
+    verified.index = 1004; verified.pointCode = "P1004"; verified.address = 2; verified.write.address = 2;
+    verified.read.enable = true; verified.read.function = 3; verified.read.length = 1; verified.read.dataType = "uint16";
+    verified.write.verifyAfterWrite = true; verified.write.verifyByRead = true; verified.write.verifyDelayMs = 0;
+    firstMeter.points.push_back(verified);
     LogicalDeviceConfig secondMeter; secondMeter.meterCode = "OTHER"; secondMeter.slave = 2;
     secondMeter.points = {f.config.points.front()}; secondMeter.points.front().index = 1003;
     secondMeter.points.front().pointCode = "P1003";
@@ -345,7 +353,9 @@ void directTest() {
         device << R"({"machineCode":"GW","meterCode":"METER","protocol":{"type":"modbus_rtu","slave":1},"memoryStore":{"sharedMemoryName":")"
                << f.config.memoryStore.sharedMemoryName << R"(","controlDedupPath":")" << f.config.memoryStore.controlDedupPath
                << R"("},"meters":[{"meterCode":"METER","slave":1,"points":[{"index":1001,"pointCode":"P1001","enabled":true,"write":{"enable":true,"function":6,"address":0,"length":1,"dataType":"uint16"}},)"
-               << R"({"index":1002,"pointCode":"P1002","enabled":true,"write":{"enable":true,"function":6,"address":1,"length":1,"dataType":"uint16"}}]},)"
+               << R"({"index":1002,"pointCode":"P1002","enabled":true,"write":{"enable":true,"function":6,"address":1,"length":1,"dataType":"uint16"}},)"
+               << R"({"index":1004,"pointCode":"P1004","enabled":true,"address":2,"read":{"enable":true,"function":3,"address":2,"length":1,"dataType":"uint16"},)"
+               << R"("write":{"enable":true,"function":6,"address":2,"length":1,"dataType":"uint16","verifyAfterWrite":true,"verifyByRead":true,"verifyDelayMs":0}}]},)"
                << R"({"meterCode":"OTHER","slave":2,"points":[{"index":1003,"pointCode":"P1003","enabled":true,"write":{"enable":true,"function":6,"address":0,"length":1,"dataType":"uint16"}}]}]})";
         std::ofstream app(appFile);
         app << R"({"identityConfigFile":")" << identityFile << R"(","deviceConfigFiles":[")" << deviceFile
@@ -369,6 +379,17 @@ void directTest() {
         const auto conflict = batchControlJson(config,
             R"({"machineCode":"GW","commands":[{"cmdId":"direct-1","index":1003,"value":1,"source":"compute-engine"}]})");
         require(conflict.find("conflicts") != std::string::npos && f.hardware->writes == 3, "Direct cross-meter conflict");
+        const std::string verifiedBody = R"({"machineCode":"GW","commands":[{"cmdId":"direct-mismatch","index":1004,"value":5}]})";
+        const auto mismatch = batchControlJson(config, verifiedBody);
+        const auto writesAfterMismatch = f.hardware->writes.load();
+        const auto mismatchRepeat = batchControlJson(config, verifiedBody);
+        for (const auto& reply : {mismatch, mismatchRepeat}) {
+            require(reply.find("\"stage\":\"writeback-mismatch\"") != std::string::npos &&
+                    reply.find("\"outcome\":\"unknown\"") != std::string::npos &&
+                    reply.find("verify failed") != std::string::npos && reply.find("\"success\":false") != std::string::npos,
+                    "Direct feedback mismatch keeps cause, message and unknown outcome (first and replay): " + reply);
+        }
+        require(writesAfterMismatch == 4 && f.hardware->writes == 4, "Direct mismatch replay must not write again");
         bool emptyRejected = false;
         try { parseBatchControlCommands(R"({"commands":[{"cmdId":"","index":1001,"value":1}]})"); }
         catch (...) { emptyRejected = true; }

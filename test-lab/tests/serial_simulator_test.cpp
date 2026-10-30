@@ -118,12 +118,12 @@ void testDlt645() {
     point.read.dataType = "dlt645_bcd";
     point.read.scale = 0.1;
     const auto response = client.readData("1", point.read.dlt645Di);
-    const auto decoded = edge_gateway::Dlt645Codec::decodeReadResponse(response, point);
+    const auto decoded = edge_gateway::Dlt645Codec::decodePayload(response, point);
     require(decoded.value >= 220.0 && decoded.value <= 222.0,
             "DL/T 645 simulator returned an unexpected phase voltage");
 
     client.writeData("1", point.read.dlt645Di, "00000000", "00000000", {0x34, 0x12});
-    const auto afterWrite = edge_gateway::Dlt645Codec::decodeReadResponse(
+    const auto afterWrite = edge_gateway::Dlt645Codec::decodePayload(
         client.readData("1", point.read.dlt645Di), point
     );
     require(std::abs(afterWrite.value - 123.4) < 0.001,
@@ -134,7 +134,7 @@ void testDlt645() {
     bool rejected = false;
     try {
         const auto faultResponse = client.readData("2", point.read.dlt645Di);
-        (void)edge_gateway::Dlt645Codec::decodeReadResponse(faultResponse, point);
+        (void)edge_gateway::Dlt645Codec::decodePayload(faultResponse, point);
     } catch (const std::exception&) {
         rejected = true;
     }

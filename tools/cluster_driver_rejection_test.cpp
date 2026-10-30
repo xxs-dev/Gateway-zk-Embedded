@@ -171,17 +171,30 @@ void canCase() {
         f.command.durableControl = durable != 0;
         f.command.ts = 1;
         f.command.acceptedAt = 1;
+        // Queued maxAge+1 ms ago by the producer's monotonic stamp (the wall clock shows no age).
+        f.command.acceptedMonotonicMs = pendingWriteMonotonicNowMs() -
+            static_cast<std::uint32_t>(f.config.memoryStore.pendingWriteMaxAgeMs + 1);
         if (durable) require(!ledger.bind(f.config.machineCode, f.config.meterCode, f.command),
                              "expired durable CAN ingress bind");
         f.store->submitWriteCommand(f.command);
-        driver.processWritebackOnce(1 + f.config.memoryStore.pendingWriteMaxAgeMs + 1);
+        driver.processWritebackOnce(1);
         const auto expired = f.store->getWritebackResult(f.command.cmdId);
-        require(expired && !expired->success && expired->stage ==
-                    (durable ? "writeback-timeout" : "expired"),
+        // Never dispatched: a definite failure for durable commands too (not an unknown outcome).
+        require(expired && !expired->success && !expired->outcomeUnknown && expired->stage == "expired",
                 "stale CAN command must not dispatch durable=" + std::to_string(durable) +
                     " stage=" + (expired ? expired->stage : "missing"));
         require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) < 0, "stale CAN command emitted datagram");
     }
+    // Wall clock stepped an hour back after enqueue: a fresh command still dispatches.
+    f.command.cmdId = "wall-stepped-back";
+    f.command.durableControl = false;
+    f.command.acceptedMonotonicMs = 0;
+    f.command.ts = f.command.acceptedAt = 1 + 3600000;
+    f.store->submitWriteCommand(f.command);
+    driver.processWritebackOnce(1);
+    const auto stepped = f.store->getWritebackResult(f.command.cmdId);
+    require(stepped && stepped->success, "fresh CAN command after a wall step: " + (stepped ? stepped->stage : "missing"));
+    require(recv(receiver, bytes, sizeof(bytes), MSG_DONTWAIT) > 0, "fresh CAN command after a wall step not emitted");
     std::cout << "CAN cluster=0 ordinary=1 passed\n";
 }
 }

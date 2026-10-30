@@ -143,7 +143,7 @@ void applyPointTiming(PointDefinition& point, const ResolvedTimingConfig& resolv
 
 int TimingPolicyResolver::minimumPollIntervalMs(const std::string& protocolType) {
     if (protocolType == "local_dio") return 1;
-    if (protocolType == "can" || protocolType == "can_socketcan") return 5;
+    if (protocolType == "can_socketcan") return 5;
     if (protocolType == "computed" || protocolType == "ems_virtual" ||
         protocolType == "agc_avc_virtual") return 10;
     return 20;

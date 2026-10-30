@@ -26,6 +26,7 @@ public:
 
 private:
     static speed_t baudToTermios(int baudRate);
+    void applyRs485();
 
     SerialPortOptions options_;
     int fd_ = -1;

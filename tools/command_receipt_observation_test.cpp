@@ -47,7 +47,7 @@ struct Fixture {
         writeDevice();
     }
     void writeDevice(const std::string& machine = "SYNTHETIC") {
-        write(root + "/device.json", "{\"machineCode\":\"" + machine + "\",\"protocol\":{\"type\":\"modbus_tcp\"},\"memoryStore\":{\"sharedMemoryName\":\"" + segment + "\"},\"meters\":[{\"meterCode\":\"pcs\",\"points\":[{\"index\":1103,\"pointCode\":\"power\",\"address\":2,\"read\":{\"dataType\":\"int16\"},\"write\":{\"enable\":true}}]}]}");
+        write(root + "/device.json", "{\"machineCode\":\"" + machine + "\",\"protocol\":{\"type\":\"modbus_tcp\"},\"memoryStore\":{\"sharedMemoryName\":\"" + segment + "\"},\"meters\":[{\"meterCode\":\"pcs\",\"points\":[{\"index\":1103,\"pointCode\":\"power\",\"address\":2,\"read\":{\"dataType\":\"int16\"},\"write\":{\"enable\":true,\"dataType\":\"int16\"}}]}]}");
     }
     std::string request(const std::string& index = "1103", const std::string& password = "") const {
         return "{\"passwordSha256\":\"" + (password.empty() ? hash : password) + "\",\"requestId\":\"observation\",\"machineCode\":\"SYNTHETIC\",\"meterCode\":\"pcs\",\"pointCode\":\"power\",\"index\":" + index + "}";
@@ -131,6 +131,7 @@ void tests() {
     for (int i = 1; i <= 30; ++i) {
         WritebackResultRecord r; r.cmdId = "cmd-" + std::to_string(i); r.index = 1103; r.value = i + 0.125;
         r.success = i != 30; r.message = "original \"message\""; r.completedAt = 1000 - i;
+        r.outcomeUnknown = i == 30; r.stage = i == 30 ? "writeback-timeout" : "writeback-succeeded";
         r.verifyAttempted = true; r.verifyPassed = i != 30;
         store.recordWritebackResult(r);
     }
@@ -138,6 +139,8 @@ void tests() {
     auto doc = json::JsonParser(body(f.send(f.request()))).parse();
     const auto& rows = doc.find("records")->asArray().values;
     require(rows.size() == 20 && rows.front()->find("cmdId")->asString() == "cmd-30" && rows.back()->find("cmdId")->asString() == "cmd-11", "bounded insertion ordering and filtering");
+    require(rows.front()->find("outcome")->asString() == "unknown" && rows.back()->find("outcome")->asString() == "succeeded",
+            "receipts carry the three-state outcome");
     require(!rows.front()->find("success")->asBool() && rows.front()->find("value")->asNumber() == 30.125, "preserve failed result and precision");
     require(rows.front()->find("message")->asString() == "original \"message\"", "JSON escaping");
     verifyHttpIngress(f);

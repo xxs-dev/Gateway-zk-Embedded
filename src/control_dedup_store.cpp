@@ -1,5 +1,6 @@
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/writeback_service.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -152,6 +153,7 @@ std::string semantics(const PendingWriteCommand& c, bool wire) {
         << ' ' << c.highPriority << ' ' << c.controlGeneration;
     return out.str();
 }
+constexpr int kLedgerResultThreeState = 3;
 std::string encode(const WritebackResultRecord& r) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
@@ -159,7 +161,10 @@ std::string encode(const WritebackResultRecord& r) {
         << r.success << ' ' << std::quoted(r.message.substr(0, 127)) << ' ' << std::quoted(r.stage) << ' '
         << r.requestedAt << ' ' << r.acceptedAt << ' ' << r.startedAt << ' ' << r.completedAt << ' '
         << r.queueDelayMs << ' ' << r.deviceWriteMs << ' ' << r.edgeElapsedMs << ' ' << r.totalElapsedMs << ' '
-        << r.verifyAttempted << ' ' << r.verifyPassed << ' ' << r.highPriority;
+        << r.verifyAttempted << ' ' << r.verifyPassed << ' ' << r.highPriority
+        // Format marker: this result carries the three-state classification in its stage. Older
+        // readers stop before it (rollback keeps working); results without it are legacy.
+        << ' ' << kLedgerResultThreeState;
     return out.str();
 }
 WritebackResultRecord decode(const std::string& data) {
@@ -171,6 +176,16 @@ WritebackResultRecord decode(const std::string& data) {
           >> r.queueDelayMs >> r.deviceWriteMs >> r.edgeElapsedMs >> r.totalElapsedMs
           >> r.verifyAttempted >> r.verifyPassed >> r.highPriority))
         throw std::runtime_error("control dedup corrupt result");
+    int format = 0;
+    if (in >> format && format == kLedgerResultThreeState) {
+        // The ledger persists the cause as the stage (writeback-mismatch / -timeout / -unconfirmed
+        // are outcome unknown); the flags are derived from it.
+        normalizeWritebackOutcome(r);
+    } else {
+        // Written by a release without the classification: a recorded writeback-failed may have
+        // taken effect, so only never-dispatched stages stay definite failures.
+        applyLegacyWritebackOutcome(r);
+    }
     return r;
 }
 struct Row { std::string semantic, wire, state, result, meter; };
@@ -180,12 +195,17 @@ Optional<Row> read(Db& db, const std::string& machine, const std::string& meter,
     if (!query.row()) return NullOpt;
     return Row{query.text(0), query.text(1), query.text(2), query.text(3), query.text(4)};
 }
-WritebackResultRecord unknown(WritebackResultRecord result, const std::string& message) {
+// A dispatch reserved (state 1) without a recorded result: it may be executing now or have been
+// interrupted. Outcome unknown; never dispatched again.
+WritebackResultRecord unconfirmed(WritebackResultRecord result, const std::string& message) {
     result.success = false;
-    result.stage = "writeback-timeout";
-    result.message = message;
+    result.outcomeUnknown = true;
+    result.feedbackMismatch = false;
+    result.stage = kWritebackUnconfirmedStage;
+    result.message = message.substr(0, 127);
     return result;
 }
+constexpr const char* kUnrecordedMessage = "control dispatch reserved without a recorded result; not redispatched";
 std::size_t rowCount(Db& db) {
     Statement count(db, "SELECT count(*) FROM control_dedup_v1;");
     if (!count.row()) throw std::runtime_error("control dedup count failed");
@@ -245,7 +265,7 @@ Optional<WritebackResultRecord> ControlDedupStore::bind(const std::string& machi
     const auto inspect = [&](const Row& row) -> Optional<WritebackResultRecord> {
         if (row.meter != meter || row.semantic != semantics(c, false)) throw std::invalid_argument("cmdId conflicts with retained control semantics");
         if (row.state == "2") return decode(row.result);
-        if (row.state == "1") return unknown(decode(row.result), "retained control outcome unknown; not redispatched");
+        if (row.state == "1") return unconfirmed(decode(row.result), kUnrecordedMessage);
         if (row.state != "0") throw std::runtime_error("control dedup corrupt state");
         return NullOpt;
     };
@@ -282,7 +302,7 @@ ControlDedupStore::Claim ControlDedupStore::claim(const std::string& machine, co
         if (!row) throw std::runtime_error("durable control registration missing; no dispatch");
         if (row->meter != meter || row->wire != semantics(c, true)) throw std::invalid_argument("cmdId conflicts with registered control");
         if (row->state == "2") return {false, decode(row->result)};
-        if (row->state == "1") return {false, unknown(decode(row->result), "retained control outcome unknown; not redispatched")};
+        if (row->state == "1") return {false, unconfirmed(decode(row->result), kUnrecordedMessage)};
         if (row->state != "0") throw std::runtime_error("control dedup corrupt state");
         return {true, beginWritebackResult(c, now)};
     };
@@ -322,23 +342,39 @@ WritebackResultRecord ControlDedupStore::dispatch(const std::string& machine, co
                                                 const PendingWriteCommand& c, std::int64_t now,
                                                 const std::function<WritebackResultRecord()>& execute) {
     bool reserved = false;
+    Optional<WritebackResultRecord> executed;
+    // Once reserved, a failure leaves the record unconfirmed (state 1). The receipt then says so,
+    // with the executor's own result in the message when there was one: the first receipt never
+    // claims more than a later replay from the ledger can.
+    const auto failed = [&](const std::string& error) {
+        auto result = beginWritebackResult(c, now);
+        if (!reserved) {
+            completeWritebackResult(result, false, error, kWritebackFailedStage, now);
+            return result;
+        }
+        if (executed) {
+            result = *executed;
+            return unconfirmed(result, "executor reported " + executed->stage + ": " + executed->message +
+                                           "; result not recorded: " + error);
+        }
+        completeWritebackResult(result, false, error, kWritebackUnconfirmedStage, now);
+        return unconfirmed(result, error);
+    };
     try {
         const auto claimed = claim(machine, meter, c, now);
         if (!claimed.owner) return claimed.result;
         reserved = true;
         auto result = execute();
-        if (!result.success) result = unknown(result, result.message);
+        // Persist the cause as classified by the executor (definite failure, feedback mismatch, no
+        // conclusive reply); stage and flags must agree because replays derive the flags from it.
+        normalizeWritebackOutcome(result);
+        executed = result;
         finish(machine, meter, result);
         return result;
     } catch (const std::exception& ex) {
-        auto result = beginWritebackResult(c, now);
-        completeWritebackResult(result, false, ex.what(), reserved ? "writeback-timeout" : "writeback-failed", now);
-        return result;
+        return failed(ex.what());
     } catch (...) {
-        auto result = beginWritebackResult(c, now);
-        completeWritebackResult(result, false, "non-standard control exception",
-                               reserved ? "writeback-timeout" : "writeback-failed", now);
-        return result;
+        return failed("non-standard control exception");
     }
 }
 } // namespace edge_gateway

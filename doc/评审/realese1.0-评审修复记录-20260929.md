@@ -38,7 +38,7 @@
 | M12 | ✅ | SUBACK 逐个 topic 对应检查返回码：命令 topic 被拒时抛错重连，可选 topic 被拒只记日志。 |
 | M13 | ✅ | 租约文件通过旁路锁文件加 flock 串行化，release 在锁内重新读取后才删除。 |
 | M14 | ✅ | 修正空 payload 越界、MQTT5 属性长度上限、CONNACK 解析位置、ring buffer 长度溢出与 wrap 标记越界。 |
-| M15 | ◐ | 配置了 TLS 时直接拒绝，不再明文发送。发送后不等 PUBACK 的问题未改；该实现目前没有被任何程序使用。 |
+| M15 | ✅ | 该实现未进任何构建目标、没有程序使用，已整体删除（`mosquitto_mqtt_driver_publisher.*`，2026-10-28 驱动审查修复）。 |
 
 ### 2.2 协议驱动
 
@@ -56,7 +56,7 @@
 | P10 | ✅ | I 帧发送串行化，N(S)/N(R) 在发送前统一分配。 |
 | P11 | ✅ | 监听通配地址且白名单为空时拒绝启动（开关 `allowUnrestrictedClients`），报 ERROR 日志并发状态事件 `northbound-refused`。空闲超时与请求超时分开，防慢速连接占满。 |
 | P12 | ✅ | CAN 按点单独解码，一个信号出错只影响它自己（该点 quality=0）。 |
-| P13 | ✅ | 写入值超出位宽直接拒绝，并支持读侧的 `signed` 标志。同帧其他信号的保留改为可选（`protocol.can.preserveFrameSignals`，默认关闭，即沿用原来从零组帧的行为）。 |
+| P13 | ✅ | 写入值超出位宽直接拒绝，并支持读侧的 `signed` 标志。同帧其他信号的保留改为可选（`protocol.can.preserveFrameSignals`，默认关闭，即沿用原来从零组帧的行为）。2026-10 驱动复审：开关已删除，改为固定按发送帧镜像保留同帧信号（初值 `payloadTemplate`），见 CAN接口接入设计.md。 |
 | P14 | ✅ | 只在超时时原样重传同一帧（FCB 不变），3 次仍超时则复位链路。 |
 | P15 | ✅ | `rxBuffer_` 只由接收线程修改，其他线程通过标志请求清空。 |
 | P16 | ◐ | 先解析波特率再打开串口，配置完成后清空输入缓冲；配置加载阶段未增加波特率校验。 |
@@ -154,7 +154,7 @@
 | `northboundServer.allowUnrestrictedClients` | false | 允许监听通配地址且不设白名单 |
 | `northboundServer.idleTimeoutMs` | 60000 | 北向连接空闲超时 |
 | `protocol.iec.interrogationIntervalMs` | 0 | IEC104 总召唤间隔，0 保持原行为 |
-| `protocol.can.preserveFrameSignals` | false | 写入时保留同帧其他信号 |
+| `protocol.can.preserveFrameSignals` | 已删除 | 2026-10 驱动复审改为固定按发送帧镜像保留同帧信号 |
 | `transport.localEcho` | false | 丢弃本机回显字节 |
 | `memoryStore.pendingWriteMaxAgeMs` | 10000 | 待执行写命令的最大时长 |
 | `memoryStore.persistFlushBatchSize` | 1000 | 历史样本每批写入条数 |

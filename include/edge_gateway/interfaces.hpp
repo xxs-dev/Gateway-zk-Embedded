@@ -25,6 +25,13 @@ public:
     virtual void endPriorityWrite() {
     }
 
+    // Milliseconds until a request to this slave may start without waiting on the transport (for
+    // RTU: the slave's frameIntervalMs). Schedulers use it to serve other slaves meanwhile.
+    virtual int requestReadyInMs(int slave) const {
+        (void)slave;
+        return 0;
+    }
+
     virtual std::vector<std::uint16_t> readCoils(int slave, int start, int count) = 0;
     virtual std::vector<std::uint16_t> readDiscreteInputs(int slave, int start, int count) = 0;
     virtual std::vector<std::uint16_t> readHoldingRegisters(int slave, int start, int count) = 0;
@@ -65,6 +72,13 @@ public:
     virtual void setOutputDirection(int gpio, bool initialHigh) {
         setDirection(gpio, "out");
         writeValue(gpio, initialHigh);
+    }
+    // Make gpio an output at initialHigh only if it is not an output yet; an existing output keeps
+    // its level. Returns true when the pin was changed. Default (direction unknown): no change.
+    virtual bool ensureOutput(int gpio, bool initialHigh) {
+        (void)gpio;
+        (void)initialHigh;
+        return false;
     }
 };
 

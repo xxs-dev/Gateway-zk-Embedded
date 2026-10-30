@@ -18,7 +18,7 @@ std::int64_t currentTimeMs() {
     ).count();
 }
 
-// Propagate the device's own quality descriptor (IV/NT) to the published value.
+// Propagate the device's own quality descriptor (IV/NT/OV/BL/SB, DPI 0/3) to the published value.
 void applyDeviceQuality(PointValue& value, const IecDataValue& dataValue) {
     if (dataValue.quality == 0) {
         value.quality = 0;
@@ -26,7 +26,38 @@ void applyDeviceQuality(PointValue& value, const IecDataValue& dataValue) {
     }
 }
 
+// Test transmissions (IEC 101/104 COT T=1, IEC 103 COT 7 test mode) never update production points.
+std::vector<IecDataValue> withoutTestValues(std::vector<IecDataValue> values) {
+    values.erase(
+        std::remove_if(values.begin(), values.end(), [](const IecDataValue& value) {
+            return value.test;
+        }),
+        values.end());
+    return values;
+}
+
 }  // namespace
+
+PointValue IecCollector::buildIecPointValue(
+    const PointDefinition& point,
+    const IecDataValue& dataValue,
+    std::int64_t receivedMs
+) const {
+    const auto decoded = IecCodec::decodePointValue(point, dataValue);
+    // Expiry counts from reception; the device time tag only dates the value.
+    auto value = buildPointValue(point, decoded, receivedMs);
+    applyDeviceQuality(value, dataValue);
+    if (IecCodec::holdsPreviousValue(point, dataValue)) {
+        const auto previous = store_.getLatestByIndex(point.index, receivedMs);
+        value.value = previous ? previous->value : 0.0;
+        value.text = dataValue.qualityMsg;
+        value.quality = 0;
+    }
+    if (dataValue.timestampMs > 0) {
+        value.ts = dataValue.timestampMs;
+    }
+    return value;
+}
 
 IecCollector::IecCollector(
     DeviceConfig config,
@@ -42,11 +73,12 @@ IecCollector::IecCollector(
 
 CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFocused) {
     (void)realtimeFocused;
+    observeSchedulingClock(nowMs);
     CollectCycleResult result;
     if (shouldSkipFailedCollectionCycle()) {
         return result;
     }
-    auto dataValues = client_->drainBufferedValues();
+    auto dataValues = withoutTestValues(client_->drainBufferedValues());
     std::unordered_map<std::uint32_t, bool> updatedByPush;
     for (const auto& dataValue : dataValues) {
         for (const auto& point : config_.points) {
@@ -56,9 +88,7 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
             if (!IecCodec::pointMatches(point, dataValue)) {
                 continue;
             }
-            const auto decoded = IecCodec::decodePointValue(point, dataValue);
-            auto value = buildPointValue(point, decoded, currentTimeMs());
-            applyDeviceQuality(value, dataValue);
+            auto value = buildIecPointValue(point, dataValue, currentTimeMs());
             lastReadMs_[point.index] = nowMs;
             lastValueUpdateMs_[point.index] = nowMs;
             updatedByPush[point.index] = true;
@@ -83,7 +113,7 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
     const auto attempts = std::max(1, config_.protocol.transport.readRetryCount + 1);
     for (int attemptIndex = 0; attemptIndex < attempts && !pollSucceeded; ++attemptIndex) {
         try {
-            auto polledValues = client_->poll();
+            auto polledValues = withoutTestValues(client_->poll());
             dataValues.insert(dataValues.end(), polledValues.begin(), polledValues.end());
             pollSucceeded = true;
         } catch (const std::exception& ex) {
@@ -107,9 +137,7 @@ CollectCycleResult IecCollector::collectOnce(std::int64_t nowMs, bool realtimeFo
             }
         );
         if (match != dataValues.rend()) {
-            const auto decoded = IecCodec::decodePointValue(point, *match);
-            value = buildPointValue(point, decoded, pointNowMs);
-            applyDeviceQuality(value, *match);
+            value = buildIecPointValue(point, *match, pointNowMs);
             hasSuccessfulRead = true;
         } else if (pollSucceeded) {
             // IEC polls are incremental: one successful class response may omit

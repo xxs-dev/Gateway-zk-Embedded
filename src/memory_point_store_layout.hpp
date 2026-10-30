@@ -79,9 +79,21 @@ struct SharedClusterAuthoritySnapshot {
 };
 static_assert(sizeof(SharedClusterAuthoritySnapshot) == 1240, "cluster snapshot ABI changed");
 
+// SharedPendingWriteSlot::occupied. Every reader of the v11 queue tests occupied only for non-zero,
+// so a stamped slot stays readable by earlier releases (rollback).
+constexpr std::uint8_t kPendingSlotFree = 0;
+// Queued by a release that does not stamp: the bytes at offset 12 are padding and may hold anything.
+constexpr std::uint8_t kPendingSlotUnstamped = 1;
+// Queued with a valid acceptedMonotonicMs. Only this value makes the stamp trusted.
+constexpr std::uint8_t kPendingSlotStamped = 2;
+
 struct SharedPendingWriteSlot {
     std::uint64_t sequence = 0;
     std::uint32_t index = 0;
+    // Low 32 bits of CLOCK_MONOTONIC in ms when the producer queued the command; meaningful only when
+    // occupied == kPendingSlotStamped. Occupies what was alignment padding, so the v11 layout and every
+    // other offset are unchanged.
+    std::uint32_t acceptedMonotonicMs = 0;
     double value = 0.0;
     std::int64_t ts = 0;
     std::int64_t acceptedAt = 0;
@@ -95,10 +107,21 @@ struct SharedPendingWriteSlot {
 };
 
 static_assert(sizeof(SharedPendingWriteSlot) == 264, "pending write ABI changed unexpectedly");
+static_assert(offsetof(SharedPendingWriteSlot, acceptedMonotonicMs) == 12 &&
+                  offsetof(SharedPendingWriteSlot, value) == 16,
+              "the monotonic stamp must stay in the former padding before value");
 static_assert(
     offsetof(SharedPendingWriteSlot, controlGeneration) == 140,
     "control generation must occupy the previous reserved bytes"
 );
+
+// SharedWritebackResultSlot::occupied. Every release reads a receipt when occupied is non-zero.
+// Receipts written before three-state outcomes (occupied=1: dabb8fd, 29f5068, slots migrated from v10)
+// cannot say "unknown" reliably: their writeback-failed also covered a request sent without a
+// conclusive reply and a failed read-back verification.
+constexpr std::uint8_t kReceiptSlotLegacy = 1;
+// Written with stage and flags agreeing as in writeback_outcome.hpp.
+constexpr std::uint8_t kReceiptSlotThreeState = 2;
 
 struct SharedWritebackResultSlot {
     std::uint64_t sequence = 0;

@@ -25,6 +25,11 @@
 
 namespace edge_gateway {
 
+// How long a control request waits for its writeback result before reporting "outcome unknown":
+// controlResultWaitTimeoutMs, but never shorter than the time a queued write can still start
+// (memoryStore.pendingWriteMaxAgeMs + settle time). Shared by MQTT and direct maintenance.
+int effectiveControlResultWaitMs(const MqttDriverConfig& driverConfig, const std::vector<DeviceConfig>& deviceConfigs);
+
 class ProcessFileLock;
 
 class MqttDriverService {
@@ -69,6 +74,10 @@ public:
     bool isRunning() const;
 
     void runScanOnce(std::int64_t nowMs);
+    // Called by the scan loop with the wall and monotonic clocks read together. A wall-clock step
+    // (their difference changing by >= 1 s) moves the command-reply deadlines with it, so the reply
+    // timing follows elapsed time like the monotonic pending-write expiry in the device daemons.
+    void observeWallClock(std::int64_t wallMs, std::int64_t monotonicMs);
     void runEventReplayOnce(std::int64_t nowMs);
     void publishFullSnapshotNow(std::int64_t nowMs);
     void publishOnDemandNow(const std::vector<std::uint32_t>& indexes, std::int64_t nowMs);
@@ -99,8 +108,16 @@ private:
     struct PendingCommandReply {
         MqttCommandReply reply;
         PointStoreRoute route;
+        // deadlineMs: non-final "unknown" reply; horizonMs: stop watching (final "unknown" reply).
         std::int64_t deadlineMs = 0;
+        std::int64_t horizonMs = 0;
+        bool timeoutReported = false;
         bool durableControl = false;
+    };
+    enum class CommandAdmission {
+        Admitted,
+        Duplicate,
+        RateLimited
     };
 
     void runScanOnceInternal(std::int64_t nowMs, int incomingTimeoutMs);
@@ -122,7 +139,12 @@ private:
     void processPendingCommandReplies(std::int64_t nowMs);
     int scanLoopIncomingTimeoutMs(std::int64_t nowMs) const;
     void handleCommandRequest(const std::string& payload, std::int64_t nowMs, bool retained = false);
-    bool admitCommand(const std::string& meterCode, const std::string& cmdId, std::int64_t nowMs, bool durableControl);
+    CommandAdmission admitCommand(
+        const std::string& meterCode,
+        const std::string& cmdId,
+        std::int64_t nowMs,
+        bool durableControl
+    );
     bool admitMailboxCommand(const std::string& meterCode, std::int64_t nowMs);
     void handleOtaRequest(const std::string& payload, std::int64_t nowMs);
     void handleOtaQueryRequest(const std::string& payload);
@@ -204,6 +226,9 @@ private:
     int isolatedFallbackRetryDelayMs_ = 0;
     std::unordered_map<std::string, RealtimeSession> realtimeSessions_;
     std::deque<PendingCommandReply> pendingCommandReplies_;
+    std::int64_t lastObservedWallMs_ = 0;
+    std::int64_t lastObservedMonotonicMs_ = 0;
+    int resultWaitMs_ = 0;
     std::mutex commandRateMutex_;
     std::unordered_map<std::string, std::deque<std::int64_t>> commandWindowByMeter_;
     std::unordered_map<std::string, std::deque<std::int64_t>> mailboxWindowByMeter_;

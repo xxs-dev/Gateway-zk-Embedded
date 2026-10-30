@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <functional>
 
@@ -17,6 +18,8 @@
 namespace edge_gateway {
 
 std::string encodeBuiltinOtaStatusJson(const OtaStatus& status);
+// Command reply payload published on commandReplyTopic.
+std::string encodeBuiltinCommandReplyJson(const MqttCommandReply& reply);
 
 enum class MqttPublisherMode {
     Bidirectional,
@@ -171,6 +174,8 @@ private:
     std::int64_t lastSubscriberActivityMs_ = 0;
     std::int64_t lastSubscriberTxMs_ = 0;
     std::int64_t subscriberPingSentMs_ = 0;
+    // Inbound QoS 2 packet ids delivered and PUBREC'd but not yet released (PUBREL).
+    std::unordered_set<std::uint16_t> incomingQos2PacketIds_;
     ReconnectBackoff txBackoff_;
     ReconnectBackoff rxBackoff_;
     std::vector<OfflineMessage> offlineMessages_;

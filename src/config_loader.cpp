@@ -1,4 +1,7 @@
 #include "edge_gateway/config_loader.hpp"
+#include "edge_gateway/device_config_validation.hpp"
+#include "edge_gateway/modbus_codec.hpp"
+#include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/json_value.hpp"
 
 #include <algorithm>
@@ -323,6 +326,8 @@ void normalizeCollectConfig(CollectConfig& config) {
     );
     config.failureGoodValueGraceMs = std::max(0, config.failureGoodValueGraceMs);
     config.failureBadQualityThreshold = std::max(1, config.failureBadQualityThreshold);
+    config.staleAfterIntervals = std::max(0, config.staleAfterIntervals);
+    config.staleAfterMinMs = std::max(0, config.staleAfterMinMs);
     config.adaptiveSplitMaxRegisters = std::max(1, config.adaptiveSplitMaxRegisters);
     config.adaptiveSplitMaxDepth = std::max(1, config.adaptiveSplitMaxDepth);
     config.adaptiveSplitLeafProbeBudget = std::max(0, config.adaptiveSplitLeafProbeBudget);
@@ -334,12 +339,8 @@ void normalizeCollectConfig(CollectConfig& config) {
         config.maxTasksPerMeterPerCycle,
         config.realtimeMaxTasksPerMeterPerCycle
     );
+    config.maxGapRegisters = boundedInt(config.maxGapRegisters, 0, config.maxBatchRegisters - 1);
     config.backgroundTaskIntervalMs = std::max(0, config.backgroundTaskIntervalMs);
-    config.maxBackgroundTasksPerMeterPerCycle = std::max(0, config.maxBackgroundTasksPerMeterPerCycle);
-    config.realtimeMaxBackgroundTasksPerMeterPerCycle = std::max(
-        config.maxBackgroundTasksPerMeterPerCycle,
-        config.realtimeMaxBackgroundTasksPerMeterPerCycle
-    );
     config.realtimeAdaptiveSplitLeafProbeBudget = std::max(
         config.adaptiveSplitLeafProbeBudget,
         config.realtimeAdaptiveSplitLeafProbeBudget
@@ -416,6 +417,24 @@ CachePolicy parseCachePolicy(const JsonValue* value) {
     return policy;
 }
 
+// read.can.invalidRawValues entry: a non-negative integer or a "0x..." hex string (for 64-bit patterns).
+std::uint64_t parseCanRawValue(const JsonValue& item) {
+    if (item.isString()) {
+        const auto& text = item.asString();
+        std::size_t used = 0;
+        if (text.size() < 3 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X') ||
+            text.find_first_not_of("0123456789abcdefABCDEF", 2) != std::string::npos || text.size() > 18) {
+            throw std::invalid_argument("read.can.invalidRawValues entry must be an integer or 0x hex: " + text);
+        }
+        return std::stoull(text.substr(2), &used, 16);
+    }
+    const auto number = item.asNumber();
+    if (!(number >= 0.0) || number > 9007199254740992.0 || number != std::floor(number)) {
+        throw std::invalid_argument("read.can.invalidRawValues entry must be a non-negative integer");
+    }
+    return static_cast<std::uint64_t>(number);
+}
+
 CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     CanSignalSpec spec;
     if (value == nullptr || value->isNull()) {
@@ -433,6 +452,18 @@ CanSignalSpec parseCanSignalSpec(const JsonValue* value) {
     spec.endian = requireString(object, "endian", spec.endian);
     spec.receiveTimeoutMs = requireInt(object, "receiveTimeoutMs", spec.receiveTimeoutMs);
     spec.remoteRequest = requireBool(object, "remoteRequest", spec.remoteRequest);
+    spec.payloadTemplate = requireString(object, "payloadTemplate", spec.payloadTemplate);
+    spec.fd = requireBool(object, "fd", spec.fd);
+    spec.pulse = requireBool(object, "pulse", spec.pulse);
+    spec.pulseIdleValue = requireDouble(object, "pulseIdleValue", spec.pulseIdleValue);
+    spec.templateSafe = requireBool(object, "templateSafe", spec.templateSafe);
+    if (const auto* invalid = value->find("invalidRawValues")) {
+        if (!invalid->isNull()) {
+            for (const auto& item : invalid->asArray().values) {
+                spec.invalidRawValues.push_back(parseCanRawValue(*item));
+            }
+        }
+    }
     return spec;
 }
 
@@ -448,6 +479,7 @@ IecPointSpec parseIecPointSpec(const JsonValue* value) {
     spec.commonAddress = requireInt(object, "commonAddress", spec.commonAddress);
     spec.functionType = requireInt(object, "functionType", spec.functionType);
     spec.informationNumber = requireInt(object, "informationNumber", spec.informationNumber);
+    spec.elementIndex = requireInt(object, "elementIndex", spec.elementIndex);
     spec.valueKind = requireString(object, "valueKind", spec.valueKind);
     spec.selectBeforeExecute = requireBool(object, "selectBeforeExecute", spec.selectBeforeExecute);
     spec.waitActivationTermination = requireBool(object, "waitActivationTermination", spec.waitActivationTermination);
@@ -491,9 +523,16 @@ ReadSpec parseReadSpec(const JsonValue* value) {
     spec.debounceMs = requireInt(object, "debounceMs", spec.debounceMs);
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
+        // scale/decoder are not read.dlt645 fields: reject instead of silently ignoring them.
+        for (const char* misplaced : {"scale", "decoder"}) {
+            if (dlt645->find(misplaced) != nullptr) {
+                throw std::invalid_argument(std::string("read.dlt645.") + misplaced +
+                    " is not supported; use read.scale / read.dataType");
+            }
+        }
         spec.dlt645Di = requireString(dlt645Object, "di", spec.dlt645Di);
         spec.dlt645ByteCount = requireInt(dlt645Object, "byteCount", spec.dlt645ByteCount);
-        spec.dlt645Decoder = requireString(dlt645Object, "decoder", spec.dlt645Decoder);
+        spec.dlt645Offset = requireInt(dlt645Object, "offset", spec.dlt645Offset);
         if (spec.dlt645ByteCount > 0 && spec.length <= 1) {
             spec.length = spec.dlt645ByteCount;
         }
@@ -501,6 +540,13 @@ ReadSpec parseReadSpec(const JsonValue* value) {
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
     spec.cachePolicy = parseCachePolicy(value->find("cachePolicy"));
+    if (value->find("byteOrder") == nullptr || spec.byteOrder.empty()) {
+        // Unset: the type's natural big-endian order (ABCD for 32-bit), never a 16-bit "AB" that
+        // cannot decode a 32-bit value.
+        const auto canonical = spec.dataType == "uint32_base10000" ? std::string("ABCD")
+            : ModbusCodec::canonicalByteOrder(spec.dataType);
+        if (!canonical.empty()) spec.byteOrder = canonical;
+    }
     return spec;
 }
 
@@ -538,6 +584,28 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
     spec.verifyAfterWrite = requireBool(object, "verifyAfterWrite", spec.verifyAfterWrite);
     spec.verifyDelayMs = requireInt(object, "verifyDelayMs", spec.verifyDelayMs);
     spec.verifyByRead = requireBool(object, "verifyByRead", spec.verifyByRead);
+    {
+        const auto verifyIndex = requireInt(object, "verifyIndex", 0);
+        if (verifyIndex < 0) {
+            throw std::invalid_argument("write.verifyIndex must be a point index");
+        }
+        spec.verifyIndex = static_cast<std::uint32_t>(verifyIndex);
+    }
+    if (const auto* verifyValue = value->find("verifyValue")) {
+        if (!verifyValue->isNull()) {
+            spec.verifyValue = verifyValue->asNumber();
+        }
+    }
+    spec.verifyTimeoutMs = requireInt(object, "verifyTimeoutMs", spec.verifyTimeoutMs);
+    spec.feedbackAlarmDelayMs = requireInt(object, "feedbackAlarmDelayMs", spec.feedbackAlarmDelayMs);
+    spec.feedbackRecoveryMs = requireInt(object, "feedbackRecoveryMs", spec.feedbackRecoveryMs);
+    {
+        const auto alarmIndex = requireInt(object, "feedbackAlarmIndex", 0);
+        if (alarmIndex < 0) {
+            throw std::invalid_argument("write.feedbackAlarmIndex must be a point index");
+        }
+        spec.feedbackAlarmIndex = static_cast<std::uint32_t>(alarmIndex);
+    }
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
         spec.dlt645.di = requireString(dlt645Object, "di", spec.dlt645.di);
@@ -549,9 +617,27 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
             "fixedDataHex",
             spec.dlt645.fixedDataHex
         );
+        spec.dlt645.verifyPointCode = requireString(dlt645Object, "verifyPointCode", spec.dlt645.verifyPointCode);
+        {
+            const auto verifyIndex = requireInt(dlt645Object, "verifyIndex", 0);
+            if (verifyIndex < 0) throw std::invalid_argument("write.dlt645.verifyIndex must be a point index");
+            spec.dlt645.verifyIndex = static_cast<std::uint32_t>(verifyIndex);
+        }
+        if (const auto* verifyValue = dlt645->find("verifyValue")) {
+            if (!verifyValue->isNull()) spec.dlt645.verifyValue = verifyValue->asNumber();
+        }
+        spec.dlt645.verifyTimeoutMs = requireInt(dlt645Object, "verifyTimeoutMs", spec.dlt645.verifyTimeoutMs);
+        spec.dlt645.controlType = requireString(dlt645Object, "controlType", spec.dlt645.controlType);
+        spec.dlt645.validitySeconds = requireInt(dlt645Object, "validitySeconds", spec.dlt645.validitySeconds);
     }
     spec.can = parseCanSignalSpec(value->find("can"));
     spec.iec = parseIecPointSpec(value->find("iec"));
+    if (value->find("byteOrder") == nullptr || spec.byteOrder.empty()) {
+        // Unset: the type's natural order. The old "AB" default silently wrote only the high word of
+        // 32-bit values.
+        const auto canonical = ModbusCodec::canonicalByteOrder(spec.dataType);
+        if (!canonical.empty()) spec.byteOrder = canonical;
+    }
     return spec;
 }
 
@@ -598,7 +684,11 @@ ModbusNorthboundMappingConfig parseNorthboundMapping(const JsonValue* value, con
     mapping.byteOrder = requireString(object, "byteOrder", mapping.byteOrder);
     mapping.writeEnabled = requireBool(object, "writeEnabled", mapping.writeEnabled);
     mapping.writeFunction = requireInt(object, "writeFunction", mapping.writeFunction);
-    mapping.stalePolicy = requireString(object, "stalePolicy", mapping.stalePolicy);
+    mapping.onInvalid = requireString(object, "onInvalid", mapping.onInvalid);
+    const auto* sentinel = value->find("sentinel");
+    if (sentinel != nullptr && !sentinel->isNull()) {
+        mapping.sentinel = sentinel->asNumber();
+    }
     mapping.readFunction = normalizeNorthboundReadFunction(mapping.area, mapping.readFunction);
     mapping.unitId = boundedInt(mapping.unitId, 0, 255);
     mapping.length = std::max(1, mapping.length);
@@ -899,6 +989,11 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     device.onlineTimeoutExplicit = value.find("onlineTimeoutMs") != nullptr;
     device.onlineTimeoutMs = requireInt(object, "onlineTimeoutMs", device.onlineTimeoutMs);
     device.onlineFrameIds = parseStringArray(value.find("onlineFrameIds"));
+    {
+        const auto positionIndex = requireInt(object, "positionReadBackIndex", 0);
+        if (positionIndex < 0) throw std::invalid_argument("meters[].positionReadBackIndex must be a point index");
+        device.positionReadBackIndex = static_cast<std::uint32_t>(positionIndex);
+    }
     if (const auto* points = value.find("points")) {
         device.points.reserve(points->asArray().values.size());
         for (const auto& item : points->asArray().values) {
@@ -907,6 +1002,36 @@ LogicalDeviceConfig parseLogicalDevice(const JsonValue& value, int defaultSlave)
     }
     appendPointGroups(value, device.points);
     return device;
+}
+
+SerialRs485Config parseRs485(const JsonValue* value) {
+    SerialRs485Config rs485;
+    if (value == nullptr || value->isNull()) {
+        return rs485;
+    }
+    const auto& object = value->asObject();
+    for (const auto& member : object.values) {
+        if (member.key != "enabled" && member.key != "rtsOnSend" && member.key != "rtsAfterSend" &&
+            member.key != "delayRtsBeforeSendMs" && member.key != "delayRtsAfterSendMs") {
+            throw std::invalid_argument("transport.rs485." + member.key + " is not a known field");
+        }
+    }
+    rs485.enabled = requireBool(object, "enabled", rs485.enabled);
+    rs485.rtsOnSend = requireBool(object, "rtsOnSend", rs485.rtsOnSend);
+    rs485.rtsAfterSend = requireBool(object, "rtsAfterSend", rs485.rtsAfterSend);
+    rs485.delayRtsBeforeSendMs = requireInt(object, "delayRtsBeforeSendMs", rs485.delayRtsBeforeSendMs);
+    rs485.delayRtsAfterSendMs = requireInt(object, "delayRtsAfterSendMs", rs485.delayRtsAfterSendMs);
+    // The kernel rewrites equal RTS levels and clamps delays above 100 ms; reject both here so the
+    // read-back check at open never has to explain a silent kernel correction.
+    if (rs485.rtsOnSend == rs485.rtsAfterSend) {
+        throw std::invalid_argument("transport.rs485.rtsOnSend and rtsAfterSend must differ");
+    }
+    for (const auto delay : {rs485.delayRtsBeforeSendMs, rs485.delayRtsAfterSendMs}) {
+        if (delay < 0 || delay > 100) {
+            throw std::invalid_argument("transport.rs485 RTS delays must be between 0 and 100 ms");
+        }
+    }
+    return rs485;
 }
 
 SerialTransportConfig parseTransport(const JsonValue* value) {
@@ -930,6 +1055,7 @@ SerialTransportConfig parseTransport(const JsonValue* value) {
     transport.readRetryCount = requireInt(object, "readRetryCount", transport.readRetryCount);
     transport.wakeupBytes = requireInt(object, "wakeupBytes", transport.wakeupBytes);
     transport.localEcho = requireBool(object, "localEcho", transport.localEcho);
+    transport.rs485 = parseRs485(value->find("rs485"));
     if (transport.wakeupBytes < 0 || transport.wakeupBytes > 16) {
         throw std::invalid_argument("transport.wakeupBytes must be between 0 and 16");
     }
@@ -985,7 +1111,6 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     can.listenOnly = requireBool(object, "listenOnly", can.listenOnly);
     can.loopback = requireBool(object, "loopback", can.loopback);
     can.fdEnabled = requireBool(object, "fdEnabled", can.fdEnabled);
-    can.preserveFrameSignals = requireBool(object, "preserveFrameSignals", can.preserveFrameSignals);
     can.dataBitrate = requireInt(object, "dataBitrate", can.dataBitrate);
     can.manageInterface = requireBool(object, "manageInterface", can.manageInterface);
     can.rxQueueSize = requireSize(object, "rxQueueSize", can.rxQueueSize);
@@ -994,6 +1119,7 @@ CanProtocolConfig parseCanProtocol(const JsonValue* value) {
     can.udpListenPort = requireInt(object, "udpListenPort", can.udpListenPort);
     can.udpPeerAddress = requireString(object, "udpPeerAddress", can.udpPeerAddress);
     can.udpPeerPort = requireInt(object, "udpPeerPort", can.udpPeerPort);
+    can.frameStateFile = requireString(object, "frameStateFile", can.frameStateFile);
     return can;
 }
 
@@ -1057,14 +1183,25 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
     iec.linkAddress = requireInt(object, "linkAddress", iec.linkAddress);
     iec.linkAddressSize = requireInt(object, "linkAddressSize", iec.linkAddressSize);
     iec.interrogationQualifier = requireInt(object, "interrogationQualifier", iec.interrogationQualifier);
-    iec.interrogationCot = requireInt(object, "interrogationCot", iec.interrogationCot);
     iec.activationTerminationCot = requireInt(object, "activationTerminationCot", iec.activationTerminationCot);
     iec.pollTimeoutMs = requireInt(object, "pollTimeoutMs", iec.pollTimeoutMs);
     iec.idleReadTimeoutMs = requireInt(object, "idleReadTimeoutMs", iec.idleReadTimeoutMs);
     iec.maxPollFrames = requireInt(object, "maxPollFrames", iec.maxPollFrames);
     iec.pollOnCollect = requireBool(object, "pollOnCollect", iec.pollOnCollect);
     iec.interrogationIntervalMs = requireInt(object, "interrogationIntervalMs", iec.interrogationIntervalMs);
+    iec.counterInterrogation = requireBool(object, "counterInterrogation", iec.counterInterrogation);
+    iec.counterInterrogationIntervalMs = requireInt(
+        object,
+        "counterInterrogationIntervalMs",
+        iec.counterInterrogationIntervalMs
+    );
+    iec.counterInterrogationQualifier = requireInt(
+        object,
+        "counterInterrogationQualifier",
+        iec.counterInterrogationQualifier
+    );
     iec.balanced = requireBool(object, "balanced", iec.balanced);
+    iec.timestampZone = requireString(object, "timestampZone", iec.timestampZone);
     iec.t0Ms = requireInt(object, "t0Ms", iec.t0Ms);
     iec.t1Ms = requireInt(object, "t1Ms", iec.t1Ms);
     iec.t2Ms = requireInt(object, "t2Ms", iec.t2Ms);
@@ -1104,14 +1241,12 @@ IecProtocolConfig parseIecProtocol(const JsonValue* value) {
         "recordingMaxFileBytes",
         iec.recordingMaxFileBytes
     );
-    iec.cotSize = boundedInt(iec.cotSize, 1, 2);
-    iec.caSize = boundedInt(iec.caSize, 1, 2);
-    iec.ioaSize = boundedInt(iec.ioaSize, 1, 3);
-    iec.linkAddressSize = boundedInt(iec.linkAddressSize, 0, 2);
+    // cotSize/caSize/ioaSize/linkAddressSize are checked by validateIecDeviceConfig, not clamped.
     iec.pollTimeoutMs = std::max(100, iec.pollTimeoutMs);
     iec.idleReadTimeoutMs = std::max(10, iec.idleReadTimeoutMs);
     iec.maxPollFrames = std::max(1, iec.maxPollFrames);
     iec.interrogationIntervalMs = std::max(0, iec.interrogationIntervalMs);
+    iec.counterInterrogationIntervalMs = std::max(0, iec.counterInterrogationIntervalMs);
     iec.t0Ms = boundedInt(iec.t0Ms, 1000, 120000);
     iec.t1Ms = boundedInt(iec.t1Ms, 1000, 120000);
     iec.t2Ms = boundedInt(iec.t2Ms, 1000, 120000);
@@ -1210,9 +1345,23 @@ void parseDlt645Config(const JsonValue* value, ProtocolConfig& protocol) {
             !validHex32(protocol.dlt645.write.operatorCode)) {
             throw std::invalid_argument("dlt645.write.operatorCode must be exactly 8 hex characters");
         }
-        if (protocol.dlt645.write.enabled && protocol.dlt645.write.operatorCode.empty()) {
+        // DL/T 645-1997 writes carry no operator code.
+        if (protocol.dlt645.write.enabled && protocol.dlt645.write.operatorCode.empty() &&
+            protocol.type != "dlt645_1997") {
             throw std::invalid_argument("dlt645.write.operatorCode is required when write is enabled");
         }
+    }
+    {
+        const auto base = requireInt64(object, "autoIndexBase", protocol.dlt645.autoIndexBase);
+        if (base < 1 || base > 0xFFFFFFFFLL) {
+            throw std::invalid_argument("dlt645.autoIndexBase must be a point index (1..4294967295)");
+        }
+        protocol.dlt645.autoIndexBase = static_cast<std::uint32_t>(base);
+    }
+    if (const auto* timeSync = value->find("timeSync")) {
+        const auto& timeSyncObject = timeSync->asObject();
+        protocol.dlt645.timeSync.enabled = requireBool(timeSyncObject, "enabled", protocol.dlt645.timeSync.enabled);
+        protocol.dlt645.timeSync.intervalMs = requireInt(timeSyncObject, "intervalMs", protocol.dlt645.timeSync.intervalMs);
     }
 }
 
@@ -1292,6 +1441,8 @@ CollectConfig parseCollect(const JsonValue* value) {
         "failureBadQualityThreshold",
         config.failureBadQualityThreshold
     );
+    config.staleAfterIntervals = requireInt(object, "staleAfterIntervals", config.staleAfterIntervals);
+    config.staleAfterMinMs = requireInt(object, "staleAfterMinMs", config.staleAfterMinMs);
     config.adaptiveSplitOnFailure = requireBool(
         object,
         "adaptiveSplitOnFailure",
@@ -1335,21 +1486,8 @@ CollectConfig parseCollect(const JsonValue* value) {
         "realtimeMaxTasksPerMeterPerCycle",
         config.realtimeMaxTasksPerMeterPerCycle
     );
-    config.backgroundTaskIntervalMs = requireInt(
-        object,
-        "backgroundTaskIntervalMs",
-        config.backgroundTaskIntervalMs
-    );
-    config.maxBackgroundTasksPerMeterPerCycle = requireInt(
-        object,
-        "maxBackgroundTasksPerMeterPerCycle",
-        config.maxBackgroundTasksPerMeterPerCycle
-    );
-    config.realtimeMaxBackgroundTasksPerMeterPerCycle = requireInt(
-        object,
-        "realtimeMaxBackgroundTasksPerMeterPerCycle",
-        config.realtimeMaxBackgroundTasksPerMeterPerCycle
-    );
+    config.maxGapRegisters = requireInt(object, "maxGapRegisters", config.maxGapRegisters);
+    config.backgroundTaskIntervalMs = requireInt(object, "backgroundTaskIntervalMs", config.backgroundTaskIntervalMs);
     config.realtimeAdaptiveSplitLeafProbeBudget = requireInt(
         object,
         "realtimeAdaptiveSplitLeafProbeBudget",
@@ -1472,8 +1610,9 @@ MemoryStoreConfig parseMemoryStore(const JsonValue* value) {
     config.writebackIntervalMs = requireInt(object, "writebackIntervalMs", config.writebackIntervalMs);
     config.writebackBatchSize = requireSize(object, "writebackBatchSize", config.writebackBatchSize);
     config.pendingWriteMaxAgeMs = requireInt64(object, "pendingWriteMaxAgeMs", config.pendingWriteMaxAgeMs);
-    if (config.pendingWriteMaxAgeMs < 0) {
-        throw std::invalid_argument("memoryStore.pendingWriteMaxAgeMs must be >= 0 (0 disables expiry)");
+    // The age is measured on a 32-bit monotonic stamp in the shared queue; one day is far below its range.
+    if (config.pendingWriteMaxAgeMs < 0 || config.pendingWriteMaxAgeMs > 86400000) {
+        throw std::invalid_argument("memoryStore.pendingWriteMaxAgeMs must be 0..86400000 (0 disables expiry)");
     }
     config.persistFlushBatchSize = requireSize(object, "persistFlushBatchSize", config.persistFlushBatchSize);
     config.allowDuplicateIndexAcrossSegments = requireBool(
@@ -1515,6 +1654,8 @@ NorthboundServerConfig parseNorthboundServerConfig(const JsonValue* value) {
     config.idleTimeoutMs = requireInt(object, "idleTimeoutMs", config.idleTimeoutMs);
     config.allowUnrestrictedClients = requireBool(
         object, "allowUnrestrictedClients", config.allowUnrestrictedClients);
+    config.bindRetryIntervalMs = boundedInt(
+        requireInt(object, "bindRetryIntervalMs", config.bindRetryIntervalMs), 100, 600000);
     config.idleTimeoutMs = boundedInt(config.idleTimeoutMs, 1000, 3600000);
     config.port = boundedInt(config.port, 1, 65535);
     config.requestTimeoutMs = boundedInt(config.requestTimeoutMs, 100, 60000);
@@ -4316,6 +4457,7 @@ DeviceConfig parseDeviceConfig(const std::string& text) {
             config.startupWrites.push_back(parseStartupWriteConfig(*item));
         }
     }
+    validateDeviceConfig(config);
     return config;
 }
 
@@ -4328,6 +4470,12 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
     if (points == nullptr || !points->isArray()) {
         throw std::invalid_argument("DLT645 standard points missing required points array");
     }
+
+    const auto* protocolName = root.find("protocol");
+    if (protocolName == nullptr || !protocolName->isString() || !isDlt645Protocol(protocolName->asString())) {
+        throw std::invalid_argument("DLT645 standard points need \"protocol\": \"dlt645_2007\" or \"dlt645_1997\"");
+    }
+    const auto version = dlt645VersionOf(protocolName->asString());
 
     std::vector<PointDefinition> result;
     result.reserve(points->asArray().values.size());
@@ -4357,7 +4505,8 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
         point.read.intervalMs = requireInt(object, "defaultIntervalMs", 1000);
         point.read.dlt645Di = requireString(object, "di");
         point.read.dlt645ByteCount = requireInt(object, "byteCount", 0);
-        point.read.dlt645Decoder = requireString(object, "decoder", point.read.dlt645Decoder);
+        point.read.dlt645Offset = requireInt(object, "offset", 0);
+        point.collectPriority = std::max(0, requireInt(object, "collectPriority", 0));
         point.read.bit = requireInt(object, "bit", point.read.bit);
         point.read.length = point.read.dlt645ByteCount > 0 ? point.read.dlt645ByteCount : point.read.length;
         point.read.cachePolicy.storeLatest = requireBool(object, "storeLatest", true);
@@ -4369,6 +4518,9 @@ std::vector<PointDefinition> parseDlt645StandardPoints(const std::string& text) 
 
         result.push_back(std::move(point));
     }
+    // The read-back target of trip/close points is per meter (meters[].positionReadBackIndex), so the
+    // template itself is checked without it; the expanded meters are checked when the driver starts.
+    validateDlt645PointList(result, "DLT645 standard points", version, true);
     return result;
 }
 

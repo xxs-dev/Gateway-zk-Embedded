@@ -15,17 +15,32 @@ enum class ModbusFailureKind {
 
 class ModbusError : public std::runtime_error {
 public:
-    ModbusError(ModbusFailureKind kind, const std::string& message)
-        : std::runtime_error(message), kind_(kind) {
+    ModbusError(ModbusFailureKind kind, const std::string& message, bool requestSent = false)
+        : std::runtime_error(message), kind_(kind), requestSent_(requestSent) {
     }
 
     ModbusFailureKind kind() const noexcept {
         return kind_;
     }
 
+    // True once any byte of the request reached the transport. A write that fails after this point
+    // (timeout, broken reply, connection loss) may have been executed by the device.
+    bool requestSent() const noexcept {
+        return requestSent_;
+    }
+
 private:
     ModbusFailureKind kind_;
+    bool requestSent_;
 };
+
+// A Modbus write whose request reached the device side but whose result is unknown.
+inline bool isWriteOutcomeUnknown(const std::exception& error) {
+    const auto* modbusError = dynamic_cast<const ModbusError*>(&error);
+    return modbusError != nullptr && modbusError->requestSent() &&
+        modbusError->kind() != ModbusFailureKind::ProtocolException &&
+        modbusError->kind() != ModbusFailureKind::Configuration;
+}
 
 inline ModbusFailureKind classifyModbusFailure(const std::exception& error) {
     if (const auto* modbusError = dynamic_cast<const ModbusError*>(&error)) {

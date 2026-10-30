@@ -110,7 +110,11 @@ echo out > /sys/class/gpio/gpio<gpio>/direction
 echo <0|1> > /sys/class/gpio/gpio<gpio>/value
 ```
 
-驱动实现建议直接操作 sysfs 文件，减少对 shell 脚本的依赖。
+驱动直接操作 sysfs 文件，不依赖 shell 脚本：
+
+- 每次写控制文件（`export`、`direction`）都检查 `open`/`write`/`close` 的结果，被内核拒绝的写入作为错误上报（点质量 `0`），不会被吞掉。
+- `export` 后确认 `gpio<gpio>/direction` 已出现才视为导出成功；失败的导出不被记住，单次调用内重试一次，之后至少间隔 5 秒再试，避免一个错误的 GPIO 编号拖慢其他输入的采集周期。
+- DO 设为输出时直接写 `high`/`low` 到 `direction`（一步完成方向和初值，不产生低电平毛刺）。
 
 ### 3.2 厂商脚本
 
@@ -254,7 +258,7 @@ config/runtime/devices/device_dio.json
 | `address` | DIDO 逻辑通道号 |
 | `read.gpio` | 实际 GPIO 编号 |
 | `read.activeHigh` | `true` 表示 GPIO 1 为点值 1，`false` 表示 GPIO 0 为点值 1 |
-| `read.debounceMs` | 防抖时间，避免干接点抖动导致重复变位事件 |
+| `read.debounceMs` | 防抖时间，避免干接点抖动导致重复变位事件；按单调时钟计时，系统时间回拨或前跳不会冻结或提前确认输入变化（消防、门禁、急停输入持续更新） |
 
 ### 5.3 DO 点位
 
@@ -316,7 +320,101 @@ config/runtime/devices/device_dio.json
 | `read.gpio` | 实际 GPIO 编号 |
 | `read.activeHigh=false` | 因为说明书定义 DO 拉低闭合 |
 | `write.enable=true` | 允许通过 pendingWrites 下发 |
-| `write.verifyByRead=true` | 写后读取 GPIO 电平确认状态 |
+| `write.startupValue` | 可选，`0` 或 `1`：上电后驱动首次启动时该 DO 的逻辑值；不填为 `0`（非激活）。驱动重启时引脚已是输出，保持原电平 |
+| `write.verifyByRead=true` | 写后回读“输出状态”：读到的是 SoC 的 GPIO 输出锁存，只能证明输出已置位，不能证明继电器触点动作 |
+| `write.verifyIndex` | 可选：触点反馈用的独立 DI（继电器/接触器辅助触点）的网关 index，见“输出状态与触点反馈” |
+| `write.verifyValue` | 可选，`0`/`1`：输出状态为 `1` 时触点反馈应读到的值；输出状态为 `0` 时期望相反值。不填为 `1`（常开辅助触点），常闭辅助触点填 `0` |
+| `write.verifyTimeoutMs` | 写命令等待触点反馈的时间，也是持续不一致告警的动作宽限时间；默认 `3000`，`1`–`60000`；必须大于反馈 DI 的 `debounceMs` |
+| `write.feedbackAlarmDelayMs` | 持续不一致告警的去抖：宽限结束后不一致持续这么久才告警；默认 `2000`，`0`–`600000`；只对配置了 `verifyIndex` 的 DO 有效 |
+| `write.feedbackRecoveryMs` | 告警恢复判据：触点反馈与输出状态重新一致并持续这么久才恢复；默认 `2000`，`0`–`600000` |
+| `write.feedbackAlarmIndex` | 可选：承载该 DO 持续不一致告警的点（`read.dataType=feedback_alarm`）的 index，见“持续不一致告警” |
+
+#### DO 启动与退出状态
+
+- 驱动启动、开始采集和执行写命令之前，检查每个可写 DO（`write.enable=true` 且 `write.dataType=digital_output`）：
+  - 引脚还不是输出（上电后首次启动）：设为输出并写入启动值 `write.startupValue`，未配置时为逻辑 `0`（非激活）。按 `activeHigh` 换算电平，例如 `activeHigh=false` 的 DO 启动为高电平（继电器断开）；用内核的 `high`/`low` 方向值一步完成，没有毛刺。
+  - 引脚已是输出（驱动重启、升级、崩溃后被拉起）：保持当前电平不动，正在由 EMS 保持的继电器（风机、并网脱扣、HPLC 等）不会因驱动重启断开。
+- 某个 DO 启动时无法设置（GPIO 不可用）时记录日志，该点上报坏质量，不会把悬空输入电平当作 DO 状态上报；GPIO 可用后由采集周期补设为启动值。已经是输出的引脚，采集不会改动它的电平（不覆盖已执行的写命令）。
+- `--once` 诊断运行不强制写启动值，已是输出的引脚保持原电平，避免干扰正在运行的驱动。
+- 进程退出（停止服务、崩溃）时不主动改变输出，DO 保持最后的电平；驱动再次启动时也保持（见上），只有整机上电后才回到启动值。
+- 只读的 `digital_output` 点（`write.enable=false`）不由驱动驱动，按引脚当前电平上报。
+
+#### 加载校验
+
+以下定义加载时报错并点名测点：
+
+- 同一个 GPIO 既配置为 DI（`digital_input`）又配置为 DO（读或写）。
+- 两个可写 DO 使用同一个 GPIO。
+- `digital_input` 点打开了 `write.enable`；可写点的 `write.dataType` 不是 `digital_output`。
+- 读点缺少 `read.gpio`、`read.dataType` 不是 `digital_input`/`digital_output`、`debounceMs` 为负、`startupValue` 不是 `0`/`1`。
+- `write.verifyIndex` 指向自己；指向本配置内的点但该点不是启用的 `digital_input`；`verifyValue` 不是 `0`/`1`；`verifyTimeoutMs` 不在 `1`–`60000` 或不大于反馈 DI 的 `debounceMs`。指向本配置以外的 index 时只能在运行时从共享点库读取，加载时不检查。
+- `feedbackAlarmDelayMs`/`feedbackRecoveryMs` 不在 `0`–`600000`；配置了 `feedbackAlarmIndex` 但没有 `verifyIndex`；`feedbackAlarmIndex` 不是本配置内启用的 `feedback_alarm` 点，或被两个 DO 共用；`feedback_alarm` 点没有被任何 DO 的 `feedbackAlarmIndex` 引用，或配置了 `gpio`/`write.enable`。
+- 配置了 `verifyIndex` 但没有 `feedbackAlarmIndex` 时给出警告（告警只进日志和状态事件）。
+
+#### 输出状态与触点反馈
+
+DO 写入的回执（`CommandResult.message`、写回记录）和画面区分两件事：
+
+- **输出状态**：网关写到 GPIO 的值（SoC 输出锁存）。回读只能证明锁存已置位，不能证明继电器触点动作。DO 点本身的值就是输出状态。
+- **触点反馈**：接到独立 DI 上的继电器/接触器辅助触点（`write.verifyIndex`）。只有它能确认设备实际动作。没有配置时一律写明“未配置反馈”。
+
+| 配置 | 成功回执示例 |
+| --- | --- |
+| 无 `verifyIndex`，不回读 | `ok：输出状态已置为 1（未回读）；未配置反馈，继电器触点是否动作未确认` |
+| 无 `verifyIndex`，`verifyAfterWrite` + `verifyByRead` | `ok：输出状态回读=1（GPIO 输出锁存）；未配置反馈，继电器触点是否动作未确认` |
+| 配置 `verifyIndex` | `ok：输出状态回读=1（GPIO 输出锁存）；触点反馈(index 998)=1，动作已确认` |
+
+配置了 `write.verifyIndex` 时，写 GPIO 之后在 `verifyTimeoutMs` 内等触点反馈：
+
+- 只认写出之后的新值：反馈 DI 属于同一逻辑设备（同一 `meter`）时，执行器直接读该 DI 的 GPIO，按其 `debounceMs` 判稳（与采集线程无关，采集因优先控制暂停时也能确认）；属于其他设备（例如另一台 IO 模块）时从共享点库读取，只认好质量、未过期且时间戳严格晚于写出时刻的值。
+- 期间读到等于期望值的新值：成功，`verifyPassed=true`。
+
+结果分类（`CommandResult` 与写回阶段）：
+
+| 情况 | `success` / `feedbackMismatch` / `outcomeUnknown` | 写回阶段 / outcome | 回执示例 |
+| --- | --- | --- | --- |
+| 触点反馈确认 | `true` / `false` / `false` | `writeback-succeeded` / succeeded | 见上表 |
+| 超时时读到过新值但不等于期望值（反馈不一致） | `false` / `true` / `false` | `writeback-mismatch` / unknown | `反馈不一致：输出状态已置为 1，触点反馈(index 998)=0，期望 1（3000 ms 内）；输出写入已执行，不得自动重发` |
+| 输出锁存回读不一致（`verifyByRead`） | `false` / `true` / `false` | `writeback-mismatch` / unknown | `输出状态回读不一致：已写入 1，GPIO 输出锁存回读 0；输出写入已执行，不得自动重发` |
+| 超时内没有任何新值（反馈 DI 读失败、跨设备的采集未更新） | `false` / `false` / `true` | `writeback-timeout` / unknown | `输出状态已置为 1；触点反馈(index 998) 在 3000 ms 内没有新值（…），动作未确认，结果未知` |
+| GPIO 写入被拒绝、值非法等，输出未改变 | `false` / `false` / `false` | `writeback-failed` / failed | 内核错误原因 |
+
+- 反馈不一致≠设备未执行：输出写入已经执行，设备可能已动作（辅助触点卡滞、接线错误）也可能没有。它不是确定失败，回执不得写成“未执行”；调用方和驱动都不得自动重发，不得换新 cmdId 重试，需人工核实现场后再决定。`feedbackMismatch` 到 `writeback-mismatch`（outcome=unknown）的映射由共用回执分类（`writeback_outcome.hpp`）完成，持久化去重的命令（durableControl）在账本中同样记为 `writeback-mismatch`，重放时返回同一结论。
+- 无论确认成功与否，输出保持已置位状态，驱动不自动回退、不补发。
+- 跨设备反馈依赖对方驱动的采集：优先控制租约期间其他驱动的采集会暂停，此时可能等不到新值而报结果未知；需要可靠确认的 DO 应把辅助触点接到同一 DIO 设备。
+- 等待期间本驱动的写回线程被占用（最长 `verifyTimeoutMs`），同批后续写命令顺延。
+
+#### 持续不一致告警
+
+命令回执只覆盖写命令后的 `verifyTimeoutMs`。配置了 `write.verifyIndex` 的 DO 由采集线程持续比较输出状态与触点反馈（没有配置反馈的 DO 不做比较，也不告警）：
+
+- 期望值：输出状态为 `1` 时期望 `verifyValue`（默认 `1`），为 `0` 时期望相反值。输出状态取本驱动最近一次成功采集的 DO 值；触点反馈取本驱动采集的 DI 值，或跨设备时取共享点库中好质量、未过期的值。任一方取不到可信值时既不告警也不恢复。
+- 动作宽限：输出状态每次变化（命令写入或其他原因）后 `verifyTimeoutMs` 内不判不一致，给触点动作留时间。
+- 去抖：宽限结束后不一致连续持续 `feedbackAlarmDelayMs` 才告警，中间一旦一致就重新计时。
+- 恢复：告警后两者重新一致并连续持续 `feedbackRecoveryMs` 才恢复。
+- 告警与恢复只报告，不改输出、不自动补发动作。
+- 输出：日志 `DO feedback mismatch alarm doIndex=… output=… feedbackIndex=… feedback=… (no output is re-sent)` / `DO feedback mismatch cleared …`；有状态发布通道时发布状态事件 `do-feedback-mismatch` / `do-feedback-restored`（字段 `doIndex`、`feedbackIndex`、`outputValue`、`feedbackValue`）。生产 `DioDriver` 没有状态发布通道，平台侧需要告警时配置告警点：
+
+```json
+{
+  "index": 420101,
+  "pointCode": "do_1_feedback_alarm",
+  "name": "DO1 触点反馈不一致",
+  "category": "status",
+  "enabled": true,
+  "reportOnChange": true,
+  "read": { "enable": true, "dataType": "feedback_alarm", "intervalMs": 500 },
+  "write": { "enable": false },
+  "alarms": [],
+  "valueMap": { "0": "一致", "1": "触点反馈不一致" }
+}
+```
+
+DO 上配置 `"feedbackAlarmIndex": 420101`。告警点值 `1` 表示告警中、`0` 表示正常，告警/恢复时立即更新；文本带 DO index、输出状态、触点反馈 index 与反馈值，例如 `触点反馈不一致：DO(index 420001) 输出状态=1，触点反馈(index 410006)=0`。告警规则和变位事件仍由 `EventEngine` 按该点配置产生。
+
+#### 独立 DI 的显示
+
+作为辅助触点接入的 DI 在画面上显示为“触点反馈”，与 DO 的“输出状态”分开；没有接辅助触点的 DO 在画面上标注“未配置反馈”，不得把输出状态当作设备已动作展示。
 
 ## 6. 写回设备逻辑
 
@@ -332,8 +430,9 @@ DO 必须支持“写共享内存后实际下发设备”。
   -> 根据 index 找到 DO1
   -> value=1 转换为 GPIO 0
   -> 写 /sys/class/gpio/gpio231/value
-  -> 读回 GPIO 0，转换回点值 1
-  -> 更新 latest
+  -> 读回 GPIO 0（输出状态 = 输出锁存），转换回点值 1
+  -> 更新 latest（DO 点的值就是输出状态）
+  -> 配置了 write.verifyIndex 时等触点反馈确认动作
   -> 发布命令执行结果
 ```
 
@@ -342,7 +441,8 @@ DO 必须支持“写共享内存后实际下发设备”。
 - GPIO 不存在：点质量置为 `0`，状态消息上报 `gpio not found`。
 - 没有权限：点质量置为 `0`，状态消息上报 `permission denied`。
 - 写入值不在 `0/1`：拒绝命令，不触碰 GPIO。
-- 写后读回不一致：命令失败，不伪造成功状态。
+- 写后输出状态回读不一致：反馈不一致（`feedbackMismatch`，`writeback-mismatch`，outcome=unknown），不伪造成功状态，也不写成“未执行”，不自动重发。回读只能确认 SoC 输出锁存（输出状态），确认不了继电器触点是否真的动作；需要触点确认时接一路 DI 辅助触点并配置 `write.verifyIndex`。
+- sysfs 控制文件写入被拒绝：命令失败并带上内核错误原因。
 - pendingWrites 中不是本 DIDO 点：忽略，交给对应驱动消费。
 
 ## 7. DI 采集与变位
@@ -498,7 +598,7 @@ wgpio.sh 231 1
 
 - 共享内存能看到 DI/DO latest。
 - GPIO 读失败时 quality 为 `0`。
-- 首次启动不会误触发 DO。
+- 首次启动不会误触发 DO：DO 均为输出且处于启动值（默认非激活）。
 
 ### 11.3 写回验证
 

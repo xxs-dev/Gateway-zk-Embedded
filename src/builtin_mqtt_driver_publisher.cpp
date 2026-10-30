@@ -1,5 +1,6 @@
 #include "edge_gateway/builtin_mqtt_driver_publisher.hpp"
 #include "edge_gateway/event_store_clock.hpp"
+#include "edge_gateway/diagnostic_output_json.hpp"
 
 #include "edge_gateway/json_value_writer.hpp"
 
@@ -94,20 +95,9 @@ using SocketHandle = int;
 constexpr SocketHandle kInvalidSocket = -1;
 #endif
 
+// JSON string escaping per RFC 8259 (control characters as \u00XX, invalid UTF-8 replaced).
 std::string escapeJson(const std::string& value) {
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (const auto ch : value) {
-        switch (ch) {
-            case '\\': out += "\\\\"; break;
-            case '"': out += "\\\""; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default: out.push_back(ch); break;
-        }
-    }
-    return out;
+    return escapeDiagnosticOutputJson(value);
 }
 
 BrokerEndpoint parseBroker(const std::string& broker) {
@@ -712,6 +702,8 @@ std::string encodeCommandReplyJson(const MqttCommandReply& reply) {
         << ",\"value\":";
     appendJsonNumber(out, reply.value);
     out << ",\"success\":" << (reply.success ? "true" : "false")
+        << ",\"outcome\":\"" << escapeJson(reply.outcome) << "\""
+        << ",\"final\":" << (reply.isFinal ? "true" : "false")
         << ",\"message\":\"" << escapeJson(reply.message) << "\""
         << ",\"stage\":\"" << escapeJson(reply.stage) << "\""
         << ",\"requestedAt\":" << reply.requestedAt
@@ -2121,6 +2113,10 @@ std::string encodeBuiltinOtaStatusJson(const OtaStatus& status) {
     return encodeOtaStatusJson(status);
 }
 
+std::string encodeBuiltinCommandReplyJson(const MqttCommandReply& reply) {
+    return encodeCommandReplyJson(reply);
+}
+
 struct BuiltinMqttDriverPublisher::MqttConnectionHandle {
     explicit MqttConnectionHandle(MqttConnection connectionValue)
         : connection(std::move(connectionValue)) {
@@ -2638,18 +2634,25 @@ std::vector<MqttIncomingMessage> BuiltinMqttDriverPublisher::pollIncoming(int ti
             } else if (packet[0] == kPacketPubRel) {
                 const auto id = packetIdentifier(packet);
                 if (id != 0) {
+                    incomingQos2PacketIds_.erase(id);
                     sendControl(buildPubCompPacket(id, mqtt5));
                 }
             } else {
                 MqttIncomingMessage message;
                 std::uint16_t packetId = 0;
-                if (parsePublishPacket(config_, packet, &message, &packetId)) {
+                const bool known = parsePublishPacket(config_, packet, &message, &packetId);
+                const int incomingQos = (packet[0] >> 1) & 0x03;
+                // QoS 2 exactly-once (MQTT "method B"): a PUBLISH whose packet id still awaits PUBREL
+                // is a redelivery of a message already handed over; acknowledge it again, never
+                // deliver it twice.
+                const bool redelivery = incomingQos == 2 && packetId != 0 &&
+                    !incomingQos2PacketIds_.insert(packetId).second;
+                if (known && !redelivery) {
                     messages.push_back(message);
-                    if (packetId != 0) {
-                        const int incomingQos = (packet[0] >> 1) & 0x03;
-                        sendControl(incomingQos == 2 ? buildPubRecPacket(packetId, mqtt5)
-                                                     : buildPubAckPacket(packetId, mqtt5));
-                    }
+                }
+                if (packetId != 0) {
+                    sendControl(incomingQos == 2 ? buildPubRecPacket(packetId, mqtt5)
+                                                 : buildPubAckPacket(packetId, mqtt5));
                 }
             }
 
@@ -3197,7 +3200,15 @@ void BuiltinMqttDriverPublisher::ensureSubscriberConnected() {
         auto& connection = handle->connection;
         sendAll(connection, buildConnectPacket(config_, "-rx"), deadline);
         const auto subscribePacketId = nextPacketIdentifier();
-        validateConnAck(config_, readPacket(connection, incomingPacketLimit(config_), deadline));
+        const auto connAck = readPacket(connection, incomingPacketLimit(config_), deadline);
+        validateConnAck(config_, connAck);
+        // Without a resumed session (CONNACK session-present 0) the broker discarded every QoS 2
+        // exchange still awaiting PUBREL, so no redelivery of those packet ids can follow.
+        std::size_t connAckHeader = 0;
+        decodeRemainingLength(connAck, &connAckHeader);
+        if (connAck.size() <= connAckHeader || (connAck[connAckHeader] & 0x01) == 0) {
+            incomingQos2PacketIds_.clear();
+        }
 
         const auto normalQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config_.qos)));
         const auto controlQos = static_cast<std::uint8_t>(std::max(0, std::min(2, config_.controlQos)));
