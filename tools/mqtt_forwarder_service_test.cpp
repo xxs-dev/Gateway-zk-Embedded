@@ -1120,6 +1120,40 @@ void testControlPublishesFinalDeviceResults() {
         "final control result must expose the aggregate end-to-end duration");
 }
 
+// A feedback mismatch on one target is reported as outcome unknown with its cause and message kept,
+// never as a plain failure (the device may have acted).
+void testControlFinalResultKeepsFeedbackMismatch() {
+    ControlTestEnvironment environment;
+    const std::int64_t startedAt = 1770001962000LL;
+    environment.runCommand("{\"type\":1,\"target\":2,\"id\":\"RESULT_MISMATCH\"}", startedAt);
+    requireMappedWrites(environment, 21.0, 3.5, "mismatch test command should be queued");
+    WritebackResultRecord first;
+    first.cmdId = "RESULT_MISMATCH";
+    first.index = 4001;
+    first.value = 21.0;
+    first.success = true;
+    first.message = "ok";
+    first.stage = "writeback-succeeded";
+    first.acceptedAt = startedAt;
+    first.completedAt = startedAt + 30;
+    WritebackResultRecord second = first;
+    second.index = 4002;
+    second.value = 3.5;
+    second.success = false;
+    second.feedbackMismatch = true;
+    second.message = "verify failed: wrote 3.5, read back 0";
+    second.stage = "writeback-mismatch";
+    environment.store->recordWritebackResult(first);
+    environment.store->recordWritebackResult(second);
+    environment.service->runOnce(startedAt + 50);
+    const auto joined = joinValues(environment.publisher->jsonPayloads);
+    require(joined.find("\"id\":\"RESULT_MISMATCH\"") != std::string::npos &&
+            joined.find("\"success\":false,\"outcome\":\"unknown\"") != std::string::npos &&
+            joined.find("\"stage\":\"writeback-mismatch\"") != std::string::npos &&
+            joined.find("verify failed: wrote 3.5, read back 0") != std::string::npos,
+        "a feedback mismatch must stay outcome unknown with its cause and message: " + joined);
+}
+
 void testControlPublishesFinalResultTimeout() {
     ControlTestEnvironment environment;
     const std::int64_t startedAt = 1770001965000LL;
@@ -3755,6 +3789,8 @@ int main(int argc, char** argv) {
         testAcceptedReceiptRejectsChangedTargetMapping();
         std::cerr << "running final device control result test" << std::endl;
         testControlPublishesFinalDeviceResults();
+        std::cerr << "running final device control feedback mismatch test" << std::endl;
+        testControlFinalResultKeepsFeedbackMismatch();
         std::cerr << "running final device control timeout test" << std::endl;
         testControlPublishesFinalResultTimeout();
         std::cerr << "running final device control restart recovery test" << std::endl;

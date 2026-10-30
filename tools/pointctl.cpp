@@ -11,6 +11,7 @@
 #include "edge_gateway/config_loader.hpp"
 #include "edge_gateway/memory_point_store.hpp"
 #include "edge_gateway/point_store_router.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 namespace {
 
@@ -39,7 +40,7 @@ void printWritebackResult(const edge_gateway::WritebackResultRecord& result) {
               << " index=" << result.index
               << " value=" << result.value
               << " success=" << result.success
-              << " outcome=" << (result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed"))
+              << " outcome=" << edge_gateway::writebackOutcome(result)
               << " stage=" << result.stage
               << " message=\"" << result.message << "\""
               << " acceptedAt=" << result.acceptedAt

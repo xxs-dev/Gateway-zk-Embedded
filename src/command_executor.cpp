@@ -24,6 +24,14 @@ public:
     explicit WriteOutcomeUnknown(const std::string& message) : std::runtime_error(message) {}
 };
 
+// The device acknowledged the write (FC05/06/16 echo matched) but the verification read shows another
+// value. Not a definite failure: the device acted on the request in some way. Reported as
+// CommandResult.feedbackMismatch; never retried.
+class WriteFeedbackMismatch : public std::runtime_error {
+public:
+    explicit WriteFeedbackMismatch(const std::string& message) : std::runtime_error(message) {}
+};
+
 template <typename Write>
 void physicalWrite(Write write) {
     try {
@@ -172,10 +180,18 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
         }
 
         const auto encoded = ModbusCodec::encodeWriteValue(request.value, point);
+        const bool verify = point.write.verifyAfterWrite && point.write.verifyByRead;
+        // Refuse an unverifiable configuration before writing, not after the device has acted.
+        if (verify && !point.read.enable) {
+            throw std::invalid_argument("verify requires read capability");
+        }
+        if (verify && (point.read.function < 1 || point.read.function > 4)) {
+            throw std::invalid_argument("unsupported verify read function");
+        }
         ModbusPriorityWriteGuard priority(modbusClient_);
         dispatchWrite(point, encoded, beforeWrite);
 
-        if (point.write.verifyAfterWrite && point.write.verifyByRead) {
+        if (verify) {
             result.verifyAttempted = true;
             verifyWrite(request, point, encoded, nowMs);
             result.verifyPassed = true;
@@ -186,6 +202,11 @@ CommandResult CommandExecutor::execute(const CommandRequest& request, std::int64
     } catch (const WriteOutcomeUnknown& ex) {
         result.success = false;
         result.outcomeUnknown = true;
+        result.message = ex.what();
+    } catch (const WriteFeedbackMismatch& ex) {
+        result.success = false;
+        result.feedbackMismatch = true;
+        result.verifyPassed = false;
         result.message = ex.what();
     } catch (const std::exception& ex) {
         result.success = false;
@@ -430,8 +451,8 @@ void CommandExecutor::verifyWrite(
         }
     }
     if (!matches) {
-        throw std::runtime_error("verify failed: wrote " + std::to_string(expected) +
-                                 ", read back " + std::to_string(decoded.value));
+        throw WriteFeedbackMismatch("verify failed: wrote " + std::to_string(expected) +
+                                    ", read back " + std::to_string(decoded.value));
     }
 
     PointValue value;

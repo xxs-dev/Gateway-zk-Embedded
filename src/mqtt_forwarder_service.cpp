@@ -23,6 +23,7 @@
 #endif
 
 #include "edge_gateway/diagnostic_output_json.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "edge_gateway/legacy_telemetry_payload.hpp"
 #include "edge_gateway/mqtt_event_stats.hpp"
 #include "edge_gateway/mqtt_full_snapshot.hpp"
@@ -1986,7 +1987,7 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
     for (const auto& result : results) {
         resultsByIndex[result.index] = &result;
         success = success && result.success;
-        outcomeUnknown = outcomeUnknown || (!result.success && result.outcomeUnknown);
+        outcomeUnknown = outcomeUnknown || std::string(writebackOutcome(result)) == "unknown";
         if (!result.success && message == "device write completed") {
             message = result.message.empty() ? "device write failed" : result.message;
         }
@@ -2047,7 +2048,7 @@ std::string MqttForwarderService::buildFinalControlResultPayload(
             payload << ",\"value\":" << result.value
                     << ",\"success\":" << (result.success ? "true" : "false")
                     << ",\"outcome\":\""
-                    << (result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed")) << "\""
+                    << writebackOutcome(result) << "\""
                     << ",\"stage\":\"" << escapeJson(result.stage) << "\""
                     << ",\"message\":\"" << escapeJson(result.message) << "\""
                     << ",\"queueDelayMs\":" << result.queueDelayMs

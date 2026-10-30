@@ -1,4 +1,5 @@
 #include "edge_gateway/control_dedup_store.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "edge_gateway/writeback_service.hpp"
 #include "control_dedup_test_support.hpp"
 #include "edge_gateway/filesystem_compat.hpp"
@@ -20,7 +21,8 @@ int main() {
         auto claim = store.claim("machine", "meter", command, 2);
         require(claim.owner, "first claim must own dispatch");
         auto repeat = store.claim("machine", "meter", command, 3);
-        require(!repeat.owner && !repeat.result.success && repeat.result.stage == "writeback-timeout",
+        require(!repeat.owner && !repeat.result.success && repeat.result.stage == "writeback-unconfirmed" &&
+                repeat.result.outcomeUnknown,
                 "pending repeat must be unknown");
         command.value = 2;
         bool conflict = false;
@@ -39,7 +41,7 @@ int main() {
             require(rejected, "material changes must conflict, including another meter");
         }
         command.ts = 99; command.acceptedAt = 100;
-        require(store.bind("machine", "meter", command)->stage == "writeback-timeout", "timestamps must not conflict");
+        require(store.bind("machine", "meter", command)->stage == "writeback-unconfirmed", "timestamps must not conflict");
         ControlDedupStore reopened(path);
         require(!reopened.claim("machine", "meter", command, 4).owner, "reconstruction must retain pending");
         auto receipt = beginWritebackResult(command, 2);
@@ -75,12 +77,36 @@ int main() {
         {
             dedup_test::Database db(path); db.failFinalize();
             const auto failed = store.dispatch("machine", "meter", command, 5, execute);
-            require(!failed.success && failed.stage == "writeback-timeout" && calls == 1, "finalize failure must be unknown");
+            // The device result is not recorded, so the receipt cannot claim it (a replay could not
+            // repeat it); the executor's own result stays in the message.
+            require(!failed.success && failed.stage == "writeback-unconfirmed" && failed.outcomeUnknown && calls == 1 &&
+                    failed.message.find("executor reported writeback-succeeded: ok") != std::string::npos,
+                    "finalize failure must be unconfirmed and keep the executor result");
             db.sql("DROP TRIGGER fail_finalize;");
         }
-        require(store.dispatch("machine", "meter", command, 8, execute).stage == "writeback-timeout" && calls == 1,
+        require(store.dispatch("machine", "meter", command, 8, execute).stage == "writeback-unconfirmed" && calls == 1,
                 "finalize failure pending must never redispatch");
 
+        // A feedback mismatch keeps its cause and message in the ledger (outcome unknown, not failed).
+        {
+            auto attempt = command;
+            attempt.cmdId = "outcome-mismatch";
+            store.bind("machine", "meter", attempt);
+            const auto result = store.dispatch("machine", "meter", attempt, 9, [&] {
+                auto r = beginWritebackResult(attempt, 9);
+                completeWritebackResult(r, false, "verify failed: wrote 9, read back 7", "writeback-mismatch", 10, true, false);
+                r.outcomeUnknown = true;
+                r.feedbackMismatch = true;
+                return r;
+            });
+            ControlDedupStore restarted(path);
+            const auto replay = restarted.bind("machine", "meter", attempt);
+            require(!result.success && result.feedbackMismatch && result.stage == "writeback-mismatch" && replay &&
+                    replay->feedbackMismatch && replay->outcomeUnknown && replay->stage == "writeback-mismatch" &&
+                    replay->message == "verify failed: wrote 9, read back 7" && replay->verifyAttempted &&
+                    !replay->verifyPassed && std::string(writebackOutcome(*replay)) == "unknown",
+                    "feedback mismatch must replay with its cause and message");
+        }
         // CommandResult.outcomeUnknown stays unknown in the ledger; a conclusive failure is final.
         for (const bool outcomeUnknown : {true, false}) {
             auto attempt = command;
@@ -145,7 +171,7 @@ int main() {
             }
             int status; waitpid(child, &status, 0); require(status == 0, "crash setup failed");
             const auto before = calls;
-            require(reopened.dispatch("machine", "meter", command, 11, execute).stage == "writeback-timeout" && calls == before,
+            require(reopened.dispatch("machine", "meter", command, 11, execute).stage == "writeback-unconfirmed" && calls == before,
                     "both crash windows must retain unknown without redispatch");
         }
         {

@@ -585,12 +585,7 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
                     command, startedAt, [&] {
                         const auto result = executePending();
                         auto receipt = beginWritebackResult(command, startedAt);
-                        completeWritebackResult(receipt, result.success, result.message,
-                            result.success ? "writeback-succeeded"
-                                : (expiredBeforeSend ? "expired"
-                                    : result.outcomeUnknown ? "writeback-timeout" : "writeback-failed"),
-                            nowMs(), result.verifyAttempted, result.verifyPassed);
-                        receipt.outcomeUnknown = !result.success && !expiredBeforeSend && result.outcomeUnknown;
+                        completeWritebackFromCommand(receipt, result, expiredBeforeSend, nowMs());
                         return receipt;
                     });
             } catch (const std::exception& ex) {
@@ -608,21 +603,10 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             const auto result = executePending();
             const auto& runtimeDevice = runtimeDevices_[it->second];
             if (!result.success) {
-                const auto completedAt = nowMs();
-                // The request may have reached the device without a conclusive reply: report the
-                // outcome as unknown (never as a plain failure a caller could retry).
-                const bool unknown = !expiredBeforeSend && result.outcomeUnknown;
-                const auto stage = expiredBeforeSend ? "expired" : (unknown ? "writeback-timeout" : "writeback-failed");
-                completeWritebackResult(
-                    writebackResult,
-                    false,
-                    result.message,
-                    stage,
-                    completedAt,
-                    result.verifyAttempted,
-                    result.verifyPassed
-                );
-                writebackResult.outcomeUnknown = unknown;
+                // Definite failure, feedback mismatch or no conclusive reply: the receipt keeps the
+                // cause (stage) and the executor message; the latter two are outcome unknown.
+                completeWritebackFromCommand(writebackResult, result, expiredBeforeSend, nowMs());
+                const auto stage = writebackResult.stage;
                 store_.recordWritebackResult(writebackResult);
                 std::cerr << "writeback failed"
                           << " device=" << runtimeDevice.config.meterCode

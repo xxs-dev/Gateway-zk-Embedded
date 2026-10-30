@@ -4,5 +4,5 @@
   "ts": 1776156610000,
   "meterCode": "SLAVE0001",
   "index": 11001,
-  "message": "verify failed"
+  "message": "modbus exception code 2"
 }

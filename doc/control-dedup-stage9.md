@@ -41,9 +41,15 @@ Only the transaction that changes ready to pending may dispatch. Pending is neve
 reclaimed on process restart, exception or elapsed time. A ready entry may be
 queued again because no dispatch reservation has been made yet.
 
-Exceptions after reservation, executor failures that cannot establish non-write,
-and failure to save a post-write result return success=false and the existing
-writeback-timeout stage. No exactly-once device effect is promised: the guarantee
+The done record keeps the executor's own classification and message: definite
+failure (writeback-failed, expired), feedback mismatch (writeback-mismatch: the
+device accepted the write but read-back/feedback disagrees; outcome unknown, never
+read as "not executed") and no conclusive reply (writeback-timeout; outcome
+unknown). Replays return exactly that record, before and after a process restart.
+Exceptions after reservation and failure to save a post-write result leave the
+record pending and return success=false with stage writeback-unconfirmed (outcome
+unknown; the executor's own result, if any, is kept in the message). No
+exactly-once device effect is promised: the guarantee
 is at-most-once executor dispatch per retained reservation. Protocol-internal
 behavior, acknowledgements and physical effects are not an exactly-once system.
 
@@ -51,7 +57,8 @@ Durable callers only accept final receipts from SQLite. While ready/pending, or
 if SQLite cannot be read, initial requests keep waiting until their existing
 timeout. They never treat an earlier shared-memory busy failure as proof that a
 later queued duplicate has not started. Repeated admission of a pending record
-returns writeback-timeout without redispatch. Busy/full/unavailable storage cannot
+returns writeback-unconfirmed without redispatch; MQTT and HTTP Direct keep waiting
+for a final record before reporting it as the (unknown) result. Busy/full/unavailable storage cannot
 permit an unreserved write. Existing completed records are queried read-only
 before attempting insertion, so a full ledger does not prevent receipt replay.
 

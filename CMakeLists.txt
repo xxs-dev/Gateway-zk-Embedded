@@ -586,6 +586,11 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(mqtt_command_outcome_test tools/mqtt_command_outcome_test.cpp)
     target_link_libraries(mqtt_command_outcome_test PRIVATE edge_gateway)
     add_test(NAME mqtt_command_outcome COMMAND mqtt_command_outcome_test)
+    # driver-review: nb-mqtt (round 3) — result classes consistent across first reply, ledger, replay,
+    # late reply and a real process restart.
+    add_executable(control_outcome_consistency_test tools/control_outcome_consistency_test.cpp)
+    target_link_libraries(control_outcome_consistency_test PRIVATE edge_gateway)
+    add_test(NAME control_outcome_consistency COMMAND control_outcome_consistency_test)
 endif()
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
