@@ -21,11 +21,11 @@
 - C++ 已新增 `CanDriver`、`CanDriverService`、`CanSignalCodec` 和 `can_signal_codec_test`。
 - `protocol.type=can_socketcan` 时，驱动使用 SocketCAN 收发 `can0` 到 `can3`。
 - `read.can` 支持按 `frameId`、标准帧/扩展帧、`byteOffset`、`bitOffset`、`bitLength`、Intel/Motorola 字节序和倍率解析，位置定义见“信号位置定义”。
-- `write.can` 支持从共享内存 pending write 队列取写命令，按发送帧镜像编码并发送（见“写入与帧镜像”）。
+- `write.can` 支持从共享内存 pending write 队列取写命令，按发送帧镜像编码并发送（见“写入与帧镜像”）；回执区分“仅提交”与“设备状态信号确认”（见“写入结果与能力边界”）。
 - 加载配置时校验 CAN 点表（帧 ID 写法与范围、数据类型、字节序、位范围、同帧写入定义一致性等），错误定义直接报错并点名，不再在运行时静默停解或解出错值。
 - 维护 `interface_online` 点：读取 SocketCAN 错误帧识别 bus-off / 错误被动，接口 down 或 bus-off 时设备离线、信号点保留旧值并置坏质量。
 - 支持 `read.can.invalidRawValues`、按帧选择 CAN FD 发送（`write.can.fd`）；在线与超时判定使用单调时钟。
-- 顶层 `startupWrites[]` 已支持驱动启动自动写入。`CanDriver` 打开 SocketCAN 后按 `pointCode` 查找可写点，校验写入约束，发送 `write.can` 帧，并发布 `startup-write-succeeded`、`startup-write-failed` 或 `startup-write-skipped` 状态事件。
+- 顶层 `startupWrites[]` 已支持驱动启动自动写入。`CanDriver` 打开 SocketCAN 后按 `pointCode` 查找可写点，校验写入约束，发送 `write.can` 帧，并发布 `startup-write-submitted`（内核已接受帧，未经设备确认）、`startup-write-failed` 或 `startup-write-skipped` 状态事件。
 - `gateway-services.sh` 已支持按 `deviceConfigFiles[]` 自动启动 `can-driver@device_canX.service`，未配置的 CAN 驱动不会启动。
 - 初始化安装包脚本和工厂包脚本已包含 `CanDriver` 与 `can-driver@.service`。
 - Java 多接口批量配置页面已支持 `can_socketcan`，可配置 CAN 接口参数、逻辑设备、在线帧和 CAN 点表。
@@ -531,9 +531,38 @@ COMM202600103 正华探测器的浓度点（`endian=big, bitOffset=0, bitLength=
 - 同一批待写命令中，连续写同一帧不同信号的命令合并成一帧发送；同一信号在一批里出现两次（例如脉冲 1→0）时按顺序分两帧发出，不会被合并吞掉。
 - 共用一个发送帧的所有写点必须一致：`dlc`、`fd`、`remoteRequest`、`templateSafe` 相同，非空的 `payloadTemplate` 相同，否则加载报错。写信号位重叠时加载给出警告。
 - 脉冲信号（`write.can.pulse=true`）只在写它的那一帧里带写入值；与同批其他信号合并时也只在这一帧带 `1`。发送后镜像立即回到 `pulseIdleValue`，之后写同帧其他信号不会重复触发启动/复位；脉冲位从不以激活值写入日志文件，重启后也不会重放。
-- 写入成功只表示帧已进入内核发送队列（`write()` 成功），CAN 没有接收方确认；需要确认结果时应由设备的状态反馈点判断。CAN 写点不支持 `verifyAfterWrite`（配置了会给出警告并忽略）。
+- 写入结果见下面“写入结果与能力边界”。CAN 写点不支持 `verifyAfterWrite`（配置了会给出警告并忽略），确认用 `write.verifyIndex`。
 - 接口离线（bus-off、链路 down）期间写命令直接失败（`writeback-failed`，消息 `CAN interface offline ... frame not sent`），不把帧排进内核队列——否则总线恢复时这些过期命令会被补发。
 - 原 `mode`、`mergePolicy`、`sendRepeat`、`sendIntervalMs`、`protocol.can.preserveFrameSignals` 均未实现/已删除，不要再配置。
+
+### 写入结果与能力边界
+
+SocketCAN 的 `write()` 成功只表示内核接受了这一帧、放进了发送队列：
+
+- 不表示帧已经上总线：总线上没有节点应答时控制器会一直重发直到错误被动/bus-off，bus-off 恢复时队列可能被清掉。
+- 更不表示目标设备收到或执行：CAN 链路层的 ACK 位只说明总线上某个节点收到了这一帧，网关拿不到它，也不说明是哪个节点、是否执行。
+- 设备协议里没有状态信号（命令执行后设备不发送反映该状态的帧）时，软件无法确认设备是否执行，这是协议和硬件的限制，配置或软件都补不上。只能现场观察设备，或由设备方提供状态帧。
+
+因此回执分两种，复用共用的结果分类（`writeback_outcome.hpp`）：
+
+| 配置 | 结果 | `success` / outcome | 写回阶段 | `verifyAttempted` / `verifyPassed` | 回执示例 |
+| --- | --- | --- | --- | --- | --- |
+| 无 `write.verifyIndex` | 仅提交 | `true` / succeeded | `writeback-submitted` | `false` / `false` | `submitted: CAN frame 0x321 queued by the kernel; no device feedback configured` |
+| 有 `write.verifyIndex`，状态信号在超时内等于写入值 | 设备反馈确认 | `true` / succeeded | `writeback-succeeded` | `true` / `true` | `ok: CAN frame 0x322 sent; feedback index 320201=1 confirms` |
+| 有，超时时读到过新值但不等于写入值 | 反馈不一致 | `false` / unknown | `writeback-mismatch` | `true` / `false` | `feedback mismatch: CAN frame 0x322 sent, feedback index 320201=0, expected 1 (300 ms); not re-sent` |
+| 有，超时内没有可用新值 | 结果未知 | `false` / unknown | `writeback-timeout` | `true` / `false` | `outcome unknown: CAN frame 0x322 sent, feedback index 320201 no new value in 300 ms (stale or bad quality)` |
+| 发送前拒绝（值越界、帧不可信、接口离线、日志写失败） | 确定失败 | `false` / failed | `writeback-failed` | `false` / `false` | 拒绝原因 |
+
+- `writeback-submitted` 的 outcome 是 succeeded：帧确实已交给内核，不得当失败重发；但它不是“设备已执行”。需要“设备已执行”的消费方（EMS `confirmedControlWrite`、平台展示“已确认”）必须看 `verifyPassed=true`。AGC/AVC 把成功回执当作“已下发”，再按 PCS 遥测反馈判断是否到位，与此一致。
+- `write.verifyIndex`：设备发送的状态信号点的网关 index（同一配置里的 CAN 接收信号，或其他驱动的点，从共享点库读）。等待规则：
+  - 只认发送之后存入的值：时间戳严格晚于发送时刻（同一毫秒内的值不算）、好质量、未过期；坏质量、过期、发送前的旧值都不算反馈。
+  - 期望值就是写入值；整数信号允许半个刻度的误差（取写入倍率与反馈信号倍率中较大者的一半），浮点信号按写入值比较。
+  - 等待 `write.verifyTimeoutMs`（`1`–`60000`，默认 `3000`）；期间写回线程被占用，同批后续写命令顺延。
+  - 结果为不一致或未知时不自动重发，不得换新 cmdId 重试；先看状态信号或现场确认。
+- 加载校验：`verifyIndex` 不能指向自己；脉冲信号（`pulse=true`）不能配置（脉冲发送后即回到空闲值，没有可确认的电平）；`verifyValue` 只用于本机 DO，CAN 配置了直接报错；反馈点在本配置内时必须是启用的接收信号，不能是在线状态点，也不能解自网关自己发送的帧（那只是命令的回显）；不在本配置内时给出警告，运行时从共享点库读取。
+- 晚到反馈：回执已是最终结果（`writeback-timeout` 等），晚到的状态信号不改写它、不补发回执，也不会触发重发；它只体现在状态信号点自身的值上。CAN 没有像本机 DO 那样的持续不一致告警，需要时用 `EventEngine` 告警规则比较命令点与状态点。
+- 启动写入（`startupWrites`）只提交、不等反馈，状态事件为 `startup-write-submitted`。
+- 去重账本、共享内存回执、MQTT 首次回执、同 `cmdId` 重放与晚到回执给出同一 `stage`/outcome/消息（`can_dio_control_outcome_test` 用模拟总线验证，不代表真实设备行为）。
 
 ### 已请求状态与帧初始化
 
@@ -1196,7 +1225,8 @@ cansend can0 123#1122334455667788
 - 收到匹配帧后，对应点位在 `gateway_point_store` 中刷新。
 - 未收到设备关键帧超过 `onlineTimeoutMs` 后，`device_online=0`。
 - CAN 接口 down 或 bus-off 后，`interface_online=0`。
-- 平台写点位后，`CanDriver` 能发送正确 CAN 帧。
+- 平台写点位后，`CanDriver` 能发送正确 CAN 帧（用 `candump` 在总线上看到帧；回执 `writeback-submitted` 只说明内核已接受）。
+- 配置了 `write.verifyIndex` 的写点：设备状态帧在超时内反映写入值时回执 `writeback-succeeded`、`verifyPassed=true`；设备执行与否仍需现场核对一次。
 - 没有配置某路 CAN 时，对应 `can-driver@...` 不启动。
 
 Java 验收：

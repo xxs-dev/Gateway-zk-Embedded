@@ -336,6 +336,31 @@ void loadTimeValidation() {
         writePoint(11, "sig", "uint8", R"("frameId":"0x321","byteOffset":1,"templateSafe":true)")));
     expectRejected(canConfig("", "", R"({"index":1,"pointCode":"sig","enabled":true,"read":{"enable":true,"dataType":"interface_online"},"write":{"enable":true,"dataType":"bool","can":{"frameId":"0x1"}}})"),
                    "read-only", "writable online point");
+    // Round 5: device feedback for a CAN write (write.verifyIndex) is a status signal the device sends.
+    const auto command = [](const std::string& writeExtra, const std::string& can) {
+        return R"({"index":10,"pointCode":"sig","enabled":true,"write":{"enable":true,"dataType":"bool")" + writeExtra +
+            R"(,"can":{"frameId":"0x321","bitLength":1)" + can + "}}}";
+    };
+    const auto state = [](const std::string& frame, const std::string& extra) {
+        return R"({"index":20,"pointCode":"run_state","enabled":true,"read":{"enable":true,"dataType":"bool","can":{"frameId":")" +
+            frame + R"(","extended":true,"bitLength":1}})" + extra + "}";
+    };
+    (void)edge_gateway::ConfigLoader::loadFromText(canConfig("", "",
+        command(R"(,"verifyIndex":20,"verifyTimeoutMs":500)", "") + "," + state("0x18FF10E5", "")));
+    (void)edge_gateway::ConfigLoader::loadFromText(canConfig("", "", command(R"(,"verifyIndex":99999)", "")));
+    expectRejected(canConfig("", "", command(R"(,"verifyIndex":10)", "")), "another point", "feedback is the command itself");
+    expectRejected(canConfig("", "", command(R"(,"verifyIndex":20)", R"(,"pulse":true)") + "," + state("0x18FF10E5", "")),
+                   "pulse", "a pulse has no level to confirm");
+    expectRejected(canConfig("", "", command(R"(,"verifyIndex":20,"verifyValue":1)", "") + "," + state("0x18FF10E5", "")),
+                   "verifyValue", "verifyValue is local_dio only");
+    expectRejected(canConfig("", "", command(R"(,"verifyIndex":20,"verifyTimeoutMs":0)", "") + "," + state("0x18FF10E5", "")),
+                   "verifyTimeoutMs", "feedback without timeout");
+    expectRejected(canConfig("", "", command(R"(,"verifyIndex":20)", "") + "," +
+        R"({"index":20,"pointCode":"echo","enabled":true,"read":{"enable":true,"dataType":"bool","can":{"frameId":"0x321","bitLength":1}}})"),
+                   "transmits", "feedback decoded from the command frame itself");
+    expectRejected(canConfig("", "", command(R"(,"verifyIndex":20)", "") + "," +
+        R"({"index":20,"pointCode":"online","enabled":true,"read":{"enable":true,"dataType":"device_online"}})"),
+                   "status signal", "online point as feedback");
 }
 
 }  // namespace
