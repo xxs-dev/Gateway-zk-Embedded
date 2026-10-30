@@ -533,6 +533,15 @@ if(UNIX)
     target_link_libraries(posix_serial_rs485_test PRIVATE edge_gateway)
     target_compile_options(posix_serial_rs485_test PRIVATE -fdiagnostics-color=never)
 endif()
+# driver-review: shm-upgrade (pending-write queue mixed-version check; see doc/部署运维/共享待写队列升级规程.md)
+if(UNIX)
+    add_executable(shm_pending_write_mix tools/shm_pending_write_mix.cpp)
+    target_compile_definitions(shm_pending_write_mix PRIVATE PWMIX_STAMPED_QUEUE)
+    target_include_directories(shm_pending_write_mix PRIVATE src)
+    target_link_libraries(shm_pending_write_mix PRIVATE edge_gateway pthread rt)
+    # Old-release builds of the same tool, e.g. -DEDGE_SHM_MIX_OLD_TOOLS="/tmp/pwmix-dabb8fd;/tmp/pwmix-29f5068".
+    set(EDGE_SHM_MIX_OLD_TOOLS "" CACHE STRING "shm_pending_write_mix binaries built from earlier releases")
+endif()
 # driver-review: dlt645
 foreach(dlt645_review_test dlt645_codec_test dlt645_link_test dlt645_collector_schedule_test dlt645_config_test
         dlt645_extensions_test)
@@ -950,6 +959,22 @@ if(BUILD_TESTING)
     if(TARGET posix_serial_rs485_test)
         add_test(NAME posix_serial_rs485 COMMAND posix_serial_rs485_test)
         set_tests_properties(posix_serial_rs485 PROPERTIES TIMEOUT 5)
+    endif()
+    # driver-review: shm-upgrade
+    if(UNIX)
+        add_test(NAME gateway_services_queue
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/gateway_services_queue_test.sh")
+        set_tests_properties(gateway_services_queue PROPERTIES TIMEOUT 30)
+        add_test(NAME pointctl_queue_view
+            COMMAND sh "${CMAKE_SOURCE_DIR}/tools/pointctl_queue_view_test.sh" $<TARGET_FILE:pointctl>)
+        set_tests_properties(pointctl_queue_view PROPERTIES TIMEOUT 30)
+    endif()
+    # Registered only when old-release tools are given.
+    if(TARGET shm_pending_write_mix AND EDGE_SHM_MIX_OLD_TOOLS)
+        add_test(NAME shm_pending_write_mix_check
+            COMMAND sh ${CMAKE_SOURCE_DIR}/tools/shm_pending_write_mix_check.sh
+                $<TARGET_FILE:shm_pending_write_mix> ${EDGE_SHM_MIX_OLD_TOOLS})
+        set_tests_properties(shm_pending_write_mix_check PROPERTIES TIMEOUT 120)
     endif()
     # driver-review: dlt645
     add_test(NAME dlt645_codec COMMAND dlt645_codec_test)

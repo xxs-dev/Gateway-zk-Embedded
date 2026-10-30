@@ -106,6 +106,87 @@ stop_units() {
   done
 }
 
+# Shared pending-write queue: the units that put commands into it (platform via MQTT, direct
+# maintenance, local screens, EMS strategies) and the drivers that execute them. A queue upgrade or
+# rollback stops and starts only these; network, 4G, EasyTier, the MQTT TLS tunnel, event engine,
+# read-only displays and cameras keep running. Writers are stopped before drivers.
+QUEUE_WRITER_UNITS='mqtt-driver@*.service mqtt-forwarder@*.service system-monitor@*.service compute-engine@*.service ems-cluster@*.service agc-avc@*.service ky-ems.service qt-display-bridge.service local-display-qt@*.service'
+QUEUE_DRIVER_UNITS='modbus-rtu@*.service dlt645-driver@*.service dio-driver@*.service can-driver@*.service iec-driver@*.service'
+
+unit_matches() {
+  candidate="$1"
+  shift
+  for pattern in "$@"; do
+    case "$candidate" in
+      $pattern) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+loaded_queue_units() {
+  command -v systemctl >/dev/null 2>&1 || return 0
+  set -f
+  if [ "$1" = writers ]; then
+    set -- $QUEUE_WRITER_UNITS
+  else
+    set -- $QUEUE_DRIVER_UNITS
+  fi
+  set +f
+  systemctl list-units --all --plain --no-legend "$@" | awk '$1 !~ /@\.service$/ && !seen[$1]++ {print $1}'
+}
+
+stop_queue_units() {
+  # POSIX sh has no locals: helpers such as write_watchdog_marker set "kind".
+  queue_kind="$1"
+  # The watchdog must not restart what the operator stopped for the maintenance window.
+  mark_manual_stop
+  queue_units=$(loaded_queue_units "$queue_kind") || return $?
+  if [ -z "$queue_units" ]; then
+    echo "[gateway-services] no loaded queue $queue_kind"
+    return 0
+  fi
+  echo "[gateway-services] stopping queue $queue_kind:" $queue_units
+  systemctl stop $queue_units
+}
+
+start_queue_units() {
+  mark_manual_stop
+  begin_configuration_apply
+  trap 'finish_configuration_apply' EXIT HUP INT TERM
+  queue_result=0
+  reset_point_store_segments
+  queue_file=$(mktemp "${TMPDIR:-/tmp}/gateway-services-queue.XXXXXX") || return 1
+  if ! listed_units > "$queue_file"; then
+    queue_result=1
+  fi
+  # Drivers first, so every command a writer queues finds its executor.
+  for queue_pass in drivers writers; do
+    [ "$queue_result" -eq 0 ] || break
+    while IFS= read -r unit; do
+      case "$unit" in
+        ""|\#*) continue ;;
+      esac
+      set -f
+      if [ "$queue_pass" = drivers ]; then
+        unit_matches "$unit" $QUEUE_DRIVER_UNITS || { set +f; continue; }
+      else
+        unit_matches "$unit" $QUEUE_WRITER_UNITS || { set +f; continue; }
+      fi
+      set +f
+      if ! start_one_unit "$unit"; then
+        echo "[gateway-services] failed to start $unit" >&2
+        queue_result=1
+      fi
+    done < "$queue_file"
+  done
+  rm -f "$queue_file"
+  [ "$queue_result" -ne 0 ] || clear_manual_stop
+  finish_configuration_apply
+  trap - EXIT HUP INT TERM
+  return "$queue_result"
+}
+
 reset_point_store_segments() {
   # Never turn a service restart into an implicit ABI migration or data reset.
   python3 "$(dirname -- "$0")/runtime-upgrade-guard.py" startup "$BASE_DIR"
@@ -615,8 +696,23 @@ case "${1:-apply}" in
   list)
     listed_units
     ;;
+  list-queue)
+    echo "# writers"
+    loaded_queue_units writers
+    echo "# drivers"
+    loaded_queue_units drivers
+    ;;
+  stop-writers)
+    stop_queue_units writers
+    ;;
+  stop-drivers)
+    stop_queue_units drivers
+    ;;
+  start-queue)
+    start_queue_units
+    ;;
   *)
-    echo "Usage: gateway-services.sh [apply|restart|start|stop|list]" >&2
+    echo "Usage: gateway-services.sh [apply|restart|start|stop|list|list-queue|stop-writers|stop-drivers|start-queue]" >&2
     exit 2
     ;;
 esac

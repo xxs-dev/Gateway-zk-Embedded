@@ -28,9 +28,9 @@ void printUsage() {
         << "  pointctl dump [--limit <n>] [--owners] [--shm <name>|--app-config <path>]\n"
         << "  pointctl stats [--shm <name>|--app-config <path>]\n"
         << "  pointctl create-empty --shm <new-name>\n"
-        << "  pointctl pending [--limit <n>] [--shm <name>]\n"
-        << "  pointctl pending-peek [--limit <n>] [--shm <name>|--app-config <path>]\n"
-        << "  pointctl result --cmd <cmdId> [--index <index>] [--shm <name>]\n";
+        << "  pointctl pending|pending-peek [--limit <n>] [--shm <name>|--app-config <path>]   (look only, never removes)\n"
+        << "  pointctl result --cmd <cmdId> [--index <index>] [--shm <name>]\n"
+        << "  pointctl results --index <index> [--limit <1..100>] [--shm <name>]   (newest first)\n";
 }
 
 // outcome: succeeded / failed / unknown (the write may have taken effect; do not retry with a new cmdId).
@@ -42,8 +42,27 @@ void printWritebackResult(const edge_gateway::WritebackResultRecord& result) {
               << " outcome=" << (result.success ? "succeeded" : (result.outcomeUnknown ? "unknown" : "failed"))
               << " stage=" << result.stage
               << " message=\"" << result.message << "\""
+              << " acceptedAt=" << result.acceptedAt
               << " completedAt=" << result.completedAt
               << std::endl;
+}
+
+// Queue entries are only looked at, never removed: a removed command would get no receipt.
+// queuedMs is the monotonic time in the queue; "unstamped" = queued by a release without stamps
+// (the device drivers expire such a command instead of executing it).
+void printPendingCommand(const edge_gateway::PendingWriteCommand& item) {
+    std::cout << "cmdId=" << item.cmdId
+              << " index=" << item.index
+              << " value=" << item.value
+              << " source=" << item.source
+              << " highPriority=" << item.highPriority
+              << " ts=" << item.ts
+              << " acceptedAt=" << item.acceptedAt;
+    if (item.acceptedMonotonicMs == 0) {
+        std::cout << " queuedMs=unstamped";
+    } else {
+        std::cout << " queuedMs=" << edge_gateway::pendingWriteAgeMs(item, edge_gateway::pendingWriteMonotonicNowMs());
+    }
 }
 
 std::string getOption(
@@ -255,19 +274,14 @@ int main(int argc, char* argv[]) {
                 return 0;
             }
 
-            if (command == "pending-peek") {
+            if (command == "pending" || command == "pending-peek") {
                 const auto limitText = getOption(args, "--limit", "0");
                 const auto limit = static_cast<std::size_t>(std::stoul(limitText));
                 const auto pending = context->router.peekPendingWrites(limit);
                 std::cout << "pending_count=" << pending.size() << std::endl;
                 for (const auto& item : pending) {
                     const auto route = context->router.routeByIndex(item.index);
-                    std::cout << "cmdId=" << item.cmdId
-                              << " index=" << item.index
-                              << " value=" << item.value
-                              << " source=" << item.source
-                              << " highPriority=" << item.highPriority
-                              << " ts=" << item.ts;
+                    printPendingCommand(item);
                     if (route) {
                         std::cout << " interface=" << route->interfaceCode
                                   << " shm=" << route->sharedMemoryName;
@@ -361,36 +375,30 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
-        if (command == "pending") {
-            const auto limitText = getOption(args, "--limit", "0");
-            const auto limit = static_cast<std::size_t>(std::stoul(limitText));
-            const auto pending = store.drainPendingWriteCommands(limit);
-            std::cout << "pending_count=" << pending.size() << std::endl;
-            for (const auto& item : pending) {
-                std::cout << "cmdId=" << item.cmdId
-                          << " index=" << item.index
-                          << " value=" << item.value
-                          << " source=" << item.source
-                          << " highPriority=" << item.highPriority
-                          << " ts=" << item.ts
-                          << std::endl;
+        // Most recent receipts of one point, newest first: reconciles in-flight commands without their cmdIds.
+        if (command == "results") {
+            const auto indexText = getOption(args, "--index");
+            const auto limitText = getOption(args, "--limit", "20");
+            if (indexText.empty()) {
+                printUsage();
+                return 1;
             }
+            const auto results = store.recentWritebackResults(
+                static_cast<std::uint32_t>(std::stoul(indexText)), static_cast<std::size_t>(std::stoul(limitText)));
+            std::cout << "result_count=" << results.size() << std::endl;
+            for (const auto& result : results) printWritebackResult(result);
             return 0;
         }
 
-        if (command == "pending-peek") {
+        // "pending" used to drain the queue: the commands vanished without receipts. Both names now only look.
+        if (command == "pending" || command == "pending-peek") {
             const auto limitText = getOption(args, "--limit", "0");
             const auto limit = static_cast<std::size_t>(std::stoul(limitText));
             const auto pending = store.peekPendingWriteCommands(limit);
             std::cout << "pending_count=" << pending.size() << std::endl;
             for (const auto& item : pending) {
-                std::cout << "cmdId=" << item.cmdId
-                          << " index=" << item.index
-                          << " value=" << item.value
-                          << " source=" << item.source
-                          << " highPriority=" << item.highPriority
-                          << " ts=" << item.ts
-                          << std::endl;
+                printPendingCommand(item);
+                std::cout << std::endl;
             }
             return 0;
         }

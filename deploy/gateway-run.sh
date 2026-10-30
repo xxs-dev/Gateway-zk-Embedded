@@ -61,7 +61,7 @@ case "$cmd" in
     "$BIN_DIR/pointctl" snapshot --app-config "$APP_CONFIG"
     ;;
   pending)
-    "$BIN_DIR/pointctl" pending --app-config "$APP_CONFIG"
+    "$BIN_DIR/pointctl" pending-peek --app-config "$APP_CONFIG"
     ;;
   stats)
     "$BIN_DIR/pointctl" stats --app-config "$APP_CONFIG"

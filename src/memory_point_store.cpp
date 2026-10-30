@@ -466,6 +466,11 @@ Optional<ClusterWriteAuthorization> decodeAuthorization(const SharedClusterWrite
     return result;
 }
 
+// The stamp of a slot queued by a non-stamping release is padding, possibly any value: never trust it.
+std::uint32_t slotMonotonicStamp(const SharedPendingWriteSlot& slot) {
+    return slot.occupied == kPendingSlotStamped ? slot.acceptedMonotonicMs : 0;
+}
+
 void pushPendingWrite(
     SharedStoreLayout* layout,
     const PendingWriteCommand& command,
@@ -492,7 +497,7 @@ void pushPendingWrite(
         command.acceptedMonotonicMs != 0 ? command.acceptedMonotonicMs : pendingWriteMonotonicNowMs();
     copyString(slot.cmdId, kCmdIdSize, command.cmdId);
     copyString(slot.source, kSourceSize, command.source);
-    slot.occupied = 1;
+    slot.occupied = kPendingSlotStamped;
     slot.highPriority = command.highPriority ? 1 : 0;
     slot.controlGeneration = command.controlGeneration;
     slot.reserved[0] = command.durableControl ? 1 : 0;
@@ -548,7 +553,7 @@ std::vector<PendingWriteCommand> drainPendingWrites(
                     layout->header.version >= 10 && slot.reserved[0] == 1,
                     authorization,
                     slot.reserved[1] != 0,
-                    slot.acceptedMonotonicMs
+                    slotMonotonicStamp(slot)
                 });
             } else {
                 retained.push_back(slot);
@@ -616,7 +621,7 @@ std::vector<PendingWriteCommand> peekPendingWrites(const SharedStoreLayout* layo
                 layout->header.version >= 10 && slot.reserved[0] == 1,
                 authorization,
                 slot.reserved[1] != 0,
-                slot.acceptedMonotonicMs
+                slotMonotonicStamp(slot)
             });
         }
         head = (head + 1) % kMaxPendingWriteSlots;
