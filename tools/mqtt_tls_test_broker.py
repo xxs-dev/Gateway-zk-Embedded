@@ -144,7 +144,11 @@ def main():
     if args.mode == "tls":
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(args.cert, args.key)
-        context.sni_callback = remember_sni
+        if hasattr(context, "sni_callback"):
+            context.sni_callback = remember_sni
+        else:
+            # Python 3.6 on the supported build host exposes only the older API.
+            context.set_servername_callback(remember_sni)
         if args.client_ca:
             context.verify_mode = ssl.CERT_REQUIRED
             context.load_verify_locations(args.client_ca)
