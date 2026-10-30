@@ -57,6 +57,23 @@ inline const char* writebackOutcome(const WritebackResultRecord& result) {
         ? "unknown" : "failed";
 }
 
+// A receipt written by a release without the three-state classification (dabb8fd, 29f5068): its stage
+// is kept verbatim. Only a stage that never reaches a device stays a definite failure; any other
+// failure may have taken effect (e.g. a dabb8fd Modbus timeout or a 29f5068 read-back mismatch, both
+// recorded as writeback-failed), so it is reported unknown and never offered for a retry.
+inline void applyLegacyWritebackOutcome(WritebackResultRecord& result) {
+    result.feedbackMismatch = false;
+    if (result.success) {
+        result.outcomeUnknown = false;
+        return;
+    }
+    const auto& stage = result.stage;
+    const bool neverDispatched = stage == kWritebackExpiredStage || stage == "control-rejected" ||
+        stage == "rejected" || stage == "rate-limited" || stage == "writeback-skipped" ||
+        stage == "malformed-rejected" || stage == "owner-died";
+    if (!neverDispatched) result.outcomeUnknown = true;
+}
+
 // A ledger replay of a reserved dispatch without a recorded result: a final result may still follow.
 inline bool isUnconfirmedWriteback(const WritebackResultRecord& result) {
     return !result.success && result.stage == kWritebackUnconfirmedStage;

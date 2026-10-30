@@ -153,6 +153,7 @@ std::string semantics(const PendingWriteCommand& c, bool wire) {
         << ' ' << c.highPriority << ' ' << c.controlGeneration;
     return out.str();
 }
+constexpr int kLedgerResultThreeState = 3;
 std::string encode(const WritebackResultRecord& r) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
@@ -160,7 +161,10 @@ std::string encode(const WritebackResultRecord& r) {
         << r.success << ' ' << std::quoted(r.message.substr(0, 127)) << ' ' << std::quoted(r.stage) << ' '
         << r.requestedAt << ' ' << r.acceptedAt << ' ' << r.startedAt << ' ' << r.completedAt << ' '
         << r.queueDelayMs << ' ' << r.deviceWriteMs << ' ' << r.edgeElapsedMs << ' ' << r.totalElapsedMs << ' '
-        << r.verifyAttempted << ' ' << r.verifyPassed << ' ' << r.highPriority;
+        << r.verifyAttempted << ' ' << r.verifyPassed << ' ' << r.highPriority
+        // Format marker: this result carries the three-state classification in its stage. Older
+        // readers stop before it (rollback keeps working); results without it are legacy.
+        << ' ' << kLedgerResultThreeState;
     return out.str();
 }
 WritebackResultRecord decode(const std::string& data) {
@@ -172,9 +176,16 @@ WritebackResultRecord decode(const std::string& data) {
           >> r.queueDelayMs >> r.deviceWriteMs >> r.edgeElapsedMs >> r.totalElapsedMs
           >> r.verifyAttempted >> r.verifyPassed >> r.highPriority))
         throw std::runtime_error("control dedup corrupt result");
-    // The ledger persists the cause as the stage (writeback-mismatch / -timeout / -unconfirmed are
-    // outcome unknown); the flags are derived from it.
-    normalizeWritebackOutcome(r);
+    int format = 0;
+    if (in >> format && format == kLedgerResultThreeState) {
+        // The ledger persists the cause as the stage (writeback-mismatch / -timeout / -unconfirmed
+        // are outcome unknown); the flags are derived from it.
+        normalizeWritebackOutcome(r);
+    } else {
+        // Written by a release without the classification: a recorded writeback-failed may have
+        // taken effect, so only never-dispatched stages stay definite failures.
+        applyLegacyWritebackOutcome(r);
+    }
     return r;
 }
 struct Row { std::string semantic, wire, state, result, meter; };

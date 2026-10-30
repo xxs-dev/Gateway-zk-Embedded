@@ -3,6 +3,7 @@
 #include "edge_gateway/writeback_service.hpp"
 #include "control_dedup_test_support.hpp"
 #include "edge_gateway/filesystem_compat.hpp"
+#include <dlfcn.h>
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
@@ -11,6 +12,65 @@
 
 using namespace edge_gateway;
 void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
+
+// Rewrites ledger results the way a release without the three-state classification stored them
+// (no trailing format marker).
+void stripLedgerFormatMarker(const std::string& path) {
+    void* library = dlopen("libsqlite3.so.0", RTLD_NOW | RTLD_LOCAL);
+    if (!library) library = dlopen("libsqlite3.so", RTLD_NOW | RTLD_LOCAL);
+    require(library != nullptr, "sqlite library");
+    using Open = int (*)(const char*, void**);
+    using Exec = int (*)(void*, const char*, void*, void*, char**);
+    using Close = int (*)(void*);
+    const auto open = reinterpret_cast<Open>(dlsym(library, "sqlite3_open"));
+    const auto exec = reinterpret_cast<Exec>(dlsym(library, "sqlite3_exec"));
+    const auto close = reinterpret_cast<Close>(dlsym(library, "sqlite3_close"));
+    require(open && exec && close, "sqlite symbols");
+    void* db = nullptr;
+    require(open(path.c_str(), &db) == 0, "open ledger");
+    char* error = nullptr;
+    const int rc = exec(db, "UPDATE control_dedup_v1 SET result=substr(result,1,length(result)-2) "
+                            "WHERE cmd LIKE 'legacy-%' AND result LIKE '% 3';", nullptr, nullptr, &error);
+    if (rc != 0) std::cerr << "strip format marker: " << (error ? error : "?") << '\n';
+    close(db);
+    dlclose(library);
+    require(rc == 0, "strip format marker");
+}
+
+// A writeback-failed recorded by an older release may have taken effect (its Modbus timeouts and
+// read-back mismatches were stored that way): replayed as unknown. Never-dispatched stages stay failed.
+void legacyLedgerResultsAreConservative(const std::string& path) {
+    {
+        ControlDedupStore store(path);
+        const auto record = [&](const std::string& id, const std::string& stage) {
+            PendingWriteCommand command{id, 2001, 5, "mqtt", 1, 1};
+            require(!store.bind("machine", "meter", command), "legacy command queues");  // ingress records it
+            (void)store.dispatch("machine", "meter", command, 2, [&] {
+                auto receipt = beginWritebackResult(command, 2);
+                completeWritebackResult(receipt, false, "old release result", stage, 3);
+                return receipt;
+            });
+        };
+        record("legacy-failed", "writeback-failed");
+        record("legacy-expired", "expired");
+        record("current-failed", "writeback-failed");
+    }
+    stripLedgerFormatMarker(path);
+    ControlDedupStore reopened(path);
+    const auto replay = [&](const std::string& id) {
+        PendingWriteCommand command{id, 2001, 5, "mqtt", 1, 1};
+        const auto result = reopened.bind("machine", "meter", command);
+        require(static_cast<bool>(result), "legacy replay present");
+        return *result;
+    };
+    const auto legacyFailed = replay("legacy-failed");
+    require(std::string(writebackOutcome(legacyFailed)) == "unknown" && legacyFailed.stage == "writeback-failed" &&
+            legacyFailed.message == "old release result",
+            "a legacy writeback-failed may have taken effect: replay as unknown, stage and message kept");
+    require(std::string(writebackOutcome(replay("legacy-expired"))) == "failed", "legacy expired stays failed");
+    require(std::string(writebackOutcome(replay("current-failed"))) == "failed",
+            "a classified writeback-failed stays a definite failure");
+}
 int main() {
     dedup_test::Directory directory;
     const auto path = directory.file("ledger.db");
@@ -197,6 +257,7 @@ int main() {
             try { shortLived.bind("machine", "meter", rotating); } catch (...) { full = true; }
             require(full, "unfinished reservations must never be pruned");
         }
+        legacyLedgerResultsAreConservative(directory.file("legacy-ledger.db"));
         std::cout << "control_dedup_store_test passed\n";
     } catch (const std::exception& ex) {
         std::cerr << ex.what() << '\n';

@@ -480,16 +480,7 @@ void decodeReceiptOutcome(const SharedWritebackResultSlot& slot, WritebackResult
         normalizeWritebackOutcome(result);
         return;
     }
-    result.feedbackMismatch = false;
-    if (result.success) {
-        result.outcomeUnknown = false;
-        return;
-    }
-    const auto& stage = result.stage;
-    const bool neverDispatched = stage == kWritebackExpiredStage || stage == "control-rejected" ||
-        stage == "rejected" || stage == "rate-limited" || stage == "writeback-skipped" ||
-        stage == "malformed-rejected" || stage == "owner-died";
-    if (!neverDispatched) result.outcomeUnknown = true;
+    applyLegacyWritebackOutcome(result);
 }
 
 // The stamp of a slot queued by a non-stamping release is padding, possibly any value: never trust it.
