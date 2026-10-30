@@ -215,6 +215,17 @@ std::uint64_t makeOwnerId() {
            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&makeOwnerId));
 }
 
+LatestValueOrigin latestOriginOf(const SharedLatestSlot& slot) {
+    switch (slot.reserved[0]) {
+        case static_cast<std::uint8_t>(LatestValueOrigin::PlatformDispatch):
+            return LatestValueOrigin::PlatformDispatch;
+        case static_cast<std::uint8_t>(LatestValueOrigin::MaintenanceShadowTest):
+            return LatestValueOrigin::MaintenanceShadowTest;
+        default:
+            return LatestValueOrigin::Ordinary;
+    }
+}
+
 SharedLatestSlot* findLatestSlot(SharedStoreLayout* layout, std::uint32_t index) {
     for (auto& slot : layout->latest) {
         if (slot.occupied && slot.index == index) {
@@ -1589,6 +1600,9 @@ void MemoryPointStore::putLatest(const PointValue& value) {
     slot->ts = value.ts;
     slot->expireAt = value.expireAt;
     slot->stale = value.stale ? 1 : 0;
+    // Latest-slot reserved byte 0: the ingress that committed the value (LatestValueOrigin). Every
+    // write sets it, so an ordinary writer can never leave a mailbox origin behind.
+    slot->reserved[0] = static_cast<std::uint8_t>(value.origin);
     slot->occupied = 1;
     pushPointUpdate(
         layout2,
@@ -1700,6 +1714,7 @@ Optional<StoredPointValue> MemoryPointStore::getLatestByIndex(
     value.ts = sample.ts;
     value.expireAt = sample.expireAt;
     value.stale = sample.stale != 0;
+    value.origin = latestOriginOf(sample);
     if (binding) {
         value.machineCode = binding->machineCode;
         value.meterCode = binding->meterCode;
@@ -1806,6 +1821,7 @@ std::vector<StoredPointValue> MemoryPointStore::getLatestByIndexes(
         value.ts = sample.ts;
         value.expireAt = sample.expireAt;
         value.stale = sample.stale != 0;
+        value.origin = latestOriginOf(sample);
         const auto binding = bindingsSnapshot.find(value.index);
         if (binding != bindingsSnapshot.end()) {
             value.machineCode = binding->second.machineCode;
@@ -1843,6 +1859,7 @@ std::vector<StoredPointValue> MemoryPointStore::getAllLatest(std::int64_t nowMs)
         value.ts = slot.ts;
         value.expireAt = slot.expireAt;
         value.stale = slot.stale != 0;
+        value.origin = latestOriginOf(slot);
         const auto binding = bindingsSnapshot.find(value.index);
         if (binding != bindingsSnapshot.end()) {
             value.machineCode = binding->second.machineCode;

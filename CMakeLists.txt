@@ -610,6 +610,12 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(control_outcome_consistency_test PRIVATE edge_gateway)
     add_test(NAME control_outcome_consistency COMMAND control_outcome_consistency_test)
 endif()
+# driver-review: agc-mailbox (round 5) — mailbox authorization by ingress + server policy, never by payload source.
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(agc_avc_mailbox_authorization_test tools/agc_avc_mailbox_authorization_test.cpp)
+    target_link_libraries(agc_avc_mailbox_authorization_test PRIVATE edge_gateway)
+    add_test(NAME agc_avc_mailbox_authorization COMMAND agc_avc_mailbox_authorization_test)
+endif()
 
 add_executable(collector_partial_failure_test tools/collector_partial_failure_test.cpp)
 target_link_libraries(collector_partial_failure_test PRIVATE edge_gateway)

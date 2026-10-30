@@ -33,14 +33,63 @@ void addIndex(std::vector<std::uint32_t>& indexes, const AgcAvcPointRefConfig& r
 
 }  // namespace
 
+std::string agcAvcMailboxRefusal(
+    bool enabled,
+    bool shadowMode,
+    bool submitWrites,
+    const AgcAvcCommandMailboxPolicy& policy,
+    LatestValueOrigin ingress
+) {
+    if (!enabled) {
+        return "AGC/AVC is disabled (agcAvc.enabled=false)";
+    }
+    switch (ingress) {
+        case LatestValueOrigin::PlatformDispatch:
+            return policy.platformDispatch
+                ? std::string()
+                : "platform dispatch into the AGC/AVC mailbox is not authorized "
+                  "(agcAvc.commandMailbox.platformDispatch=false)";
+        case LatestValueOrigin::MaintenanceShadowTest:
+            if (!policy.maintenanceShadowTest) {
+                return "maintenance shadow-test injection is not authorized "
+                       "(agcAvc.commandMailbox.maintenanceShadowTest=false)";
+            }
+            if (!shadowMode || submitWrites) {
+                return "maintenance shadow-test injection requires agcAvc.shadowMode=true and submitWrites=false";
+            }
+            return std::string();
+        case LatestValueOrigin::Ordinary:
+            break;
+    }
+    return "the AGC/AVC mailbox accepts only its authorized ingresses";
+}
+
+bool agcAvcMailboxAccepts(const AgcAvcConfig& config, LatestValueOrigin origin) {
+    return origin != LatestValueOrigin::Ordinary &&
+        agcAvcMailboxRefusal(config.enabled, config.shadowMode, config.submitWrites, config.commandMailbox, origin).empty();
+}
+
+const char* latestValueOriginName(LatestValueOrigin origin) {
+    switch (origin) {
+        case LatestValueOrigin::PlatformDispatch:
+            return "platform-dispatch";
+        case LatestValueOrigin::MaintenanceShadowTest:
+            return "maintenance-shadow-test";
+        case LatestValueOrigin::Ordinary:
+            break;
+    }
+    return "ordinary";
+}
+
 bool AgcAvcCommandMailboxRuntime::contains(std::uint32_t index) const {
     return configured && std::find(commandIndexes.begin(), commandIndexes.end(), index) != commandIndexes.end();
 }
 
-bool AgcAvcCommandMailboxRuntime::allowsSource(const std::string& source) const {
-    const bool shadowTest = source.find("agc-avc-shadow-test") != std::string::npos;
-    const bool dispatchSource = source.find("agc-avc-dispatch") != std::string::npos;
-    return enabled && (dispatchSource || (shadowTest && shadowMode && !submitWrites));
+std::string AgcAvcCommandMailboxRuntime::refusal(LatestValueOrigin ingress) const {
+    if (!configured) {
+        return "AGC/AVC command mailbox is not configured";
+    }
+    return agcAvcMailboxRefusal(enabled, shadowMode, submitWrites, policy, ingress);
 }
 
 AgcAvcCommandMailboxRuntime appendSiblingAgcAvcRuntime(
@@ -68,6 +117,7 @@ AgcAvcCommandMailboxRuntime appendSiblingAgcAvcRuntime(
     runtime.enabled = app.agcAvc.enabled;
     runtime.shadowMode = app.agcAvc.shadowMode;
     runtime.submitWrites = app.agcAvc.submitWrites;
+    runtime.policy = app.agcAvc.commandMailbox;
     runtime.sequenceIndex = app.agcAvc.agc.commandSequence.index;
     addIndex(runtime.commandIndexes, app.agcAvc.agc.target);
     addIndex(runtime.commandIndexes, app.agcAvc.agc.commandSequence);

@@ -3030,6 +3030,15 @@ AgcAvcConfig parseAgcAvcConfig(const JsonValue* value) {
     config.enabled = requireBool(object, "enabled", config.enabled);
     config.shadowMode = requireBool(object, "shadowMode", config.shadowMode);
     config.submitWrites = requireBool(object, "submitWrites", config.submitWrites);
+    if (const auto* mailbox = value->find("commandMailbox")) {
+        if (!mailbox->isNull()) {
+            const auto& mailboxObject = mailbox->asObject();
+            config.commandMailbox.platformDispatch =
+                requireBool(mailboxObject, "platformDispatch", config.commandMailbox.platformDispatch);
+            config.commandMailbox.maintenanceShadowTest =
+                requireBool(mailboxObject, "maintenanceShadowTest", config.commandMailbox.maintenanceShadowTest);
+        }
+    }
     config.cycleMs = requireInt(object, "cycleMs", config.cycleMs);
     config.avcCycleMs = requireInt(object, "avcCycleMs", config.avcCycleMs);
     config.commandTimeoutMs = requireInt(object, "commandTimeoutMs", config.commandTimeoutMs);

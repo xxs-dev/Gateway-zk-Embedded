@@ -2398,6 +2398,7 @@ void testAgcAvcCommandMailboxCommitsLatestWithoutWriteback() {
     policy.submitWrites = false;
     policy.sequenceIndex = 720011;
     policy.commandIndexes = {720010, 720011};
+    policy.policy.platformDispatch = true;  // authorization is the ingress policy, not the payload source
     fixture.service->setAgcAvcCommandMailboxRuntime(policy);
 
     fixture.publisher->incoming.push_back(commandRequest(
@@ -2408,6 +2409,7 @@ void testAgcAvcCommandMailboxCommitsLatestWithoutWriteback() {
     require(fixture.store->peekPendingWriteCommands().empty(), "AGC/AVC mailbox must not enqueue a device writeback");
     const auto latest = fixture.router.getLatestByIndex(720010, 1770000060001LL);
     require(latest && std::abs(latest->value - 25.0) < 1e-9, "AGC/AVC mailbox should commit the latest command value");
+    require(latest->origin == LatestValueOrigin::PlatformDispatch, "MQTT mailbox commits are tagged platform-dispatch");
     require(fixture.publisher->commandReplies.size() == 1, "AGC/AVC mailbox should reply immediately");
     require(fixture.publisher->commandReplies.front().success, "AGC/AVC mailbox reply should be successful");
     require(fixture.publisher->commandReplies.front().stage == "mailbox-committed", "AGC/AVC mailbox reply stage mismatch");

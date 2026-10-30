@@ -1,4 +1,5 @@
 #include "edge_gateway/agc_avc_service.hpp"
+#include "edge_gateway/agc_avc_command_mailbox.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -441,6 +442,26 @@ AgcAvcCycleOutput AgcAvcService::tick(std::int64_t nowMs) {
         }
     }
 
+    // Dispatch commands count only when committed by an ingress the mailbox policy authorizes now
+    // (agcAvc.commandMailbox): never an ordinary writer of the same index, and never a shadow-test
+    // injection once writes are live. The request's source text plays no part.
+    const AgcAvcPointRefConfig* const mailboxRefs[] = {
+        &config_.agc.target, &config_.agc.commandSequence, &config_.agc.commandTimestamp,
+        &config_.avc.mode, &config_.avc.targetQ, &config_.avc.targetVoltage, &config_.avc.targetPowerFactor
+    };
+    std::string unauthorizedCommand;
+    for (const auto* ref : mailboxRefs) {
+        const auto found = ref->index == 0 ? values.end() : values.find(ref->index);
+        if (found == values.end() || agcAvcMailboxAccepts(config_, found->second.origin)) {
+            continue;
+        }
+        if (unauthorizedCommand.empty() && pointUsable(found->second, nowMs, config_.commandTimeoutMs)) {
+            unauthorizedCommand = (ref->semanticRole.empty() ? std::to_string(ref->index) : ref->semanticRole) +
+                " (" + latestValueOriginName(found->second.origin) + ")";
+        }
+        values.erase(found);
+    }
+
     AgcAvcCycleInput input;
     input.nowMs = nowMs;
     bool healthy = true;
@@ -484,16 +505,23 @@ AgcAvcCycleOutput AgcAvcService::tick(std::int64_t nowMs) {
     input.command.targetQkvar = readValue(config_.avc.targetQ, values, nowMs, config_.commandTimeoutMs, healthy, failureReason);
     input.command.targetVoltageV = readValue(config_.avc.targetVoltage, values, nowMs, config_.commandTimeoutMs, healthy, failureReason);
     input.command.targetPowerFactor = readValue(config_.avc.targetPowerFactor, values, nowMs, config_.commandTimeoutMs, healthy, failureReason, nullptr, 1.0);
+    if (!unauthorizedCommand.empty()) {
+        healthy = false;
+        failureReason = "command mailbox value was not committed by an authorized ingress: " + unauthorizedCommand;
+    }
     const auto observedCommand = input.command;
     const auto sequenceSnapshot = pointBus_.readSnapshot({config_.agc.commandSequence.index}, nowMs);
     bool sequenceStable = false;
-    if (!sequenceSnapshot.empty() && pointUsable(sequenceSnapshot.front(), nowMs, config_.commandTimeoutMs)) {
+    if (!sequenceSnapshot.empty() && agcAvcMailboxAccepts(config_, sequenceSnapshot.front().origin) &&
+        pointUsable(sequenceSnapshot.front(), nowMs, config_.commandTimeoutMs)) {
         const auto confirmedSequence = static_cast<std::int64_t>(std::llround(sequenceSnapshot.front().value));
         sequenceStable = confirmedSequence == observedCommand.sequence;
     }
     if (!sequenceStable) {
         healthy = false;
-        failureReason = "dispatch command changed while the shared-memory snapshot was being read";
+        if (unauthorizedCommand.empty()) {
+            failureReason = "dispatch command changed while the shared-memory snapshot was being read";
+        }
     } else if (observedCommand.sequence > 0 &&
                (!commandLatched_ || observedCommand.sequence > latchedCommand_.sequence)) {
         latchedCommand_ = observedCommand;

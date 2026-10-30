@@ -92,6 +92,12 @@ void writeMqttHealthFile(const std::string& path, const std::string& payload) {
     }
 }
 
+// A request refused by authorization (who may control what), reported as stage control-rejected.
+class ControlRejected : public std::invalid_argument {
+public:
+    explicit ControlRejected(const std::string& message) : std::invalid_argument(message) {}
+};
+
 // JSON string escaping per RFC 8259 (control characters as \u00XX, invalid UTF-8 replaced).
 std::string escapeJson(const std::string& value) {
     return escapeDiagnosticOutputJson(value);
@@ -2280,8 +2286,13 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
         reply.pointCode = request.pointCode;
         reply.index = request.index;
         reply.highPriority = request.highPriority;
-        // Transport origin cannot be overridden by a payload's source field.
-        EmsControlMode(driverConfig_.emsControlModeFile).admitPlatform(nowMs);
+        // Transport origin cannot be overridden by a payload's source field: this ingress is the
+        // platform, and EMS local mode refuses it whatever the payload claims.
+        try {
+            EmsControlMode(driverConfig_.emsControlModeFile).admitPlatform(nowMs);
+        } catch (const std::exception& ex) {
+            throw ControlRejected(ex.what());
+        }
         if (request.machineCode.empty()) {
             throw std::invalid_argument("machineCode is required");
         }
@@ -2334,14 +2345,17 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             throw std::invalid_argument("point write is disabled");
         }
         if (commandMailbox) {
+            // This ingress is the platform: authorization comes from the agcAvc.commandMailbox
+            // policy for the MQTT command topic, never from the payload's "source" (audit only).
             if (!agcAvcCommandMailbox_.contains(request.index)) {
-                throw std::invalid_argument("AGC/AVC command mailbox is not configured for this index");
+                throw ControlRejected("AGC/AVC command mailbox is not configured for this index");
             }
-            if (!agcAvcCommandMailbox_.allowsSource(request.source)) {
-                throw std::invalid_argument("AGC/AVC command mailbox rejected the source or current runtime mode");
+            const auto refusal = agcAvcCommandMailbox_.refusal(LatestValueOrigin::PlatformDispatch);
+            if (!refusal.empty()) {
+                throw ControlRejected(refusal);
             }
             if (request.highPriority) {
-                throw std::invalid_argument("AGC/AVC command mailbox does not accept high-priority device writes");
+                throw ControlRejected("AGC/AVC command mailbox does not accept high-priority device writes");
             }
             // The mailbox carries its own dispatch sequence, so no cmdId dedup;
             // it gets a separate, generous flood limit instead of the device-write one.
@@ -2356,11 +2370,24 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
             mailboxCommand.ts = request.ts > 0 ? request.ts : nowMs;
             mailboxCommand.acceptedAt = nowMs;
             mailboxCommand.platformControl = true;
-            const auto modePermit = EmsControlMode(driverConfig_.emsControlModeFile).dispatchPermit(mailboxCommand);
-            const auto submitted = router_.submitCommandMailbox(mailboxCommand);
+            std::shared_ptr<void> modePermit;
+            try {
+                // EMS remote/local arbitration: a platform request never reaches the mailbox in local mode.
+                modePermit = EmsControlMode(driverConfig_.emsControlModeFile).dispatchPermit(mailboxCommand);
+            } catch (const std::exception& ex) {
+                throw ControlRejected(ex.what());
+            }
+            const auto submitted = router_.submitCommandMailbox(mailboxCommand, LatestValueOrigin::PlatformDispatch);
             if (!submitted.accepted) {
                 throw std::invalid_argument(submitted.message);
             }
+            publishStatusEvent(
+                "mailbox-committed",
+                nowMs,
+                std::string(R"("cmdId":")") + escapeJson(request.cmdId) +
+                    R"(","index":)" + std::to_string(request.index) +
+                    R"(,"ingress":"platform-dispatch","source":")" + escapeJson(request.source) + R"(")"
+            );
             reply.machineCode = route.machineCode;
             reply.meterCode = route.meterCode;
             reply.pointCode = route.pointCode;
@@ -2518,7 +2545,9 @@ void MqttDriverService::handleCommandRequest(const std::string& payload, std::in
     } catch (const std::exception& ex) {
         reply.success = false;
         reply.message = ex.what();
-        reply.stage = "rejected";
+        // Authorization refusals (mailbox policy, EMS mode) are control-rejected; malformed or
+        // invalid requests are rejected. Neither was executed.
+        reply.stage = dynamic_cast<const ControlRejected*>(&ex) != nullptr ? "control-rejected" : "rejected";
         std::cerr << "mqtt command rejected"
                   << " cmdId=" << reply.cmdId
                   << " index=" << reply.index

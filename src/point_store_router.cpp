@@ -1,6 +1,7 @@
 #include "edge_gateway/point_store_router.hpp"
 #include "edge_gateway/dlt645_point_rules.hpp"
 #include "edge_gateway/control_dedup_store.hpp"
+#include "edge_gateway/agc_avc_command_mailbox.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -39,6 +40,11 @@
 namespace edge_gateway {
 
 namespace {
+
+// AGC/AVC command-mailbox points have exactly one writer: submitCommandMailbox, which tags the value
+// with the authorized ingress. Device writes and plain latest updates cannot reach them.
+constexpr const char* kMailboxOnlyMessage =
+    "AGC/AVC command mailbox points accept only the authorized mailbox ingress";
 
 constexpr const char* kDefaultEmsVirtualParameterDirectory =
     "/opt/modbus-gateway/data/ems-virtual-parameters";
@@ -782,6 +788,10 @@ CommandSubmitResult PointStoreRouter::submitWriteCommand(
             routedCommand.controlGeneration = authorization.generation;
         }
     }
+    if (route.commandMailbox) {
+        result.message = kMailboxOnlyMessage;
+        return result;
+    }
     if (!route.writable) {
         result.message = "point write is disabled";
         return result;
@@ -927,6 +937,10 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
                 routedCommand.controlGeneration = authorization.generation;
             }
         }
+        if (route->commandMailbox) {
+            result.message = std::string(kMailboxOnlyMessage) + ": " + std::to_string(command.index);
+            return result;
+        }
         if (!route->writable) {
             result.message = "point write is disabled: " + std::to_string(command.index);
             return result;
@@ -967,8 +981,15 @@ CommandGroupSubmitResult PointStoreRouter::submitWriteCommands(
     return result;
 }
 
-CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCommand& command) {
+CommandSubmitResult PointStoreRouter::submitCommandMailbox(
+    const PendingWriteCommand& command,
+    LatestValueOrigin ingress
+) {
     CommandSubmitResult result;
+    if (ingress == LatestValueOrigin::Ordinary) {
+        result.message = "command mailbox requires an authorized ingress";
+        return result;
+    }
     if (clusterAuthorizationRequired(emsClusterConfig_, command)) {
         result.message = "cluster command cannot be converted into a scalar mailbox";
         return result;
@@ -1005,7 +1026,8 @@ CommandSubmitResult PointStoreRouter::submitCommandMailbox(const PendingWriteCom
     value.category = "command";
     value.value = command.value;
     value.quality = 1;
-    value.qualityMsg = command.source.empty() ? "command-mailbox" : command.source;
+    value.origin = ingress;  // the consumer authorizes by this tag, never by command.source
+    value.qualityMsg = latestValueOriginName(ingress);
     value.ts = command.ts > 0 ? command.ts : command.acceptedAt;
     // Freshness is anchored to the gateway acceptance time, not the client ts.
     value.expireAt = (command.acceptedAt > 0 ? command.acceptedAt : value.ts) + 600000;
@@ -1032,6 +1054,11 @@ CommandSubmitResult PointStoreRouter::putLatestByIndex(PointValue value) {
         result.message = "derived point is read-only";
         return result;
     }
+    if (route->commandMailbox) {
+        result.message = kMailboxOnlyMessage;
+        return result;
+    }
+    value.origin = LatestValueOrigin::Ordinary;
     auto* store = storeForRoute(*route);
     if (store == nullptr) {
         result.message = "target shared memory not found: " + route->sharedMemoryName;
@@ -1083,6 +1110,11 @@ CommandSubmitResult PointStoreRouter::putLatestByLocation(
         result.message = "derived point is read-only";
         return result;
     }
+    if (route->commandMailbox) {
+        result.message = kMailboxOnlyMessage;
+        return result;
+    }
+    value.origin = LatestValueOrigin::Ordinary;
     auto* store = storeForRoute(*route);
     if (store == nullptr) {
         result.message = "target shared memory not found: " + route->sharedMemoryName;

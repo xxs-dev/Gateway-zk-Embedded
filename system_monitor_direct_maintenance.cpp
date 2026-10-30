@@ -2663,20 +2663,25 @@ std::string batchControlJson(const SystemMonitorDirectMaintenanceConfig& config,
             command.durableControl = context->router.isOrdinaryPhysicalWrite(item.index);
             acceptedAt = command.acceptedAt;
             if (route->commandMailbox) {
-                command.durableControl = false; // Trusted mailbox route retains its separate injection contract.
+                command.durableControl = false;
+                // This ingress (authenticated maintenance batch control) may only inject shadow tests,
+                // and only when agcAvc.commandMailbox.maintenanceShadowTest is on while shadowMode is on
+                // and submitWrites off. The request's "source" is audit only.
+                stage = "control-rejected";
                 if (!context->agcAvcCommandMailbox.contains(item.index)) {
                     throw std::runtime_error("AGC/AVC command mailbox is not configured for this index");
                 }
-                if (command.source.find("agc-avc-shadow-test") == std::string::npos) {
-                    throw std::runtime_error("direct maintenance only permits AGC/AVC shadow-test command injection");
-                }
-                if (!context->agcAvcCommandMailbox.allowsSource(command.source)) {
-                    throw std::runtime_error("AGC/AVC command mailbox rejected the source or current runtime mode");
+                const auto refusal = context->agcAvcCommandMailbox.refusal(
+                    edge_gateway::LatestValueOrigin::MaintenanceShadowTest);
+                if (!refusal.empty()) {
+                    throw std::runtime_error(refusal);
                 }
                 if (item.highPriority) {
                     throw std::runtime_error("AGC/AVC command mailbox does not accept high-priority device writes");
                 }
-                const auto submitResult = context->router.submitCommandMailbox(command);
+                stage = "rejected";
+                const auto submitResult = context->router.submitCommandMailbox(
+                    command, edge_gateway::LatestValueOrigin::MaintenanceShadowTest);
                 if (!submitResult.accepted) {
                     throw std::runtime_error(submitResult.message);
                 }

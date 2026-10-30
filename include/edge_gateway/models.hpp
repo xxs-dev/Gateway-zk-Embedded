@@ -239,6 +239,16 @@ struct StartupWriteConfig {
     std::string reason;
 };
 
+// Which ingress committed a latest value. Only the AGC/AVC command-mailbox ingresses set a mailbox
+// origin (PointStoreRouter::submitCommandMailbox); every other writer stores Ordinary. Kept in the
+// shared-memory latest slot (reserved byte 0); the mailbox consumer accepts only the origins its
+// server-side policy authorizes. Never derived from a payload field.
+enum class LatestValueOrigin : std::uint8_t {
+    Ordinary = 0,
+    PlatformDispatch = 1,        // platform MQTT command topic (mqtt-driver)
+    MaintenanceShadowTest = 2    // authenticated direct-maintenance batch control, shadow mode only
+};
+
 struct PointValue {
     std::uint32_t index = 0;
     std::string machineCode;
@@ -261,6 +271,7 @@ struct PointValue {
     bool isStore = false;
     bool persistOnChange = false;
     int persistIntervalSec = 60;
+    LatestValueOrigin origin = LatestValueOrigin::Ordinary;
 };
 
 struct StoredPointValue {
@@ -273,6 +284,7 @@ struct StoredPointValue {
     std::int64_t ts = 0;
     std::int64_t expireAt = 0;
     bool stale = false;
+    LatestValueOrigin origin = LatestValueOrigin::Ordinary;
 };
 
 struct PointLeaseStatus {
@@ -1340,10 +1352,21 @@ struct AgcAvcOutputConfig {
     AgcAvcPointRefConfig consecutiveWriteFailures;
 };
 
+// Server-side authorization of the dispatch command mailbox, by ingress (never by the payload's
+// source). Both default to off.
+struct AgcAvcCommandMailboxPolicy {
+    // The platform MQTT command topic (mqtt-driver ingress) may commit dispatch commands.
+    bool platformDispatch = false;
+    // The authenticated direct-maintenance batch control may inject shadow-test commands, only while
+    // shadowMode is on and submitWrites is off.
+    bool maintenanceShadowTest = false;
+};
+
 struct AgcAvcConfig {
     bool enabled = false;
     bool shadowMode = true;
     bool submitWrites = false;
+    AgcAvcCommandMailboxPolicy commandMailbox;
     int cycleMs = 200;
     int avcCycleMs = 500;
     int commandTimeoutMs = 5000;

@@ -339,11 +339,15 @@ void testCommandMailboxRoute() {
         command.value = 12.5;
         command.source = "gateway-desktop-agc-avc-shadow-test";
         command.ts = 44000;
-        const auto submitted = router.submitCommandMailbox(command);
+        require(!router.submitCommandMailbox(command, edge_gateway::LatestValueOrigin::Ordinary).accepted,
+                "the mailbox must refuse a commit without an authorized ingress");
+        const auto submitted = router.submitCommandMailbox(command, edge_gateway::LatestValueOrigin::PlatformDispatch);
         require(submitted.accepted, "AGC/AVC mailbox route should accept command values without device writeback");
         const auto stored = router.getLatestByIndex(route.index, 44001);
         require(static_cast<bool>(stored), "AGC/AVC mailbox value should be visible in shared latest storage");
         requireNear(stored->value, 12.5, 0.001, "AGC/AVC mailbox should preserve the command value");
+        require(stored->origin == edge_gateway::LatestValueOrigin::PlatformDispatch,
+                "the mailbox value must carry the ingress that committed it");
     }
     edge_gateway::MemoryPointStore::cleanupOrphanedSegment(storeName);
 }
@@ -372,9 +376,13 @@ void testShadowServiceDoesNotWrite() {
     pcs.points.activeTargets = {{"sharedWriteback", "pcs.targetP", "", "", "", 16, true}};
     pcs.points.reactiveTargets = {{"sharedWriteback", "pcs.targetQ", "", "", "", 17, true}};
 
+    config.commandMailbox.platformDispatch = true;
     FakePointBus bus;
     for (std::uint32_t index = 1; index <= 17; ++index) {
         bus.add(index, 0.0, now - 10, index >= 16);
+    }
+    for (const std::uint32_t index : {4U, 5U, 6U}) {
+        bus.values[index].origin = LatestValueOrigin::PlatformDispatch;
     }
     bus.values[1].value = 1.0;
     bus.values[4].value = 20.0;
@@ -400,6 +408,24 @@ void testShadowServiceDoesNotWrite() {
     const auto nextSequence = service.tick(now + 200);
     requireNear(nextSequence.effectiveTargetPkw, 80.0, 0.001, "new sequence should atomically commit updated command fields");
 
+    // The consumer authorizes by ingress tag: an ordinary writer of the target index, or a shadow-test
+    // injection while writes are live, never becomes a command.
+    {
+        FakePointBus forged = bus;
+        forged.values[4].origin = LatestValueOrigin::Ordinary;
+        forged.values[4].value = 99.0;
+        AgcAvcService forgedService(config, forged);
+        const auto refused = forgedService.tick(now);
+        require(refused.state != AgcAvcRuntimeState::Active && forged.submitted.empty(),
+                "a mailbox value from an ordinary writer must not drive AGC");
+        auto policyOff = config;
+        policyOff.commandMailbox.platformDispatch = false;
+        FakePointBus unauthorized = bus;
+        AgcAvcService unauthorizedService(policyOff, unauthorized);
+        require(unauthorizedService.tick(now).state != AgcAvcRuntimeState::Active,
+                "platform dispatch values count only while agcAvc.commandMailbox.platformDispatch is on");
+    }
+
     const std::string ownershipPath = "/tmp/agc_avc_service_write_test.json";
     std::remove(ownershipPath.c_str());
     config.shadowMode = false;
@@ -415,6 +441,26 @@ void testShadowServiceDoesNotWrite() {
         require(writeBus.submitted.size() == 2, "real mode should submit active and reactive targets");
     }
     std::remove(ownershipPath.c_str());
+    {
+        // A shadow-test injection never drives real writes, even with the maintenance policy on.
+        auto shadowPolicy = config;
+        shadowPolicy.commandMailbox.maintenanceShadowTest = true;
+        FakePointBus shadowBus = bus;
+        shadowBus.published.clear();
+        shadowBus.submitted.clear();
+        for (const std::uint32_t index : {4U, 5U, 6U}) {
+            shadowBus.values[index].origin = LatestValueOrigin::MaintenanceShadowTest;
+        }
+        AgcAvcService shadowService(shadowPolicy, shadowBus);
+        const auto refused = shadowService.tick(now + 1);
+        require(refused.state != AgcAvcRuntimeState::Active,
+                "shadow-test mailbox values must not count while submitWrites is on");
+        for (const auto& command : shadowBus.submitted) {
+            require(command.value == 0.0, "an unauthorized command may at most hold the safe 0 target");
+        }
+    }
+    std::remove(ownershipPath.c_str());
+    std::remove((ownershipPath + ".lock").c_str());
 
     // An enabled PCS that becomes unavailable (stale/bad SOC) must be driven to 0, not left at
     // its last setpoint.
@@ -820,6 +866,7 @@ void testAgcAvcConfigParsing() {
         "enabled": true,
         "shadowMode": true,
         "submitWrites": false,
+        "commandMailbox": {"platformDispatch": true},
         "cycleMs": 250,
         "activeResourcePriority": "capacityWeighted",
         "stationLimits": {"ratedActivePowerKw": 100, "ratedApparentPowerKva": 110},
@@ -856,6 +903,8 @@ void testAgcAvcConfigParsing() {
     const auto config = edge_gateway::ConfigLoader::loadAppConfigFromFile(path);
     require(config.agcAvc.enabled, "AGC/AVC config should parse enabled flag");
     require(config.agcAvc.cycleMs == 250, "AGC/AVC cycle should parse");
+    require(config.agcAvc.commandMailbox.platformDispatch && !config.agcAvc.commandMailbox.maintenanceShadowTest,
+            "AGC/AVC mailbox policy should parse with maintenance shadow test off by default");
     require(config.agcAvc.pcs.size() == 1, "AGC/AVC PCS list should parse");
     require(config.agcAvc.activeResourcePriority == "capacityWeighted", "active resource priority should parse");
     require(config.agcAvc.pcs[0].activeResourceTier == "primary", "PCS resource tier should parse");
