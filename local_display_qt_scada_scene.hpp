@@ -107,6 +107,9 @@ private:
         std::string clockFormat;
         std::string localSystemField;
         std::string emsControlModeTarget;
+        std::string pcsRemoteTag;
+        std::string pcsTargetTag;
+        QPushButton* pcsGuardButton = nullptr;
         std::string textColor;
         std::string unavailableStateLabel;
         bool lightTheme = false;
@@ -121,6 +124,7 @@ private:
         std::string defaultColor;
         std::string defaultImage;
         std::string valueSuffix;
+        bool energyAutoUnit = false;
         std::string inputTagId;
         edge_gateway::Optional<double> inputMinValue;
         edge_gateway::Optional<double> inputMaxValue;

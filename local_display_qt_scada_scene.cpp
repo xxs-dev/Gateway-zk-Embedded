@@ -1,4 +1,5 @@
 #include "local_display_qt_scada_scene.hpp"
+#include "local_display_qt_pcs_remote_guard.hpp"
 #include "local_display_qt_parallel_topology.hpp"
 #include "local_display_qt_soe.hpp"
 
@@ -292,6 +293,7 @@ void ScadaSceneView::buildScene() {
         }
         if (widget.type == "pcsPhasePowerControl") {
             PcsPhasePowerBindings bindings;
+            bindings.remoteModeTag = property(widget, "pcsRemoteTag");
             for (const auto& binding : widget.bindings) {
                 if (binding.nodeId != runtime_.nodeId()) continue;
                 if (binding.slot == "activeA") bindings.activeTagIds[0] = binding.tagId;
@@ -410,6 +412,14 @@ void ScadaSceneView::buildScene() {
                     : QString::fromStdString(property(widget, "controlUnavailableReason")));
             }
             button->setStyleSheet(style);
+            if (isControlAction(widget.action.type) && !property(widget, "pcsRemoteTag").empty()) {
+                RuntimeWidget guard;
+                guard.pcsGuardButton = button;
+                guard.pcsRemoteTag = property(widget, "pcsRemoteTag");
+                guard.pcsTargetTag = widget.action.tagId;
+                refreshPcsRemoteButton(button, pcsRemoteBlockReason(runtime_, guard.pcsRemoteTag, guard.pcsTargetTag, nowMs()));
+                runtimeWidgets_.push_back(std::move(guard));
+            }
             const auto menuDocument = QJsonDocument::fromJson(QString::fromStdString(property(widget, "qtMenuScreensJson")).toUtf8());
             if (emsModeButton) {
                 button->setCheckable(true);
@@ -545,6 +555,7 @@ void ScadaSceneView::buildScene() {
             ? imageReference
             : property(widget, "defaultStateImage");
         runtimeWidget.valueSuffix = property(widget, "valueSuffix");
+        runtimeWidget.energyAutoUnit = widget.type == "qtValue" && property(widget, "qtEnergyAutoUnit") == "true";
         runtimeWidget.stateLabelVisible = property(widget, "stateLabelVisible") != "false";
         runtimeWidget.stateColorPanel = property(widget, "stateColorMode") != "indicator";
         runtimeWidget.progressMax = numericProperty(widget, "progressMaxValue", 100.0);
@@ -812,11 +823,15 @@ void ScadaSceneView::buildScene() {
                 ? Qt::AlignRight
                 : Qt::AlignLeft);
         runtimeWidget.valueText->document()->setDefaultTextOption(textOption);
+        // Inline status feedback occupies the same text box as its field caption.
+        const auto inlineStatus = widget.type == "statusCard" && widget.title.empty() &&
+            borderless && property(widget, "qtHideStatusLamp") == "true";
+        const auto textInset = alarmTable ? 18.0 : (qtNativeText || inlineStatus) ? 0.0 : 12.0;
         runtimeWidget.valueText->setTextWidth(std::max(
             1.0,
-            geometry.width() - (alarmTable ? 36.0 : qtNativeText ? 0.0 : 24.0)
+            geometry.width() - 2.0 * textInset
         ));
-        auto textX = geometry.x() + (alarmTable ? 18.0 : qtNativeText ? 0.0 : 12.0);
+        auto textX = geometry.x() + textInset;
         auto textY = geometry.y() + (alarmTable ? 44.0 : qtNativeText ? 0.0 : std::min(38.0, geometry.height() * 0.42));
         const auto textHeight = runtimeWidget.valueText->boundingRect().height();
         const auto verticalAlignment = property(widget, "qtVerticalAlignment");
@@ -1213,6 +1228,11 @@ void ScadaSceneView::refresh(std::int64_t now) {
     for (const auto& value : values) byIndex[value.index] = value;
 
     for (auto& widget : runtimeWidgets_) {
+        if (widget.pcsGuardButton) {
+            refreshPcsRemoteButton(widget.pcsGuardButton,
+                pcsRemoteBlockReason(runtime_, widget.pcsRemoteTag, widget.pcsTargetTag, now));
+            continue;
+        }
         if (!widget.emsControlModeTarget.empty()) {
             const auto mode = systemInfo.find("controlModeCode");
             const bool known = mode != systemInfo.end() && (mode->second == "remote" || mode->second == "local");
@@ -1549,6 +1569,8 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
         return;
     }
     if (!isControlAction(action.type)) return;
+    const auto pcsRemoteTag = property(control, "pcsRemoteTag");
+    if (!requirePcsRemote(this, runtime_, pcsRemoteTag, action.tagId, nowMs())) return;
     if (controlInFlight_) {
         QMessageBox::warning(this, QString::fromUtf8("控制未完成"), QString::fromUtf8("上一条命令仍在等待回执，请勿重复下发。"));
         return;
@@ -1645,6 +1667,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
     }
 
     // A modal confirmation runs an event loop; the mode can change while it is open.
+    if (!requirePcsRemote(this, runtime_, pcsRemoteTag, action.tagId, nowMs())) return;
     if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
     const auto latest = runtime_.resolveTag(action.tagId);
     if (!latest || latest->tag.nodeId != runtime_.nodeId() || !latest->mapping.writable ||
@@ -2360,12 +2383,19 @@ QString ScadaSceneView::valueText(
             parts.push_back(QStringLiteral("--"));
         } else {
             std::string mapped;
-            auto formatted = resolveScadaValueLabel(widget.valueMap, value->second.value, &mapped)
-                ? QString::fromStdString(mapped)
-                : formatNumber(value->second.value);
-            if (!widget.valueSuffix.empty()) {
-                formatted += QString::fromStdString(widget.valueSuffix);
+            const auto hasLabel = resolveScadaValueLabel(widget.valueMap, value->second.value, &mapped);
+            auto suffix = QString::fromStdString(widget.valueSuffix);
+            auto displayedValue = value->second.value;
+            const auto unit = suffix.trimmed();
+            if (!hasLabel && widget.energyAutoUnit && std::abs(displayedValue) > 100000.0 &&
+                (unit == QStringLiteral("kWh") || unit == QStringLiteral("kvarh"))) {
+                displayedValue /= 1000.0;
+                suffix = unit == QStringLiteral("kWh") ? QStringLiteral(" MWh") : QStringLiteral(" Mvarh");
             }
+            auto formatted = hasLabel
+                ? QString::fromStdString(mapped)
+                : formatNumber(displayedValue);
+            formatted += suffix;
             parts.push_back(formatted);
         }
     }

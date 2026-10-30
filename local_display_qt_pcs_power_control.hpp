@@ -33,6 +33,7 @@ PcsPhasePowerPlan makePcsPhasePowerPlan(
 );
 
 struct PcsPhasePowerBindings {
+    std::string remoteModeTag;
     std::array<std::string, 3> activeTagIds;
     std::array<std::string, 3> reactiveTagIds;
 
@@ -113,4 +114,6 @@ private:
     bool activeInitialized_ = false;
     bool reactiveInitialized_ = false;
     bool lanhuPresentation_ = false;
+    std::vector<std::pair<QPushButton*, std::string>> remoteGuardButtons_;
+    bool requireRemote(PowerKind kind);
 };

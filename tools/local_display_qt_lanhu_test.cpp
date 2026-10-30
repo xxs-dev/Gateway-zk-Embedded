@@ -1,5 +1,6 @@
 #include "local_display_qt_scada_scene.hpp"
 #include "local_display_qt_pcs_power_control.hpp"
+#include "local_display_qt_pcs_remote_guard.hpp"
 #include "local_display_qt_parallel_topology.hpp"
 #include "local_display_qt_system_info.hpp"
 
@@ -157,6 +158,105 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     try {
         FixtureRuntime runtime;
+        {
+            FixtureRuntime guarded;
+            const auto now = QDateTime::currentMSecsSinceEpoch();
+            auto command = widget("qtButton");
+            command.widgetId = "guarded-start";
+            command.action.type = "writeSetpoint";
+            command.action.tagId = "t1";
+            command.action.value = "1";
+            command.action.requiresConfirmation = true;
+            command.properties["pcsRemoteTag"] = "t2";
+            edge_gateway::ScadaScreen screen;
+            screen.width = 400; screen.height = 100; screen.widgets = {command};
+            ScadaSceneView view(screen, ".", {}, {}, guarded, [](const std::string&) {});
+            QPushButton* button = nullptr;
+            for (const auto& w : ScadaSceneViewTestAccess::widgets(view))
+                if (w.pcsGuardButton) button = w.pcsGuardButton;
+            require(button, "PCS guard button missing");
+            bool flipToLocal = false;
+            QString warning;
+            QTimer closer;
+            QObject::connect(&closer, &QTimer::timeout, [&] {
+                if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    if (box->standardButtons() & QMessageBox::Yes) {
+                        if (flipToLocal) guarded.values[2].value = 0;
+                        box->button(QMessageBox::Yes)->click();
+                    } else { warning = box->text(); box->accept(); }
+                } else if (auto* input = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+                    input->setDoubleValue(0); input->accept();
+                } else if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+                    if (dialog->objectName() == QStringLiteral("pcsWriteConfirmDialog")) {
+                        if (flipToLocal) guarded.values[2].value = 0;
+                        dialog->accept();
+                    }
+                }
+            });
+            closer.start(10);
+            auto blocked = [&] {
+                view.refresh(now);
+                require(button->isEnabled() && button->property("pcsRemoteBlocked").toBool(), "blocked PCS button not grey/clickable");
+                warning.clear(); button->click();
+                require(guarded.writeCalls == 0 && !warning.isEmpty(), "blocked PCS command submitted or no explanation");
+            };
+            blocked(); // Missing feedback.
+            guarded.put(2, 0); guarded.values[2].ts = now; blocked();
+            require(warning.contains(QString::fromUtf8("就地")), "local mode explanation missing");
+            guarded.values[2].value = 1; guarded.values[2].quality = 0; blocked();
+            guarded.values[2].quality = 1; guarded.values[2].stale = true; blocked();
+            guarded.values[2].stale = false; guarded.values[2].ts = now - 6000; blocked();
+            guarded.values[2].ts = now + 60000; blocked();
+            guarded.values[2].ts = now; guarded.values[2].value = 2; blocked();
+            guarded.values[2].value = std::numeric_limits<double>::quiet_NaN(); blocked();
+            guarded.values[2].value = 1; guarded.values[2].expireAt = now; blocked();
+            guarded.values[2].expireAt = 0; guarded.devices[2] = "OTHER"; blocked();
+            guarded.devices.erase(2);
+            guarded.values[2].ts = QDateTime::currentMSecsSinceEpoch();
+            view.refresh(guarded.values[2].ts);
+            require(!button->property("pcsRemoteBlocked").toBool(), "remote feedback did not restore control styling");
+            flipToLocal = true; button->click();
+            require(guarded.writeCalls == 0 && warning.contains(QString::fromUtf8("就地")), "mode changed during confirmation still submitted");
+            guarded.values[2].value = 1; flipToLocal = false;
+            button->click();
+            require(guarded.writeCalls == 1, "fresh remote mode rejected control");
+            closer.stop();
+            for (auto* box : view.findChildren<QMessageBox*>()) box->close();
+
+            PcsPhasePowerBindings bindings;
+            bindings.remoteModeTag = "t2";
+            bindings.activeTagIds = {{"t3", "t4", "t5"}};
+            bindings.reactiveTagIds = {{"t6", "t7", "t8"}};
+            PcsPhasePowerControl power(bindings, guarded, nullptr, true);
+            guarded.values[2].value = 0;
+            power.refresh(QDateTime::currentMSecsSinceEpoch());
+            closer.start(10);
+            for (int col=0; col<2; ++col) for (int row=0; row<3; ++row) {
+                auto* edit = power.findChild<QPushButton*>(QStringLiteral("pcsEdit-%1-%2").arg(col).arg(row));
+                require(edit && edit->property("pcsRemoteBlocked").toBool(), "phase power control not guarded");
+                warning.clear(); edit->click();
+                require(!warning.isEmpty() && guarded.groupWriteCalls == 0, "local phase power edit escaped guard");
+            }
+            for (unsigned i = 3; i <= 8; ++i) {
+                const auto id = "t" + std::to_string(i);
+                auto tag = *guarded.resolveTag(id);
+                tag.tag.access = edge_gateway::ScadaTagAccess::ReadWrite;
+                guarded.projectTags[id] = tag;
+                guarded.put(i, 0);
+            }
+            guarded.values[2].value = 1;
+            guarded.values[2].ts = QDateTime::currentMSecsSinceEpoch();
+            power.refresh(guarded.values[2].ts);
+            auto* edit = power.findChild<QPushButton*>(QStringLiteral("pcsEdit-0-0"));
+            require(!edit->property("pcsRemoteBlocked").toBool(), "remote power edit remains grey");
+            flipToLocal = true; warning.clear(); edit->click();
+            require(guarded.groupWriteCalls == 0 && warning.contains(QString::fromUtf8("就地")),
+                    "power mode changed during confirmation still submitted");
+            guarded.values[2].value = 1; flipToLocal = false;
+            edit->click();
+            require(guarded.groupWriteCalls == 1, "remote power command rejected");
+            closer.stop();
+        }
         {
             FixtureRuntime controls;
             bool authorized = true;
@@ -342,6 +442,72 @@ int main(int argc, char** argv) {
             require(ScadaSceneViewTestAccess::widgets(emu)[0].valueText->toPlainText() == "COMM202600104", "EMU field not refreshed");
             host.systemInfo.clear(); emu.refresh(10001);
             require(ScadaSceneViewTestAccess::widgets(emu)[0].valueText->toPlainText() == "--", "EMU missing source retains old value");
+        }
+        {
+            edge_gateway::ScadaScreen fields;
+            auto status = widget("statusCard");
+            status.widgetId = "inline-status";
+            status.title.clear();
+            status.geometry = {100, 60, 46, 26};
+            status.properties["qtBorderless"] = "true";
+            status.properties["qtHideStatusLamp"] = "true";
+            status.properties["qtVerticalAlignment"] = "Center";
+            status.properties["qtTextAlignment"] = "Center";
+            status.properties["qtAutoFit"] = "true";
+            fields.widgets = {status};
+            ScadaSceneView page(fields, ".", {}, {}, runtime, [](const std::string&) {});
+            auto* text = ScadaSceneViewTestAccess::widgets(page)[0].valueText;
+            require(text->pos().x() == 100 && text->textWidth() == 46,
+                    "inline status must share the label bounds without legacy card padding");
+            status.properties["qtBorderless"] = "false";
+            fields.widgets = {status};
+            ScadaSceneView card(fields, ".", {}, {}, runtime, [](const std::string&) {});
+            text = ScadaSceneViewTestAccess::widgets(card)[0].valueText;
+            require(text->pos().x() == 112 && text->textWidth() == 22,
+                    "framed status card must retain its padding");
+        }
+        {
+            edge_gateway::ScadaScreen fields;
+            auto energy = widget("qtValue");
+            energy.widgetId = "adaptive-energy";
+            energy.geometry = {0, 0, 139, 28};
+            energy.bindings = {{"edge-1", "t1", "value"}};
+            energy.properties["valueSuffix"] = " kWh";
+            energy.properties["qtEnergyAutoUnit"] = "true";
+            energy.properties["qtAutoFit"] = "true";
+            energy.properties["qtFontSize"] = "18";
+            fields.widgets = {energy};
+            ScadaSceneView page(fields, ".", {}, {}, runtime, [](const std::string&) {});
+            auto* text = ScadaSceneViewTestAccess::widgets(page)[0].valueText;
+            for (const auto& sample : std::vector<std::pair<double, QString>>{
+                    {99999.999, "99999.999 kWh"}, {100000, "100000 kWh"},
+                    {100001, "100.001 MWh"}, {123456789, "123456.789 MWh"},
+                    {-100001, "-100.001 MWh"}, {0, "0 kWh"}}) {
+                runtime.put(1, sample.first); page.refresh(10000);
+                require(text->toPlainText() == sample.second, "energy unit threshold or conversion incorrect");
+                require(QFontMetricsF(text->font()).horizontalAdvance(text->toPlainText()) <= text->textWidth() + 1,
+                        "adaptive energy exceeds its field");
+                require(runtime.values.at(1).value == sample.first, "display conversion mutated source data");
+            }
+            runtime.put(1, 200000, true); page.refresh(10000);
+            require(text->toPlainText() == "--", "stale energy displayed as live");
+            runtime.values.clear(); page.refresh(10000);
+            require(text->toPlainText() == "--", "missing energy invented a value");
+            for (const auto& sample : std::vector<std::pair<std::string, QString>>{
+                    {" kvarh", "200 Mvarh"}, {"kWh", "200 MWh"}, {" kW", "200000 kW"}}) {
+                energy.properties["valueSuffix"] = sample.first; fields.widgets = {energy};
+                ScadaSceneView other(fields, ".", {}, {}, runtime, [](const std::string&) {});
+                runtime.put(1, 200000); other.refresh(10000);
+                require(ScadaSceneViewTestAccess::widgets(other)[0].valueText->toPlainText() == sample.second,
+                        "energy unit conversion changed power or used the wrong suffix");
+            }
+            energy.properties["valueSuffix"] = " kWh";
+            energy.properties.erase("qtEnergyAutoUnit"); fields.widgets = {energy};
+            ScadaSceneView legacy(fields, ".", {}, {}, runtime, [](const std::string&) {});
+            legacy.refresh(10000);
+            require(ScadaSceneViewTestAccess::widgets(legacy)[0].valueText->toPlainText() == "200000 kWh",
+                    "energy conversion must be opt-in");
+            runtime.values.clear();
         }
         // Audit the real renderer without connecting any data/control transport.
         if (argc > 3 && std::string(argv[3]) == "--layout-audit") {

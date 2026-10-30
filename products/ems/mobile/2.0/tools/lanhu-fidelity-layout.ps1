@@ -1,5 +1,43 @@
 # The approved boards use a 1440 x 810 canvas. Coordinates below are design pixels.
+function Set-RefInlineStatusLayout($Widgets) {
+    foreach($widget in $Widgets){
+        if($widget.type-eq'statusCard'-and-not$widget.title-and$widget.properties.qtBorderless-eq'true'-and$widget.properties.qtHideStatusLamp-eq'true'){
+            $widget.properties|Add-Member qtAutoFit 'true' -Force
+        }
+    }
+}
+function Set-RefEnergyUnitLayout($Widgets) {
+    foreach($widget in $Widgets){
+        if($widget.type-eq'qtValue'-and$widget.properties.PSObject.Properties['valueSuffix']-and$widget.properties.valueSuffix.Trim()-in@('kWh','kvarh')){
+            $widget.properties|Add-Member qtEnergyAutoUnit 'true' -Force
+        }
+    }
+}
+function Set-RefTopologyFieldAlignment($Widgets) {
+    foreach($widget in $Widgets){
+        if($widget.widgetId-match'^topology-(transformer|grid|diesel)-title-[0-3]$'){
+            $widget.properties.qtTextAlignment='Center'
+        }
+    }
+}
 function New-RefScreen($Id, $Widgets) {
+    if((Has-Index 1214)-and(Tag-At 1214).tagId-eq'MTR20250600657.mb4_s1_1214'){
+        $validMode=$true
+        if($script:runtimePointByIndex.ContainsKey([uint32]1214)){
+            $mode=$script:runtimePointByIndex[[uint32]1214]
+            $validMode=$mode.point.address-eq86-and$mode.point.read.function-eq2-and$mode.point.read.enable-and$mode.meterCode-eq'MTR20250600657'
+        }
+        if($validMode){
+            foreach($widget in $Widgets){
+                $pcsWrite=$null-ne$widget.action-and$widget.action.type-in@('writeSetpoint','toggle','pulse')-and$widget.action.tagId.StartsWith('MTR20250600657.')
+                $pcsPower=$widget.type-eq'pcsPhasePowerControl'-and$widget.bindings.Count-eq6-and@($widget.bindings|Where-Object {-not$_.tagId.StartsWith('MTR20250600657.')}).Count-eq0
+                if($pcsWrite-or$pcsPower){$widget.properties|Add-Member pcsRemoteTag ([string](Tag-At 1214).tagId) -Force}
+            }
+        }
+    }
+    Set-RefInlineStatusLayout $Widgets
+    Set-RefEnergyUnitLayout $Widgets
+    if($Id-eq'Topology'){Set-RefTopologyFieldAlignment $Widgets}
     $screen=New-Screen $Id $Id $Widgets
     $screen.width=1440; $screen.height=810
     return $screen
@@ -425,7 +463,14 @@ function Build-RefAlarms {
     foreach($i in 0..2){$x=132+$i*429;$id=@('today','current','total')[$i];$w.Add((Ref-Panel "alarm-$id-panel" $x 90 414 92));$w.Add((New-LanhuImage "alarm-$id-icon" "alarm-$id.png" ($x+21) 106 60 60));$w.Add((Ref-Text "alarm-$id-title" @('今日告警数','当前告警数','累计告警数')[$i] ($x+99) 118 200 36 18));$count=Ref-Text "alarm-$id-value" '--' ($x+306) 110 92 50 34 '#303438' $true 'Center';if($i-eq1){$count.properties|Add-Member alarmActiveCount 'true'};$w.Add($count)}
     $w.Add((New-LanhuImage 'alarm-heading-icon' 'meter-heading.png' 132 199 26 26));$w.Add((Ref-Text 'alarm-heading' '当前告警数据' 172 198 600 32 18));$w.Add((Ref-Panel 'alarm-data-panel' 132 238 1271 534))
     $w.Add((New-Widget 'lanhu-alarm-table' 'alarmTable' '' 152 252 1230 450 3 @() @() $null ([ordered]@{qtTheme='light';qtAlarmPresentation='lanhu';qtBackgroundColor='#FFFFFF';qtTextColor='#303438';qtFontSize=14})))
+    $w.Add((Ref-Button 'alarm-soe' 'SOE 事件' 'Info-Soe' 1220 196 182 32))
     return New-RefScreen 'Info-Alarms' $w
+}
+function Build-RefSoe {
+    $w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w 'Info-Soe' 'Alarms'
+    Ref-Tabs $w @(@{Id='Active';T='当前告警';Target='Info-Alarms'},@{Id='Soe';T='SOE 事件';Target='Info-Soe'}) 'Soe' 562 80 308
+    $w.Add((New-Widget 'soe-history' 'qtSoeTable' '' 152 160 1230 600 3 @() @() $null ([ordered]@{soeDatabase='/opt/modbus-gateway/data/iec103-soe.db'})))
+    return New-RefScreen 'Info-Soe' $w
 }
 function Ref-TopologyCard($Widgets,$Id,$Title,$Source,$Image,$X,$Y,$Storage=$false,$Idle=$false) {
     $lower=$Y -gt 400
@@ -449,15 +494,8 @@ function Ref-TopologyCard($Widgets,$Id,$Title,$Source,$Image,$X,$Y,$Storage=$fal
     }
 }
 function Ref-SingleBand($Widgets,$Id,$X,$Y,$Width,$Height) {
-    $w.Add((Ref-Button 'alarm-soe' 'SOE 事件' 'Info-Soe' 1220 196 182 32))
     $Widgets.Add((New-LanhuPanel $Id $X $Y $Width $Height '#F7F7F7' 1))
     $Widgets.Add((New-Frame "$Id-bottom" $X ($Y+8) $Width ($Height-8) '#F7F7F7' 1))
-function Build-RefSoe {
-    $w=[System.Collections.Generic.List[object]]::new();Ref-Chrome $w 'Info-Soe' 'Alarms'
-    Ref-Tabs $w @(@{Id='Active';T='当前告警';Target='Info-Alarms'},@{Id='Soe';T='SOE 事件';Target='Info-Soe'}) 'Soe' 562 80 308
-    $w.Add((New-Widget 'soe-history' 'qtSoeTable' '' 152 160 1230 600 3 @() @() $null ([ordered]@{soeDatabase='/opt/modbus-gateway/data/iec103-soe.db'})))
-    return New-RefScreen 'Info-Soe' $w
-}
 }
 function Ref-SingleSummary($Widgets,$Id,$Meter,$X,$Y,$Width,$Offsets=@(0,138,285),$Dividers=@(99,246)) {
     $items=@(@{T='P总';K='TotalP';U='kW'},@{T='Q总';K='TotalQ';U='kvar'},@{T='功率因数';K='Factor';U=''})
@@ -594,9 +632,9 @@ function Get-LanhuScreens {
         }
     }
     Build-RefTopology $true
+    Build-RefSoe
     foreach($kind in @('Bms','Thermal','Mccb','Diesel')){Build-RefDeviceControl $kind}
     for($page=2;$page-le[math]::Ceiling($lanhuBreakers.Count/9);$page++){Build-RefDeviceControl 'Mccb' $page}
     foreach($meter in $lanhuMeters){if($meter.Target-notin$XMindV2ExpectedScreens){Build-RefMeter $meter.Target $meter.Source}}
     Get-MonitorScreens
 }
-    Build-RefSoe

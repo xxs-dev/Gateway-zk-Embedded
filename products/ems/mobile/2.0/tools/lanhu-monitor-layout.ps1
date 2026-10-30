@@ -1,5 +1,25 @@
 # Monitor boards are normalized from the user's 1920 x 1080 exports.
+function Set-MonitorFieldAlignment($Id,$Widgets) {
+    if($Id-eq'Devices-Emu'){return}
+    $byId=@{};foreach($widget in $Widgets){$byId[$widget.widgetId]=$widget}
+    foreach($label in $Widgets|Where-Object widgetId -like '*-label'){
+        $valueId=$label.widgetId -replace '-label$',''
+        if(-not$byId.ContainsKey($valueId)-and$byId.ContainsKey("$valueId-state")){$valueId="$valueId-state"}
+        if(-not$byId.ContainsKey($valueId)-or$byId.ContainsKey("$valueId-tile")-or$valueId-like'cells-summary-*'){continue}
+        $value=$byId[$valueId];$a=$label.geometry;$b=$value.geometry
+        if($Id-in@('Devices-Thermal','Devices-Fire')-and$a.x-eq$b.x){
+            $columnWidths=@{180=136;332=136;480=190;688=126;832=100}
+            if($columnWidths.ContainsKey([int]$a.x)){$a.width=$columnWidths[[int]$a.x];$b.width=$a.width}
+        }
+        # Stacked field captions and feedback share a column; icon tiles stay left-aligned.
+        if($a.x-eq$b.x-and$a.width-eq$b.width-and$b.y-ge($a.y+$a.height)-and$b.y-le($a.y+$a.height+8)){
+            $label.properties|Add-Member qtTextAlignment 'Center' -Force
+            $value.properties|Add-Member qtTextAlignment 'Center' -Force
+        }
+    }
+}
 function New-MonitorScreen($Id,$Widgets) {
+    Set-MonitorFieldAlignment $Id $Widgets
     foreach($widget in $Widgets){
         if($widget.type-eq'qtValue'){
             $widget.properties.qtFontWeight='Normal'

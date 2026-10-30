@@ -1,4 +1,5 @@
 #include "local_display_qt_pcs_power_control.hpp"
+#include "local_display_qt_pcs_remote_guard.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -110,6 +111,7 @@ PcsPhasePowerControl::PcsPhasePowerControl(
     pollTimer_ = new QTimer(this);
     pollTimer_->setInterval(200);
     QObject::connect(pollTimer_, &QTimer::timeout, this, [this]() { pollWriteback(); });
+    if (!bindings_.remoteModeTag.empty()) refresh(currentTimeMs());
 }
 
 bool PcsPhasePowerControl::ready() const {
@@ -334,8 +336,11 @@ void PcsPhasePowerControl::buildLanhuUi() {
             edit->setStyleSheet(QStringLiteral("QPushButton{color:#2599D6;background:#F2FAFF;border:1px solid #89C3E0;border-radius:18px;font-size:14px;}"
                 "QPushButton:disabled{color:#9AA3AB;border-color:#DCE5EB;background:#F7F9FA;}"));
             edit->setEnabled(ready());
+            edit->setObjectName(QStringLiteral("pcsEdit-%1-%2").arg(col).arg(row));
+            remoteGuardButtons_.push_back({edit, tagIds(kind)[row]});
             QObject::connect(edit, &QPushButton::clicked, this, [this, kind, row]() {
                 if (pending_.active) return;
+                if (!requireRemote(kind)) return;
                 const auto now = currentTimeMs();
                 for (std::size_t i = 0; i < 3; ++i) {
                     const auto current = runtime_.readTag(tagIds(kind)[i], now);
@@ -451,6 +456,7 @@ bool PcsPhasePowerControl::validatePlan(
 }
 
 void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
+    if (!requireRemote(kind)) return;
     if (pending_.active) {
         showPcsMessage(
             this,
@@ -550,6 +556,7 @@ void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
 }
 
 void PcsPhasePowerControl::submitWrite(PowerKind kind, const PcsPhasePowerPlan& plan) {
+    if (!requireRemote(kind)) return;
     std::vector<ScadaSceneWriteTarget> targets;
     const auto& tags = tagIds(kind);
     for (std::size_t index = 0; index < tags.size(); ++index) {
@@ -664,6 +671,12 @@ void PcsPhasePowerControl::finishPending(bool timedOut) {
 }
 
 void PcsPhasePowerControl::refresh(std::int64_t now) {
+    if (!bindings_.remoteModeTag.empty()) {
+        for (const auto& button : remoteGuardButtons_)
+            refreshPcsRemoteButton(button.first, pcsRemoteBlockReason(runtime_, bindings_.remoteModeTag, button.second, now));
+        refreshPcsRemoteButton(activeSubmitButton_, pcsRemoteBlockReason(runtime_, bindings_.remoteModeTag, bindings_.activeTagIds[0], now));
+        refreshPcsRemoteButton(reactiveSubmitButton_, pcsRemoteBlockReason(runtime_, bindings_.remoteModeTag, bindings_.reactiveTagIds[0], now));
+    }
     refreshRow(PowerKind::Active, bindings_.activeTagIds, activeCurrentLabels_, now);
     refreshRow(PowerKind::Reactive, bindings_.reactiveTagIds, reactiveCurrentLabels_, now);
     if (!pending_.active) {
@@ -672,6 +685,12 @@ void PcsPhasePowerControl::refresh(std::int64_t now) {
         reactiveSubmitButton_->setEnabled(available);
         if (!available) statusLabel_->setText(QString::fromUtf8("控制不可用：点位缺失、只读或未映射到当前设备"));
     }
+}
+
+bool PcsPhasePowerControl::requireRemote(PowerKind kind) {
+    for (const auto& tag : tagIds(kind))
+        if (!requirePcsRemote(this, runtime_, bindings_.remoteModeTag, tag, currentTimeMs())) return false;
+    return true;
 }
 
 void PcsPhasePowerControl::refreshRow(

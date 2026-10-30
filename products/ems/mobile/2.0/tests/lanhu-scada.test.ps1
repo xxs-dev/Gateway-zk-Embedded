@@ -16,6 +16,17 @@ try {
     $map=@{}; Get-Content (Join-Path $output 'project\runtime-map.json') -Raw|ConvertFrom-Json|ForEach-Object {$map[$_.tagId]=$_}
     foreach($screen in $screens){
         if($screen.width-ne1440-or$screen.height-ne810){throw "Invalid canvas: $($screen.screenId)"}
+        if($screen.screenId -in @('Devices-Pcs','Devices-Bms','Devices-Thermal','Devices-Meters','Monitor-Strategy')){
+            foreach($label in $screen.widgets|Where-Object widgetId -like '*-label'){
+                $id=$label.widgetId -replace '-label$',''
+                $value=$screen.widgets|Where-Object widgetId -eq $id
+                if($null-eq$value){$value=$screen.widgets|Where-Object widgetId -eq "$id-state"}
+                if($null-eq$value-or@($screen.widgets|Where-Object widgetId -eq "$id-tile").Count){continue}
+                if($label.geometry.x-eq$value.geometry.x-and$label.geometry.width-eq$value.geometry.width-and$value.geometry.y-ge($label.geometry.y+$label.geometry.height)-and$value.geometry.y-le($label.geometry.y+$label.geometry.height+8)){
+                    if($label.properties.qtTextAlignment-ne'Center'-or$value.properties.qtTextAlignment-ne'Center'){throw "Field alignment differs: $($screen.screenId)/$id"}
+                }
+            }
+        }
         if(@($screen.widgets|Where-Object widgetId -like 'lanhu-nav-*'|Where-Object type -eq 'qtButton').Count-ne8){throw 'Missing navigation'}
         foreach($widget in $screen.widgets){
             $g=$widget.geometry
@@ -25,7 +36,19 @@ try {
         }
     }
     $strategy=$screens|Where-Object screenId -eq 'Strategy-Overview'
+    $soe=$screens|Where-Object screenId -eq 'Info-Soe'
+    if(@($soe.widgets|Where-Object type -eq 'qtSoeTable').Count-ne1){throw 'Native SOE history missing'}
+    if(@($soe.widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count){throw 'SOE must be read-only'}
     $topology=$screens|Where-Object screenId -eq 'Topology'
+    foreach($card in @('transformer','grid','diesel')){
+        foreach($column in 0..3){
+            $label=$topology.widgets|Where-Object widgetId -eq "topology-$card-title-$column"
+            $value=$topology.widgets|Where-Object widgetId -eq "topology-$card-value-$column"
+            if($null-eq$label-or$null-eq$value-or$label.geometry.x-ne$value.geometry.x-or$label.geometry.width-ne$value.geometry.width-or$label.properties.qtTextAlignment-ne'Center'-or$value.properties.qtTextAlignment-ne'Center'){
+                throw "Topology caption/value alignment differs: $card/$column"
+            }
+        }
+    }
     if(@($topology.widgets|Where-Object type -eq 'qtParallelTopology').Count-ne1){throw 'Dynamic vehicle topology is missing'}
     if(@($topology.widgets|Where-Object widgetId -like 'topology-storage-*').Count){throw 'Fixed vehicle placeholders must not remain'}
     if(@($topology.widgets|Where-Object type -eq 'qtParallelTopology'|ForEach-Object {$_.bindings}).Count){throw 'Dynamic peers must not borrow local telemetry'}
@@ -33,12 +56,22 @@ try {
     $expectedLocal=@{p=1230;q=1234;pa=1227;pb=1228;pc=1229;ua=1220;ub=1221;uc=1222;factor=1242;frequency=1226;soc=1569;online=1399;bmsOnline=3999;breaker=997}
     foreach($key in $expectedLocal.Keys){if($map[$localTags.$key].index-ne$expectedLocal[$key]){throw "Local topology source mismatch: $key"}}
     $emu=$screens|Where-Object screenId -eq 'Devices-Emu'
+    $thermal=$screens|Where-Object screenId -eq 'Devices-Thermal'
+    foreach($column in @(@('liquid-online','liquid-second-0','dehumidifier-online','fan-0-state','fire-online','fire-hydrogen'),@('liquid-fault','liquid-second-1','dehumidifier-fault','fan-1-state','fire-alarm','fire-temperature'),@('liquid-mode','liquid-second-2','dehumidifier-work','fan-2-state','fire-smoke'),@('liquid-water-out','liquid-second-3','dehumidifier-humidity','fire-voc'))){
+        $centers=@($column|ForEach-Object {$field=$thermal.widgets|Where-Object widgetId -eq $_; $field.geometry.x+$field.geometry.width/2}|Select-Object -Unique)
+        if($centers.Count-ne1){throw "Thermal column centers differ: $($column-join',')"}
+    }
+    foreach($screen in $screens){
+        foreach($field in $screen.widgets|Where-Object {$_.type-eq'qtValue'-and$_.properties.PSObject.Properties['valueSuffix']-and$_.properties.valueSuffix.Trim()-in@('kWh','kvarh')}){
+            if(-not$field.properties.PSObject.Properties['qtEnergyAutoUnit']-or$field.properties.qtEnergyAutoUnit-ne'true'){throw "Missing adaptive energy unit: $($screen.screenId)/$($field.widgetId)"}
+        }
+    }
+    foreach($field in $emu.widgets|Where-Object widgetId -match '^emu-(info|resource)-[0-9]+(-label)?$'){
+        if($field.properties.qtTextAlignment-ne'Left'){throw "EMU icon field lost left alignment: $($field.widgetId)"}
+    }
     foreach($screen in $screens){
         $modeButtons=@($screen.widgets|Where-Object {$null-ne$_.properties.PSObject.Properties['emsControlModeTarget']})
         if($modeButtons.Count -and $screen.screenId -notlike 'Control-*'){throw 'EMS mode switch must stay on authenticated control pages'}
-    $soe=$screens|Where-Object screenId -eq 'Info-Soe'
-    if(@($soe.widgets|Where-Object type -eq 'qtSoeTable').Count-ne1){throw 'Native SOE history missing'}
-    if(@($soe.widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count){throw 'SOE must be read-only'}
         if($modeButtons.Count -and (($modeButtons.properties.emsControlModeTarget|Sort-Object)-join',')-ne'local,remote'){throw 'EMS control mode selector must contain both choices'}
     }
     if(@(($screens|Where-Object screenId -eq 'Control-Pcs').widgets|Where-Object {$null-ne$_.properties.PSObject.Properties['emsControlModeTarget']}).Count-ne2){throw 'EMS control mode selector missing'}
@@ -88,6 +121,14 @@ try {
         if(@(($screens|Where-Object screenId -eq $id).widgets|Where-Object widgetId -notlike 'lanhu-*').Count-ne0){throw 'Missing-design page is not blank'}
     }
     $pcs=$screens|Where-Object screenId -eq 'Control-Pcs'
+    foreach($control in $pcs.widgets|Where-Object {$_.type-eq'pcsPhasePowerControl'-or($null-ne$_.action-and$_.action.type-in@('writeSetpoint','toggle','pulse'))}){
+        if($control.properties.pcsRemoteTag-ne'MTR20250600657.mb4_s1_1214'){throw "PCS remote feedback gate missing: $($control.widgetId)"}
+    }
+    foreach($screen in $screens){
+        foreach($control in $screen.widgets|Where-Object {$null-ne$_.properties.PSObject.Properties['emsControlModeTarget']}){
+            if($null-ne$control.properties.PSObject.Properties['pcsRemoteTag']){throw 'EMS permission selector must not depend on PCS mode'}
+        }
+    }
     $bms=$screens|Where-Object screenId -eq 'Control-Bms'
     if(@($bms.widgets|Where-Object {$null-ne$_.action-and$_.action.type-in@('toggle','pulse','writeSetpoint')}).Count){throw 'Subordinate BMU/BCU controls are out of scope'}
     if(@($bms.widgets|Where-Object widgetId -in @('control-switch-mode','bms-reboot-reserved','bms-power-on-reserved','bms-power-off-reserved')).Count){throw 'Excluded BMS control placeholders remain'}
