@@ -1794,6 +1794,7 @@ MqttConfig parseMqttConfig(const JsonValue* value) {
         config.tls.keyFile = requireString(tlsObject, "keyFile", config.tls.keyFile);
         config.tls.insecureSkipVerify = requireBool(tlsObject, "insecureSkipVerify", config.tls.insecureSkipVerify);
     }
+    config.allowInsecurePlaintext = requireBool(object, "allowInsecurePlaintext", config.allowInsecurePlaintext);
     config.maxPayloadBytes = boundedSize(
         requireSize(object, "maxPayloadBytes", config.maxPayloadBytes),
         kMqttMinPayloadBytes,
@@ -2311,6 +2312,7 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
         "healthHeartbeatMs",
         "failOnStoreError",
         "tls",
+        "allowInsecurePlaintext",
         "events",
         "control"
     };
@@ -2412,6 +2414,11 @@ MqttForwardConfig parseMqttForwardConfig(const JsonValue* value) {
             config.tls.insecureSkipVerify
         );
     }
+    config.allowInsecurePlaintext = requireBool(
+        object,
+        "allowInsecurePlaintext",
+        config.allowInsecurePlaintext
+    );
 
     config.events = parseMqttForwardEventConfig(value->find("events"));
     config.control = parseMqttForwardControlConfig(value->find("control"));

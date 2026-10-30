@@ -630,9 +630,12 @@ if isinstance(tls, dict):
     for key, value in zip(("caFile", "certFile", "keyFile"), values[4:7]):
         if key in tls:
             tls[key] = value
-    for key, value in zip(("enabled", "insecureSkipVerify"), values[7:9]):
-        if key in tls and value in ("true", "false"):
-            tls[key] = value == "true"
+    if "enabled" in tls and values[7] in ("true", "false"):
+        tls["enabled"] = values[7] == "true"
+    # Verification is mandatory; the retired switch is never carried into a new config.
+    tls.pop("insecureSkipVerify", None)
+if values[8] in ("true", "false"):
+    mqtt["allowInsecurePlaintext"] = values[8] == "true"
 temporary = path + ".tmp." + str(os.getpid())
 with open(temporary, "w", encoding="utf-8") as stream:
     json.dump(root, stream, ensure_ascii=False, indent=2)
@@ -719,6 +722,35 @@ broker_implies_tls() {
     ssl://*|tls://*|mqtts://*) printf 'true\n' ;;
     *) printf 'false\n' ;;
   esac
+}
+
+# Mirrors the MQTT client policy: TLS with verification, or an explicitly
+# enabled plaintext experiment. Refuses before any service is stopped.
+check_mqtt_transport_choice() {
+  broker="$1"
+  tls_enabled="$2"
+  allow_plaintext="$3"
+  skip_verify="$4"
+  if [ "$skip_verify" = "true" ]; then
+    echo "refusing MQTT tls.insecureSkipVerify=true: certificate chain and host verification are mandatory." >&2
+    echo "Deploy the broker CA as tls.caFile, then pass INIT_MQTT_INSECURE_SKIP_VERIFY=false to acknowledge." >&2
+    exit 2
+  fi
+  if [ -z "$broker" ]; then
+    echo "WARNING: MQTT broker not configured; MQTT connections stay refused until ssl://<host>:8883 and tls.caFile are deployed" >&2
+    return 0
+  fi
+  if [ "$(broker_implies_tls "$broker")" = "true" ] || [ "$tls_enabled" = "true" ]; then
+    return 0
+  fi
+  if [ "$allow_plaintext" = "true" ]; then
+    echo "WARNING: INSECURE PLAINTEXT MQTT explicitly enabled for $broker (allowInsecurePlaintext=true):" >&2
+    echo "WARNING: credentials, telemetry and control commands are unencrypted; experimental use only" >&2
+    return 0
+  fi
+  echo "refusing plaintext MQTT broker $broker: use ssl://<host>:8883 with TLS certificates," >&2
+  echo "or explicitly set INIT_MQTT_ALLOW_INSECURE_PLAINTEXT=true (experimental, unencrypted)" >&2
+  exit 2
 }
 
 normalize_runtime_mode() {
@@ -843,7 +875,7 @@ apply_runtime_identity_and_mqtt() {
   mqtt_ca_file="$6"
   mqtt_cert_file="$7"
   mqtt_key_file="$8"
-  mqtt_tls_insecure="$9"
+  mqtt_allow_insecure_plaintext="$9"
 
   runtime_dir="${CONFIG_RUNTIME_DIR:-$GATEWAY_HOME/config/runtime}"
   set_json_string_value "$runtime_dir/device_identity.json" "machineCode" "$machine_code"
@@ -852,7 +884,7 @@ apply_runtime_identity_and_mqtt() {
     set_main_mqtt_values "$app_file" \
       "$machine_code" "$mqtt_broker" "$mqtt_username" "$mqtt_password" \
       "$mqtt_ca_file" "$mqtt_cert_file" "$mqtt_key_file" \
-      "$mqtt_tls_enabled" "$mqtt_tls_insecure"
+      "$mqtt_tls_enabled" "$mqtt_allow_insecure_plaintext"
   done
 }
 
@@ -993,6 +1025,7 @@ EXISTING_MQTT_CA_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.caFile" || tr
 EXISTING_MQTT_CERT_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.certFile" || true)
 EXISTING_MQTT_KEY_FILE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.keyFile" || true)
 EXISTING_MQTT_TLS_INSECURE=$(json_mqtt_value "$EXISTING_MQTT_FILE" "tls.insecureSkipVerify" || true)
+EXISTING_MQTT_ALLOW_PLAINTEXT=$(json_mqtt_value "$EXISTING_MQTT_FILE" "allowInsecurePlaintext" || true)
 FACTORY_MACHINE_CODE=$(json_string_value "$FACTORY_DIR/runtime/device_identity.json" "machineCode" || true)
 FACTORY_MQTT_FILE="$FACTORY_DIR/runtime/apps/mqtt-service.json"
 FACTORY_MQTT_BROKER=$(json_mqtt_value "$FACTORY_MQTT_FILE" "broker" || true)
@@ -1002,16 +1035,18 @@ FACTORY_MQTT_TLS_ENABLED=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.enabled" ||
 FACTORY_MQTT_CA_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.caFile" || true)
 FACTORY_MQTT_CERT_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.certFile" || true)
 FACTORY_MQTT_KEY_FILE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.keyFile" || true)
-FACTORY_MQTT_TLS_INSECURE=$(json_mqtt_value "$FACTORY_MQTT_FILE" "tls.insecureSkipVerify" || true)
+FACTORY_MQTT_ALLOW_PLAINTEXT=$(json_mqtt_value "$FACTORY_MQTT_FILE" "allowInsecurePlaintext" || true)
 DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
-DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
+# No broker address is invented: an unset broker stays empty and MQTT stays refused.
+DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER")
 DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
 DEFAULT_MQTT_PASSWORD=$(first_nonempty "${INIT_MQTT_PASSWORD:-}" "$EXISTING_MQTT_PASSWORD" "$FACTORY_MQTT_PASSWORD")
 DEFAULT_MQTT_CA_FILE=$(first_nonempty "${INIT_MQTT_CA_FILE:-}" "$EXISTING_MQTT_CA_FILE" "$FACTORY_MQTT_CA_FILE")
 DEFAULT_MQTT_CERT_FILE=$(first_nonempty "${INIT_MQTT_CERT_FILE:-}" "$EXISTING_MQTT_CERT_FILE" "$FACTORY_MQTT_CERT_FILE")
 DEFAULT_MQTT_KEY_FILE=$(first_nonempty "${INIT_MQTT_KEY_FILE:-}" "$EXISTING_MQTT_KEY_FILE" "$FACTORY_MQTT_KEY_FILE")
 DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls "$DEFAULT_MQTT_BROKER")")
-DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+DEFAULT_MQTT_TLS_INSECURE=$(normalize_bool "$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "false")" "true")
+DEFAULT_MQTT_ALLOW_PLAINTEXT=$(normalize_bool "$(first_nonempty "${INIT_MQTT_ALLOW_INSECURE_PLAINTEXT:-}" "$EXISTING_MQTT_ALLOW_PLAINTEXT" "$FACTORY_MQTT_ALLOW_PLAINTEXT" "false")" "false")
 INIT_RUNTIME_MODE_VALUE="$INSTALL_RUNTIME_MODE"
 INIT_MACHINE_CODE_VALUE=$(prompt_value "machineCode" "$DEFAULT_MACHINE_CODE")
 INIT_MQTT_BROKER_VALUE=$(prompt_value "MQTT broker" "$DEFAULT_MQTT_BROKER")
@@ -1028,7 +1063,14 @@ INIT_MQTT_TLS_ENABLED_VALUE=$(prompt_bool "Enable MQTT TLS" "$DEFAULT_MQTT_TLS_E
 INIT_MQTT_CA_FILE_VALUE=$(prompt_value "MQTT TLS caFile" "$DEFAULT_MQTT_CA_FILE")
 INIT_MQTT_CERT_FILE_VALUE=$(prompt_value "MQTT TLS certFile" "$DEFAULT_MQTT_CERT_FILE")
 INIT_MQTT_KEY_FILE_VALUE=$(prompt_value "MQTT TLS keyFile" "$DEFAULT_MQTT_KEY_FILE")
-INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
+INIT_MQTT_ALLOW_INSECURE_PLAINTEXT_VALUE="$DEFAULT_MQTT_ALLOW_PLAINTEXT"
+if [ "$(broker_implies_tls "$INIT_MQTT_BROKER_VALUE")" != "true" ] && [ "$INIT_MQTT_TLS_ENABLED_VALUE" != "true" ] && \
+   [ -n "$INIT_MQTT_BROKER_VALUE" ]; then
+  INIT_MQTT_ALLOW_INSECURE_PLAINTEXT_VALUE=$(prompt_bool \
+    "Allow INSECURE plaintext MQTT (experimental; credentials and control unencrypted)" "$DEFAULT_MQTT_ALLOW_PLAINTEXT")
+fi
+check_mqtt_transport_choice "$INIT_MQTT_BROKER_VALUE" "$INIT_MQTT_TLS_ENABLED_VALUE" \
+  "$INIT_MQTT_ALLOW_INSECURE_PLAINTEXT_VALUE" "$DEFAULT_MQTT_TLS_INSECURE"
 INIT_DIRECT_MAINTENANCE_ENABLED_VALUE=$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")
 INIT_DIRECT_LISTEN_HOSTS_VALUE=$(first_nonempty "${INIT_DIRECT_LISTEN_HOSTS:-}" "${INIT_DIRECT_LISTEN_HOST:-}" "192.168.1.250")
 INIT_DIRECT_ALLOWED_CIDRS_VALUE=$(first_nonempty "${INIT_DIRECT_ALLOWED_CIDRS:-}" "${INIT_DIRECT_ALLOWED_CLIENT_CIDRS:-}")
@@ -1039,7 +1081,7 @@ CONFIG_RUNTIME_DIR="$RUNTIME_STAGE_DIR/config/runtime"
 apply_runtime_identity_and_mqtt \
   "$INIT_MACHINE_CODE_VALUE" "$INIT_MQTT_BROKER_VALUE" "$INIT_MQTT_USERNAME_VALUE" "$INIT_MQTT_PASSWORD_VALUE" \
   "$INIT_MQTT_TLS_ENABLED_VALUE" "$INIT_MQTT_CA_FILE_VALUE" "$INIT_MQTT_CERT_FILE_VALUE" "$INIT_MQTT_KEY_FILE_VALUE" \
-  "$INIT_MQTT_INSECURE_SKIP_VERIFY_VALUE"
+  "$INIT_MQTT_ALLOW_INSECURE_PLAINTEXT_VALUE"
 apply_runtime_mode "$INIT_RUNTIME_MODE_VALUE"
 apply_direct_maintenance_config \
   "$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE" "$INIT_DIRECT_LISTEN_HOSTS_VALUE" "$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
@@ -1186,6 +1228,7 @@ echo "initialized machineCode: $INIT_MACHINE_CODE_VALUE"
 echo "initialized mqtt broker: $INIT_MQTT_BROKER_VALUE"
 echo "initialized mqtt username: $INIT_MQTT_USERNAME_VALUE"
 echo "initialized mqtt tls: $INIT_MQTT_TLS_ENABLED_VALUE"
+echo "initialized mqtt allowInsecurePlaintext: $INIT_MQTT_ALLOW_INSECURE_PLAINTEXT_VALUE"
 echo "initialized direct maintenance: enabled=$INIT_DIRECT_MAINTENANCE_ENABLED_VALUE listen=$INIT_DIRECT_LISTEN_HOSTS_VALUE allowed=$INIT_DIRECT_ALLOWED_CIDRS_VALUE"
 
 if [ -n "$TEMPLATES_DIR" ] && [ -d "$TEMPLATES_DIR" ]; then

@@ -846,6 +846,7 @@ struct MqttTlsConfig {
     std::string caFile;
     std::string certFile;
     std::string keyFile;
+    // Verification cannot be disabled; true is kept only so the connection is refused explicitly.
     bool insecureSkipVerify = false;
 };
 
@@ -858,7 +859,8 @@ struct LegacyTelemetryPointMapping {
 struct MqttConfig {
     bool enabled = false;
     std::string protocolVersion = "mqtt3";
-    std::string broker = "tcp://127.0.0.1:1883";
+    // No default broker address: an unset broker is refused at connect time.
+    std::string broker;
     std::string clientId = "GW0001";
     std::string topicMachineCode;
     std::string username;
@@ -919,6 +921,8 @@ struct MqttConfig {
     int reconnectBackoffMaxMs = 30000;
     int sessionExpirySec = 0;
     MqttTlsConfig tls;
+    // Experimental only: allow an unencrypted broker (tcp://). Default false refuses plaintext.
+    bool allowInsecurePlaintext = false;
     bool offlineBufferEnabled = true;
     bool fullSnapshotOfflineBufferEnabled = true;
     std::string offlineBufferMode = "ring";
@@ -1004,6 +1008,7 @@ struct MqttForwardConfig {
     std::string primaryClientId;
     std::string publishLockFile;
     MqttTlsConfig tls;
+    bool allowInsecurePlaintext = false;
     MqttForwardEventConfig events;
     MqttForwardControlConfig control;
 };

@@ -60,7 +60,8 @@ Options:
   --mqtt-broker URL               MQTT broker, e.g. tls://kygate.kyxn.net:8883
   --mqtt-username USER            MQTT username
   --mqtt-password PASSWORD        MQTT password
-  --mqtt-tls, --no-mqtt-tls       Enable or disable MQTT TLS config
+  --mqtt-tls, --no-mqtt-tls       Enable or disable MQTT TLS config (factory default: TLS)
+  --mqtt-allow-insecure-plaintext Explicitly allow a plaintext tcp:// broker (experimental, unencrypted)
   --tls-ca-file FILE              MQTT TLS CA path on the device
   --tls-cert-file FILE            MQTT TLS client cert path on the device
   --tls-key-file FILE             MQTT TLS client key path on the device
@@ -92,7 +93,7 @@ Environment variables with the same meaning are also supported:
   INIT_PROMPT INIT_PACKAGE INIT_RUNTIME_PACKAGE GATEWAY_HOME INIT_RUNTIME_MODE INIT_MACHINE_CODE
   INIT_PACKAGE_PROFILE INIT_EDGE_PACKAGE_MANIFEST
   INIT_MQTT_BROKER INIT_MQTT_USERNAME INIT_MQTT_PASSWORD
-  INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE
+  INIT_MQTT_TLS_ENABLED INIT_MQTT_CA_FILE INIT_MQTT_CERT_FILE INIT_MQTT_KEY_FILE INIT_MQTT_ALLOW_INSECURE_PLAINTEXT
   INIT_TLS_PLATFORM_URL INIT_TLS_ENROLLMENT_TOKEN INIT_TLS_VALIDITY_DAYS
   INIT_TLS_GENERATE_ROOT_CA INIT_TLS_CA_VALIDITY_DAYS INIT_TLS_CA_SUBJECT
   INIT_TLS_CA_SOURCE INIT_TLS_CERT_SOURCE INIT_TLS_KEY_SOURCE
@@ -170,6 +171,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --mqtt-tls)
       INIT_MQTT_TLS_ENABLED=true
+      shift
+      ;;
+    --mqtt-allow-insecure-plaintext)
+      INIT_MQTT_ALLOW_INSECURE_PLAINTEXT=true
       shift
       ;;
     --no-mqtt-tls)
@@ -348,6 +353,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     mqtt_password=*|INIT_MQTT_PASSWORD=*)
       INIT_MQTT_PASSWORD="${1#*=}"
+      shift
+      ;;
+    mqtt_allow_insecure_plaintext=*|INIT_MQTT_ALLOW_INSECURE_PLAINTEXT=*)
+      INIT_MQTT_ALLOW_INSECURE_PLAINTEXT="${1#*=}"
       shift
       ;;
     tls_platform_url=*|INIT_TLS_PLATFORM_URL=*)
@@ -765,11 +774,14 @@ FACTORY_MQTT_TLS_INSECURE=$(json_tls_bool_value "$FACTORY_MQTT_FILE" "insecureSk
 
 DEFAULT_RUNTIME_MODE=$(normalize_runtime_mode "${INIT_RUNTIME_MODE:-gateway}")
 DEFAULT_MACHINE_CODE=$(first_nonempty "${INIT_MACHINE_CODE:-}" "$EXISTING_MACHINE_CODE" "$FACTORY_MACHINE_CODE" "GW_FACTORY_001")
-DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER" "tcp://127.0.0.1:1883")
+# No broker address is invented: an unset broker stays empty and MQTT stays refused.
+DEFAULT_MQTT_BROKER=$(first_nonempty "${INIT_MQTT_BROKER:-}" "$EXISTING_MQTT_BROKER" "$FACTORY_MQTT_BROKER")
 DEFAULT_MQTT_USERNAME=$(first_nonempty "${INIT_MQTT_USERNAME:-}" "$EXISTING_MQTT_USERNAME" "$FACTORY_MQTT_USERNAME")
 DEFAULT_MQTT_PASSWORD=$(first_nonempty "${INIT_MQTT_PASSWORD:-}" "$EXISTING_MQTT_PASSWORD" "$FACTORY_MQTT_PASSWORD")
 DEFAULT_MQTT_TLS_ENABLED=$(first_nonempty "${INIT_MQTT_TLS_ENABLED:-}" "$EXISTING_MQTT_TLS_ENABLED" "$FACTORY_MQTT_TLS_ENABLED" "$(broker_implies_tls_value "$DEFAULT_MQTT_BROKER")")
-DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "$FACTORY_MQTT_TLS_INSECURE" "false")
+# insecureSkipVerify is not supported; an existing true value makes install refuse
+# until INIT_MQTT_INSECURE_SKIP_VERIFY=false acknowledges mandatory verification.
+DEFAULT_MQTT_TLS_INSECURE=$(first_nonempty "${INIT_MQTT_INSECURE_SKIP_VERIFY:-}" "$EXISTING_MQTT_TLS_INSECURE" "false")
 
 if is_interactive_init; then
   echo "Gateway production initialization"
@@ -783,7 +795,11 @@ if is_interactive_init; then
     DEFAULT_MQTT_TLS_ENABLED="true"
   fi
   INIT_MQTT_TLS_ENABLED=$(prompt_bool "Enable MQTT TLS" "$DEFAULT_MQTT_TLS_ENABLED")
-  INIT_MQTT_INSECURE_SKIP_VERIFY=$(prompt_bool "MQTT TLS insecureSkipVerify" "$DEFAULT_MQTT_TLS_INSECURE")
+  if ! truthy "$INIT_MQTT_TLS_ENABLED" && [ -n "$INIT_MQTT_BROKER" ] && ! broker_implies_tls "$INIT_MQTT_BROKER" && \
+     [ -z "${INIT_MQTT_ALLOW_INSECURE_PLAINTEXT:-}" ]; then
+    INIT_MQTT_ALLOW_INSECURE_PLAINTEXT=$(prompt_bool \
+      "Allow INSECURE plaintext MQTT (experimental; credentials and control unencrypted)" "false")
+  fi
   if truthy "$INIT_MQTT_TLS_ENABLED"; then
     safe_machine=$(safe_machine_file_prefix "$INIT_MACHINE_CODE")
     DEFAULT_MQTT_CA_FILE=$(first_nonempty "${INIT_MQTT_CA_FILE:-}" "$EXISTING_MQTT_CA_FILE" "$FACTORY_MQTT_CA_FILE" "$GATEWAY_HOME/config/runtime/tls/ca.crt")
@@ -815,6 +831,9 @@ export INIT_MQTT_USERNAME="${INIT_MQTT_USERNAME:-$DEFAULT_MQTT_USERNAME}"
 export INIT_MQTT_PASSWORD="${INIT_MQTT_PASSWORD:-$DEFAULT_MQTT_PASSWORD}"
 export INIT_MQTT_TLS_ENABLED="${INIT_MQTT_TLS_ENABLED:-$DEFAULT_MQTT_TLS_ENABLED}"
 export INIT_MQTT_INSECURE_SKIP_VERIFY="${INIT_MQTT_INSECURE_SKIP_VERIFY:-$DEFAULT_MQTT_TLS_INSECURE}"
+if [ -n "${INIT_MQTT_ALLOW_INSECURE_PLAINTEXT:-}" ]; then
+  export INIT_MQTT_ALLOW_INSECURE_PLAINTEXT
+fi
 export INIT_START_SERVICES INIT_RUN_SMOKE INIT_RESET_SHM INIT_MQTT_CONNECT_TEST
 export INSTALL_SYSTEMD SYSTEMD_UNIT_DIR
 export INIT_DIRECT_MAINTENANCE_ENABLED="$(normalize_bool "${INIT_DIRECT_MAINTENANCE_ENABLED:-1}" "true")"

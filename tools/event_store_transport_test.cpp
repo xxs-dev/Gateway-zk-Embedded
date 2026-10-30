@@ -34,6 +34,7 @@ int main() {
         TestMqttBroker broker(1);
         MqttConfig mqtt;
         mqtt.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+        mqtt.allowInsecurePlaintext = true;  // local plaintext stub broker
         mqtt.clientId = "transport-test"; mqtt.topicMachineCode = "should-not-be-appended";
         mqtt.qos = 0; mqtt.offlineBufferEnabled = false;
         BuiltinMqttDriverPublisher publisher(mqtt, MqttPublisherMode::TxOnly, MqttEventOutboxOwnership::External);

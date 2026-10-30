@@ -759,6 +759,7 @@ struct ControlTestEnvironment {
 
         forward.enabled = true;
         forward.broker = "tcp://127.0.0.1:1883";
+        forward.allowInsecurePlaintext = true;  // local plaintext stub broker
         forward.fullTelemetryTopic = "third/full";
         forward.pointIndexes = {4001, 4002};
         forward.intervalMs = 60000;
@@ -863,6 +864,7 @@ void testControlMqttConfigUsesOnlyExactControlTopics() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.control.enabled = true;
     forward.control.commandTopic = "third/cmd";
@@ -1522,6 +1524,7 @@ void testTxOnlyConfigClearsControlTopicsAndNeverPolls() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.pointIndexes = {2002};
     forward.payloadFormat = "object";
@@ -1599,6 +1602,7 @@ void testLegacyPayloadUsesIndependentMappings() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "ky/peidian";
     forward.pointIndexes = {2051, 2052};
     forward.payloadFormat = "legacy";
@@ -1655,6 +1659,7 @@ void testUnavailablePointStoreFailsClosed() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.pointIndexes = {2101};
     forward.intervalMs = 1000;
@@ -1693,6 +1698,7 @@ void testDisabledForwarderPublishesNothing() {
     MqttForwardConfig forward;
     forward.enabled = false;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.intervalMs = 1000;
 
@@ -1718,6 +1724,7 @@ void testUnroutedPointIndexIsRejected() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.pointIndexes = {2301};
 
@@ -1772,6 +1779,7 @@ void testForwarderFailureWritesHealthAndDoesNotPoll() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1883";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.pointIndexes = {2201};
     forward.intervalMs = 1000;
@@ -2185,6 +2193,7 @@ void testRealtimeStopLeavesMainFullAndForwarderFullRunning() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:1884";
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.pointIndexes = {3002};
     forward.payloadFormat = "compactArray";
@@ -3288,6 +3297,7 @@ void testBuiltinPublisherFailureKeepsFinalUndeliveredAndRestartRetries() {
         ReliableControlResultBroker broker(false);
         auto mqtt = MqttForwarderService::makeTxOnlyMqttConfig(environment.forward, "GW_TEST");
         mqtt.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+        mqtt.allowInsecurePlaintext = true;  // local plaintext stub broker
         mqtt.commandReplyTopic = environment.forward.control.replyTopic;
         mqtt.commandReplyTopicMachineScoped = false;
         mqtt.qos = 1;
@@ -3316,6 +3326,7 @@ void testBuiltinPublisherFailureKeepsFinalUndeliveredAndRestartRetries() {
         ReliableControlResultBroker broker(true);
         auto mqtt = MqttForwarderService::makeTxOnlyMqttConfig(environment.forward, "GW_TEST");
         mqtt.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+        mqtt.allowInsecurePlaintext = true;  // local plaintext stub broker
         mqtt.commandReplyTopic = environment.forward.control.replyTopic;
         mqtt.commandReplyTopicMachineScoped = false;
         mqtt.qos = 1;
@@ -3500,6 +3511,7 @@ void testTxOnlyPublisherNeverSubscribes() {
     MqttForwardConfig forward;
     forward.enabled = true;
     forward.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    forward.allowInsecurePlaintext = true;  // local plaintext stub broker
     forward.fullTelemetryTopic = "third/full";
     forward.qos = 1;
     forward.intervalMs = 1000;

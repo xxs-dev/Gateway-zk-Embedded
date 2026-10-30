@@ -34,7 +34,7 @@ SUITE_SCRIPT=${GATEWAY_TEST_LAB_SUITE_SCRIPT:-$(CDPATH= cd -- "$(dirname -- "$0"
 usage() {
     echo "Usage: gateway-test-lab start [normal|ramp|random|boundary] [--protocol modbus-tcp|modbus-rtu|dlt645|can|dio|iec104] [--mode virtual|hil]"
     echo "       [--host IP] [--port N] [--serial-device DEVICE] [--can-interface NAME] [--can-driver-udp-port N] [--can-simulator-udp-port N]"
-    echo "       [--monitor-host IP] [--monitor-port N] [--mqtt-broker URL]"
+    echo "       [--monitor-host IP] [--monitor-port N] [--mqtt-broker URL] [--mqtt-allow-insecure-plaintext]"
     echo "       gateway-test-lab stop|status"
     echo "       gateway-test-lab performance [--protocol NAME] [--warmup-sec N] [--duration-sec N] [--output-dir DIR]"
     echo "       gateway-test-lab suite [--protocols LIST] [--warmup-sec N] [--duration-sec N] [--output-dir DIR]"
@@ -104,6 +104,7 @@ render_configs() {
     mqtt_enabled=$6
     mqtt_broker=$7
     mode=$8
+    mqtt_allow_plaintext=${9:-false}
     mkdir -p "$ROOT/config/apps" "$ROOT/config/devices" "$ROOT/run" "$ROOT/logs" "$ROOT/data"
     rm -f -- "$ROOT/run/compute-engine-health.json" "$ROOT/run/mqtt-driver-health.json"
     cp "$ROOT/templates/device_identity.json" "$ROOT/config/device_identity.json"
@@ -191,6 +192,7 @@ PY
         -e "s|__COMPUTE_SOURCE_INDEX__|$compute_source_index|g" \
         -e "s|__MQTT_ENABLED__|$mqtt_enabled|g" \
         -e "s|__MQTT_BROKER__|$mqtt_broker|g" \
+        -e "s|__MQTT_ALLOW_INSECURE_PLAINTEXT__|$mqtt_allow_plaintext|g" \
         "$ROOT/templates/monitor-service-protocol.json" > "$ROOT/config/apps/monitor-service.json"
 }
 
@@ -231,7 +233,8 @@ start_lab() {
     monitor_host=0.0.0.0
     monitor_port=19443
     mqtt_enabled=false
-    mqtt_broker=tcp://127.0.0.1:1883
+    mqtt_broker=
+    mqtt_allow_plaintext=false
     if [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then scenario=$1; shift; fi
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -246,6 +249,8 @@ start_lab() {
             --monitor-host) monitor_host=$2; shift 2 ;;
             --monitor-port) monitor_port=$2; shift 2 ;;
             --mqtt-broker) mqtt_enabled=true; mqtt_broker=$2; shift 2 ;;
+            # A tcp:// lab broker is refused by the MQTT client unless explicitly allowed.
+            --mqtt-allow-insecure-plaintext) mqtt_allow_plaintext=true; shift ;;
             *) echo "unknown start option: $1" >&2; exit 2 ;;
         esac
     done
@@ -329,7 +334,8 @@ start_lab() {
             iec104) endpoint=$host ;;
         esac
     fi
-    render_configs "$protocol" "$endpoint" "$port" "$monitor_host" "$monitor_port" "$mqtt_enabled" "$mqtt_broker" "$mode"
+    render_configs "$protocol" "$endpoint" "$port" "$monitor_host" "$monitor_port" "$mqtt_enabled" "$mqtt_broker" "$mode" \
+        "$mqtt_allow_plaintext"
 
     case "$protocol" in
         modbus-tcp) device_config=$ROOT/config/devices/device_modbus_tcp.json ;;

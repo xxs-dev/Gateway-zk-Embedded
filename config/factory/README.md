@@ -71,7 +71,9 @@ sh deploy/production-init.sh \
 - `localDisplay.enabled=false`，因此默认不启动本地画面。
 - `cameraService.enabled=false`，因此默认不启动摄像头推流。
 
-如果 app 的 `mqtt.broker` 改为本机 stunnel 监听地址，例如 `tcp://127.0.0.1:18883`，且 `runtime/tls/*-stunnel.conf` 存在，`gateway-services.service` 会在 MQTT 相关服务前自动启动对应 `mqtt-tls-tunnel@*.service`。默认出厂 broker 不是本机 stunnel 地址，因此不会启动隧道。
+出厂 app 模板的主 `mqtt` 默认 TLS：`broker` 为空（未部署，不提供默认地址）、`tls.enabled=true`、`tls.caFile=/opt/modbus-gateway/config/runtime/tls/ca.crt`（需部署的路径，包内不含证书）、`allowInsecurePlaintext=false`。未部署 broker 或 CA 时配置照常加载，MQTT 连接被拒绝并在日志写明原因，不会回落明文。详见 [边端MQTT TLS接入说明](../../doc/部署运维/边端MQTT%20TLS接入说明.md)。
+
+如果 app 的 `mqtt.broker` 改为本机 stunnel 监听地址，例如 `tcp://127.0.0.1:18883`，且 `runtime/tls/*-stunnel.conf` 存在，`gateway-services.service` 会在 MQTT 相关服务前自动启动对应 `mqtt-tls-tunnel@*.service`。这段连接对 MQTT 客户端是明文，需要显式 `allowInsecurePlaintext=true`，属于实验模式。默认出厂 broker 不是本机 stunnel 地址，因此不会启动隧道。
 
 未被 `deviceConfigFiles[]` 引用的设备 JSON 不会启动；没有某类协议配置时，对应驱动不会运行。
 
@@ -84,11 +86,11 @@ sh deploy/production-init.sh \
 - `machineCode`
 - MQTT broker
 - MQTT 用户名和密码
-- MQTT TLS 开关
+- MQTT TLS 开关（出厂默认开启）
 - MQTT TLS CA、客户端证书和私钥路径
-- MQTT TLS `insecureSkipVerify`
+- broker 为明文且未启用 TLS 时，是否显式允许明文实验模式（默认否，否则初始化拒绝）
 
-非交互量产可使用 `INIT_MACHINE_CODE`、`INIT_MQTT_BROKER`、`INIT_MQTT_USERNAME`、`INIT_MQTT_PASSWORD`、`INIT_MQTT_TLS_ENABLED` 等环境变量。
+非交互量产可使用 `INIT_MACHINE_CODE`、`INIT_MQTT_BROKER`、`INIT_MQTT_USERNAME`、`INIT_MQTT_PASSWORD`、`INIT_MQTT_TLS_ENABLED`、`INIT_MQTT_ALLOW_INSECURE_PLAINTEXT` 等环境变量。`insecureSkipVerify` 已不支持，传 `INIT_MQTT_INSECURE_SKIP_VERIFY=true` 时初始化拒绝执行。
 
 ## machineCode 和 topic
 

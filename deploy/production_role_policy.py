@@ -344,7 +344,8 @@ def _tunnel_for_broker(config_root, pins, broker):
         host, port = parsed.hostname, parsed.port
     except ValueError as error:
         raise RolePolicyError('broker endpoint invalid') from error
-    require(parsed.scheme in ('tcp', 'mqtt', 'mqtts') and host and port and
+    # Same schemes as the MQTT client (ssl/tls/mqtts are TLS); only loopback brokers map to a tunnel.
+    require(parsed.scheme in ('tcp', 'mqtt', 'mqtts', 'ssl', 'tls') and host and port and
             not parsed.username and not parsed.password and not parsed.path,
             'broker endpoint invalid')
     if host not in ('127.0.0.1', 'localhost'):

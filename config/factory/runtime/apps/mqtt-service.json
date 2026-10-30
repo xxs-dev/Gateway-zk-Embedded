@@ -13,7 +13,7 @@
   "mqtt": {
     "enabled": true,
     "protocolVersion": "mqtt5",
-    "broker": "tcp://127.0.0.1:1883",
+    "broker": "",
     "clientId": "GW_FACTORY_001",
     "username": "",
     "password": "",
@@ -40,12 +40,12 @@
     "keepAliveSec": 60,
     "sessionExpirySec": 0,
     "tls": {
-      "enabled": false,
-      "caFile": "",
+      "enabled": true,
+      "caFile": "/opt/modbus-gateway/config/runtime/tls/ca.crt",
       "certFile": "",
-      "keyFile": "",
-      "insecureSkipVerify": false
+      "keyFile": ""
     },
+    "allowInsecurePlaintext": false,
     "offlineBuffer": {
       "enabled": true,
       "mode": "ring",
@@ -91,9 +91,9 @@
       "enabled": false,
       "caFile": "",
       "certFile": "",
-      "keyFile": "",
-      "insecureSkipVerify": false
-    }
+      "keyFile": ""
+    },
+    "allowInsecurePlaintext": false
   },
   "mqttDriver": {
     "enabled": true,

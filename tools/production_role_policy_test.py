@@ -485,8 +485,20 @@ class ProductionRolePolicyTest(unittest.TestCase):
                 'monitorShmName': 'gateway_point_store_system_monitor'}
         with self.assertRaises(policy.RolePolicyError) as failure:
             policy.resolve(factory, self.templates, pins, self.trust)
+        # The TLS-by-default template references an undeployed, unpinned CA; that refusal may come first.
         self.assertRegex(str(failure.exception),
-                         'hardware/simulator binding missing|network route/failover role is protected')
+                         'hardware/simulator binding missing|network route/failover role is protected|'
+                         'TLS reference outside pinned trust files')
+
+    def test_tls_broker_schemes_resolve_without_tunnel(self):
+        for scheme in ('ssl', 'tls', 'mqtts'):
+            with self.subTest(scheme=scheme):
+                mqtt = self.read('apps/mqtt-service.json')
+                mqtt['mqtt']['broker'] = scheme + '://broker.example.invalid:8883'
+                self.write('apps/mqtt-service.json', mqtt)
+                units = {r['unit'] for r in self.resolve()['roles']}
+                self.assertIn('mqtt-driver@mqtt-service.service', units)
+                self.assertFalse(any(unit.startswith('mqtt-tls-tunnel@') for unit in units))
 
     def test_matched_tunnel_is_exact_dependency_and_duplicate_rejected(self):
         mqtt = self.read('apps/mqtt-service.json')

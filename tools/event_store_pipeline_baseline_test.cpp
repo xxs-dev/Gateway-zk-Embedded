@@ -8,6 +8,7 @@ int main() {
     TestMqttBroker broker(8, 0, true, true, 8);
     edge_gateway::MqttConfig config;
     config.broker = "tcp://127.0.0.1:" + std::to_string(broker.port());
+    config.allowInsecurePlaintext = true;  // local plaintext stub broker
     config.clientId = "pipeline-negative-control";
     config.offlineBufferEnabled = false;
     edge_gateway::BuiltinMqttDriverPublisher publisher(config,

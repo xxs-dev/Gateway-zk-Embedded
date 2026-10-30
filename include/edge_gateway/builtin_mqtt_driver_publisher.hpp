@@ -21,6 +21,19 @@ std::string encodeBuiltinOtaStatusJson(const OtaStatus& status);
 // Command reply payload published on commandReplyTopic.
 std::string encodeBuiltinCommandReplyJson(const MqttCommandReply& reply);
 
+// Transport security decided from configuration alone, before any socket is opened.
+// Tls: always verifies the certificate chain and the broker host name/IP; a TLS
+// failure is never retried as plaintext. InsecurePlaintext: only with
+// allowInsecurePlaintext=true. Refused: message says why and how to fix it.
+struct MqttTransportPolicy {
+    enum class Kind { Tls, InsecurePlaintext, Refused };
+    Kind kind = Kind::Refused;
+    std::string host;
+    int port = 0;
+    std::string message;
+};
+MqttTransportPolicy evaluateMqttTransportPolicy(const MqttConfig& config);
+
 enum class MqttPublisherMode {
     Bidirectional,
     TxOnly
