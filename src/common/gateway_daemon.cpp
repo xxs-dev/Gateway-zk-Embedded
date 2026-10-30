@@ -630,19 +630,12 @@ std::size_t GatewayDaemon::processWritebackOnce(std::int64_t nowMsValue) {
             if (command.highPriority) {
                 priorityControlLease_.release(command.cmdId);
             }
-            const auto completedAt = nowMs();
-            completeWritebackResult(
-                writebackResult,
-                true,
-                result.message.empty() ? "ok" : result.message,
-                "writeback-succeeded",
-                completedAt,
-                result.verifyAttempted,
-                result.verifyPassed
-            );
+            // writeback-succeeded (device acknowledged) or writeback-submitted (no device
+            // acknowledgement exists, e.g. a DO without contact feedback).
+            completeWritebackFromCommand(writebackResult, result, false, nowMs());
             store_.recordWritebackResult(writebackResult);
             publishStatusEvent(
-                "writeback-succeeded",
+                writebackResult.stage,
                 commandNowMs,
                 std::string(R"("meterCode":")") + runtimeDevice.config.meterCode +
                     R"(","index":)" + std::to_string(command.index) +

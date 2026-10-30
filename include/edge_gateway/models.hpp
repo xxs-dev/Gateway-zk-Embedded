@@ -1894,6 +1894,10 @@ struct CommandResult {
     // breaker position, DI auxiliary contact) shows another value. Not a definite failure: the
     // device may have acted. Never retried automatically. success is false.
     bool feedbackMismatch = false;
+    // With success: the request only reached an output or transport that gives no device
+    // acknowledgement (SocketCAN: queued by the kernel; local DO: output latch set without a contact
+    // feedback DI). Receipt stage writeback-submitted; never a confirmation that the device acted.
+    bool submittedOnly = false;
 };
 
 struct CommandExecutionException {
