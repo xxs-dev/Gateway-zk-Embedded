@@ -6,14 +6,21 @@
   "mqtt": {
     "enabled": true,
     "protocolVersion": "mqtt3",
-    "broker": "tcp://127.0.0.1:1883",
+    "broker": "",
     "clientId": "GW0001",
     "fullTelemetryTopic": "edge/telemetry/full",
     "realtimeTelemetryTopic": "edge/telemetry/realtime",
     "changeEventTopicMachineScoped": true,
     "alarmTopicMachineScoped": true,
     "commandRequestTopic": "edge/command/request",
-    "commandReplyTopic": "edge/command/reply"
+    "commandReplyTopic": "edge/command/reply",
+    "tls": {
+      "enabled": true,
+      "caFile": "/opt/modbus-gateway/config/runtime/tls/ca.crt",
+      "certFile": "",
+      "keyFile": ""
+    },
+    "allowInsecurePlaintext": false
   },
   "mqttForward": {
     "enabled": false,
@@ -48,9 +55,9 @@
       "enabled": false,
       "caFile": "",
       "certFile": "",
-      "keyFile": "",
-      "insecureSkipVerify": false
+      "keyFile": ""
     },
+    "allowInsecurePlaintext": false,
     "control": {
       "enabled": false
     }
