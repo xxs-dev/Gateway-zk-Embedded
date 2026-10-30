@@ -18,6 +18,7 @@
 #include "edge_gateway/control_dedup_store.hpp"
 #include "edge_gateway/ems_control_mode.hpp"
 #include "edge_gateway/virtual_can_datagram.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "edge_gateway/writeback_service.hpp"
 
 #ifndef _WIN32
@@ -33,11 +34,6 @@ namespace edge_gateway {
 using namespace can_driver_detail;
 
 namespace {
-
-// Matches the control ledger: a durable control that was reserved (claimed) but whose result was not
-// recorded is replayed as "writeback-unconfirmed" (see writeback_outcome.hpp), so the first receipt
-// says the same.
-constexpr const char* kStageUnconfirmed = "writeback-unconfirmed";
 
 std::string frameName(std::uint32_t frameId) {
     std::ostringstream id;
@@ -235,7 +231,7 @@ std::size_t CanDriverService::flushStagedWrites(std::vector<StagedWrite>& group)
                 receipt = beginWritebackResult(staged.command, staged.startedAt);
                 completeWritebackResult(receipt, false,
                     std::string("CAN frame sent but the control ledger result was not recorded: ") + ex.what(),
-                    kStageUnconfirmed, nowMs());
+                    kWritebackUnconfirmedStage, nowMs());
                 receipt.outcomeUnknown = true;
             }
         }
@@ -258,7 +254,7 @@ void CanDriverService::completeNotSent(StagedWrite& staged, const std::string& m
         auto receipt = beginWritebackResult(staged.command, staged.startedAt);
         completeWritebackResult(receipt, false,
                                 std::string("not sent, control ledger result not recorded (") + ex.what() + "): " + message,
-                                kStageUnconfirmed, nowMs());
+                                kWritebackUnconfirmedStage, nowMs());
         receipt.outcomeUnknown = true;
         staged.result = receipt;
     }
