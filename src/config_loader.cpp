@@ -584,6 +584,15 @@ WriteSpec parseWriteSpec(const JsonValue* value) {
         }
     }
     spec.verifyTimeoutMs = requireInt(object, "verifyTimeoutMs", spec.verifyTimeoutMs);
+    spec.feedbackAlarmDelayMs = requireInt(object, "feedbackAlarmDelayMs", spec.feedbackAlarmDelayMs);
+    spec.feedbackRecoveryMs = requireInt(object, "feedbackRecoveryMs", spec.feedbackRecoveryMs);
+    {
+        const auto alarmIndex = requireInt(object, "feedbackAlarmIndex", 0);
+        if (alarmIndex < 0) {
+            throw std::invalid_argument("write.feedbackAlarmIndex must be a point index");
+        }
+        spec.feedbackAlarmIndex = static_cast<std::uint32_t>(alarmIndex);
+    }
     if (const auto* dlt645 = value->find("dlt645")) {
         const auto& dlt645Object = dlt645->asObject();
         spec.dlt645.di = requireString(dlt645Object, "di", spec.dlt645.di);

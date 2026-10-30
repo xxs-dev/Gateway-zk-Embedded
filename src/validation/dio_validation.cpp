@@ -40,12 +40,16 @@ void validateFeedbackInputs(const DeviceConfig& config) {
             collect(meter.points);
         }
     }
+    std::map<std::uint32_t, std::string> alarmOwners;  // feedback_alarm index -> DO label
     for (const auto* point : points) {
         const auto& write = point->write;
         const auto label = pointLabel(config, *point);
         if (write.verifyIndex == 0) {
             if (write.verifyValue) {
                 configWarning("local_dio " + label + ": write.verifyValue has no effect without write.verifyIndex");
+            }
+            if (write.feedbackAlarmIndex != 0) {
+                reject(label, "write.feedbackAlarmIndex", "needs write.verifyIndex (the contact feedback it supervises)");
             }
             continue;
         }
@@ -62,6 +66,26 @@ void validateFeedbackInputs(const DeviceConfig& config) {
         if (write.verifyTimeoutMs <= 0 || write.verifyTimeoutMs > 60000) {
             reject(label, "write.verifyTimeoutMs", "must be 1..60000");
         }
+        if (write.feedbackAlarmDelayMs < 0 || write.feedbackAlarmDelayMs > 600000) {
+            reject(label, "write.feedbackAlarmDelayMs", "must be 0..600000");
+        }
+        if (write.feedbackRecoveryMs < 0 || write.feedbackRecoveryMs > 600000) {
+            reject(label, "write.feedbackRecoveryMs", "must be 0..600000");
+        }
+        if (write.feedbackAlarmIndex != 0) {
+            const auto alarm = byIndex.find(write.feedbackAlarmIndex);
+            if (alarm == byIndex.end() || !alarm->second->read.enable ||
+                alarm->second->read.dataType != "feedback_alarm") {
+                reject(label, "write.feedbackAlarmIndex", "index " + std::to_string(write.feedbackAlarmIndex) +
+                       " must be an enabled read.dataType=feedback_alarm point of this config");
+            }
+            if (!alarmOwners.emplace(write.feedbackAlarmIndex, label).second) {
+                reject(label, "write.feedbackAlarmIndex", "already used by " + alarmOwners[write.feedbackAlarmIndex]);
+            }
+        } else {
+            configWarning("local_dio " + label + ": contact feedback mismatch is supervised but only logged; set "
+                          "write.feedbackAlarmIndex to a feedback_alarm point to raise an alarm");
+        }
         const auto feedback = byIndex.find(write.verifyIndex);
         if (feedback == byIndex.end()) {
             continue;
@@ -74,6 +98,13 @@ void validateFeedbackInputs(const DeviceConfig& config) {
         if (input.read.debounceMs >= write.verifyTimeoutMs) {
             reject(label, "write.verifyTimeoutMs", "must be longer than the feedback DI's debounceMs (" +
                    std::to_string(input.read.debounceMs) + ")");
+        }
+    }
+    for (const auto* point : points) {
+        if (point->read.enable && point->read.dataType == "feedback_alarm" &&
+            alarmOwners.find(point->index) == alarmOwners.end()) {
+            reject(pointLabel(config, *point), "read.dataType",
+                   "feedback_alarm point is not the write.feedbackAlarmIndex of any DO");
         }
     }
 }
@@ -90,9 +121,16 @@ void validateDioDeviceConfig(const DeviceConfig& config) {
             const auto label = pointLabel(config, point);
             const auto gpio = point.read.gpio;
             const bool input = point.read.dataType == "digital_input";
+            if (point.read.dataType == "feedback_alarm") {
+                // Alarm state of a DO's contact feedback supervision, published by the collector.
+                if (gpio >= 0 || point.write.enable) {
+                    reject(label, "read.dataType", "a feedback_alarm point has no gpio and cannot be written");
+                }
+                continue;
+            }
             if (point.read.enable) {
                 if (!input && point.read.dataType != "digital_output") {
-                    reject(label, "read.dataType", "must be digital_input or digital_output, got \"" +
+                    reject(label, "read.dataType", "must be digital_input, digital_output or feedback_alarm, got \"" +
                            point.read.dataType + "\"");
                 }
                 if (gpio < 0) {
