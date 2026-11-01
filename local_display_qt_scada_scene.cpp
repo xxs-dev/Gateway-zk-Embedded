@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 #include <utility>
@@ -155,6 +156,13 @@ bool refuseUnresolvedControl(QWidget* parent, const std::string& tagId) {
         QString::fromUtf8("该控制点上一条命令（%1）尚无最终回执，结果未知。请先在现场核实，不要重复下发。")
             .arg(QString::fromStdString(cmdId)));
     return true;
+}
+
+bool menuDocumentHasEntries(const edge_gateway::ScadaWidget& widget) {
+    const auto found = widget.properties.find("qtMenuScreensJson");
+    if (found == widget.properties.end() || found->second.empty()) return false;
+    const auto document = QJsonDocument::fromJson(QByteArray::fromStdString(found->second));
+    return document.isArray() && !document.array().isEmpty();
 }
 
 std::string nextCommandId() {
@@ -414,14 +422,29 @@ void ScadaSceneView::buildScene() {
                 actionAvailable = resolved && resolved->tag.nodeId == runtime_.nodeId() &&
                     resolved->mapping.index > 0 && resolved->mapping.writable;
             }
+            // A control without a usable action stays grey but answers a touch with the reason
+            // (tooltips do not appear on the touch screen); it never sends anything.
+            const bool explainUnavailable = !actionAvailable && !emsModeButton && !menuDocumentHasEntries(widget) &&
+                widget.action.type != "navigate";
             if (!actionAvailable) {
                 style += lightTheme
-                    ? QStringLiteral("QPushButton:disabled{color:#929AA4;border:1px dashed #DDE3E9;background:#F5F7F9;}")
-                    : QStringLiteral("QPushButton:disabled{color:#80919A;border:1px dashed #52636C;background:#17242B;}");
-                button->setEnabled(false);
-                button->setToolTip(property(widget, "controlUnavailableReason").empty()
-                    ? QString::fromUtf8("未配置可执行动作")
-                    : QString::fromStdString(property(widget, "controlUnavailableReason")));
+                    ? QStringLiteral("QPushButton:disabled,QPushButton[controlUnavailable=\"true\"]{color:#929AA4;border:1px dashed #DDE3E9;background:#F5F7F9;}")
+                    : QStringLiteral("QPushButton:disabled,QPushButton[controlUnavailable=\"true\"]{color:#80919A;border:1px dashed #52636C;background:#17242B;}");
+                const auto reason = property(widget, "controlUnavailableReason").empty()
+                    ? QString::fromUtf8("该功能未开放：缺少已确认的协议点位或命令值。点击不会下发任何命令。")
+                    : QString::fromStdString(property(widget, "controlUnavailableReason"));
+                button->setToolTip(reason);
+                button->setAccessibleDescription(reason);
+                if (explainUnavailable) {
+                    button->setProperty("controlUnavailable", true);
+                    button->setIcon(QIcon(button->icon().pixmap(button->iconSize(), QIcon::Disabled)));
+                    const auto title = button->text();
+                    QObject::connect(button, &QPushButton::clicked, this, [this, reason, title]() {
+                        QMessageBox::information(this, title.isEmpty() ? QString::fromUtf8("控制不可用") : title, reason);
+                    });
+                } else {
+                    button->setEnabled(false);
+                }
             }
             button->setStyleSheet(style);
             if (isControlAction(widget.action.type) && !property(widget, "pcsRemoteTag").empty()) {
@@ -1808,18 +1831,38 @@ void ScadaSceneView::refreshState(
         }
     }
     if (widget.stateImage == nullptr && widget.valueText != nullptr && !isTrendType(widget.type)) {
+        // A value that matches no state rule is an unknown enumeration: keep the raw value visible
+        // instead of a bare "--" (single-source states only; a combined state has no single raw value).
+        std::string unknownLabel = widget.defaultLabel.empty() ? std::string("未知") : widget.defaultLabel;
+        if (matched == nullptr && allConditionsAvailable) {
+            std::set<std::uint32_t> sources;
+            for (const auto& rule : widget.stateRules)
+                for (const auto& condition : rule.conditions) sources.insert(condition.index);
+            const auto raw = sources.size() == 1 ? values.find(*sources.begin()) : values.end();
+            if (raw != values.end()) {
+                // Keep the raw value when it fits the field; a narrow field shows the bare marker and
+                // keeps the raw value in the tooltip instead of an elided or overflowing text.
+                const auto withRaw = unknownLabel + "(" + formatNumber(raw->second.value).toStdString() + ")";
+                const auto available = widget.valueText != nullptr ? widget.valueText->textWidth() : -1.0;
+                const bool fits = available <= 0 || widget.valueText == nullptr ||
+                    QFontMetricsF(widget.valueText->font()).horizontalAdvance(QString::fromStdString(withRaw)) <= available;
+                if (widget.valueText != nullptr) widget.valueText->setToolTip(QString::fromStdString(withRaw));
+                if (fits) unknownLabel = withRaw;
+            }
+        }
         const auto label = !allConditionsAvailable
             ? (widget.unavailableStateLabel.empty() ? std::string("data unavailable") : widget.unavailableStateLabel)
             : !widget.stateLabelVisible
             ? std::string()
             : matched != nullptr && !matched->label.empty()
                 ? matched->label
-                : widget.defaultLabel.empty() ? std::string("--") : widget.defaultLabel;
+                : unknownLabel;
         widget.valueText->setDefaultTextColor(!allConditionsAvailable || matched == nullptr
             ? QColor("#AAB3BD")
             : widget.stateTextColor ? colorOr(matched->color, "#303438")
             : widget.lightTheme ? colorOr(widget.textColor, "#303438") : QColor("#F3F8FA"));
-        widget.valueText->setPlainText(!allConditionsAvailable && widget.unavailableStateLabel.empty()
+        // Auto-fit state labels like values, so an unknown or long state stays inside its badge.
+        updateValueText(widget, !allConditionsAvailable && widget.unavailableStateLabel.empty()
             ? QString::fromUtf8("数据不可用")
             : QString::fromStdString(label));
         widget.lastText = label;

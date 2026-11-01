@@ -830,7 +830,11 @@ int main(int argc, char** argv) {
         require(stateWidget.valueText->defaultTextColor() == QColor("#18C773"), "monitor state text ignores rule color");
         require(stateWidget.panel->brush().color().alpha() == 0, "text state paints a badge background");
         runtime.put(1, 2); stateView.refresh(now);
-        require(stateWidget.valueText->toPlainText() == "--", "unknown state enum claims running");
+        require(stateWidget.valueText->toPlainText() == QString::fromUtf8("未知(2)") &&
+                stateWidget.valueText->defaultTextColor() == QColor("#AAB3BD"),
+                "unknown state enum must keep its raw value and be marked unknown, never running");
+        runtime.put(1, 1, true); stateView.refresh(now);
+        require(stateWidget.valueText->toPlainText() == "--", "stale state must stay unavailable, not unknown");
 
         chart.properties["qtTheme"] = "light";
         chart.properties["qtLegendAlignment"] = "Center";
