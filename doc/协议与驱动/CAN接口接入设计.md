@@ -554,6 +554,7 @@ SocketCAN 的 `write()` 成功只表示内核接受了这一帧、放进了发�
 | 发送前拒绝（值越界、帧不可信、接口离线、日志写失败） | 确定失败 | `false` / failed | `writeback-failed` | `false` / `false` | 拒绝原因 |
 
 - `writeback-submitted` 的 outcome 是 succeeded：帧确实已交给内核，不得当失败重发；但它不是“设备已执行”。需要“设备已执行”的消费方（EMS `confirmedControlWrite`、平台展示“已确认”）必须看 `verifyPassed=true`。AGC/AVC 把成功回执当作“已下发”，再按 PCS 遥测反馈判断是否到位，与此一致。
+- 图形 EMS `confirmedControlWrite` 以 CAN 点为目标时，必须配置 `write.verifyIndex`（设备状态信号，非脉冲）：节点的回读取该状态信号，只有回执 `verifyPassed=true` 才算确认；没有 `verifyIndex` 的 CAN 点（仅提交）不能作为目标：节点在下发前拒绝、不发送，状态记为 -2 并报错。仅提交、坏质量、过期或发送之前的旧值都不算确认；不一致或超时记为结果未知（-2），不自动重发。
 - `write.verifyIndex`：设备发送的状态信号点的网关 index（同一配置里的 CAN 接收信号，或其他驱动的点，从共享点库读）。等待规则：
   - 只认发送之后存入的值：时间戳严格晚于发送时刻（同一毫秒内的值不算）、好质量、未过期；坏质量、过期、发送前的旧值都不算反馈。
   - 期望值就是写入值；整数信号允许半个刻度的误差（取写入倍率与反馈信号倍率中较大者的一半），浮点信号按写入值比较。

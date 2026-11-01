@@ -370,6 +370,8 @@ DO 写入的回执（`CommandResult.message`、写回记录）和画面区分两
 
 `writeback-submitted` 表示“仅到输出”：outcome 仍是 succeeded（输出确实已置位，不得当失败重发），但它不是动作确认。需要“设备已动作”的消费方（EMS `confirmedControlWrite` 等）必须看 `verifyPassed=true`。
 
+图形 EMS `confirmedControlWrite` 以本机 DO 为目标时，必须配置 `write.verifyIndex`（辅助触点 DI）：节点的回读取该触点并按 `verifyValue` 换算成输出状态（常闭触点 `verifyValue=0` 时触点 1 表示输出 0），只有回执 `verifyPassed=true`（触点反馈确认）才算确认。只有锁存回读（`verifyByRead`）而无触点反馈的 DO 不能作为该节点目标（下发前拒绝、不发送，状态记为 -2 并报错）；不一致或超时记为结果未知（-2），不自动重发。
+
 配置了 `write.verifyIndex` 时，写 GPIO 之后在 `verifyTimeoutMs` 内等触点反馈：
 
 - 只认写出之后的新值：反馈 DI 属于同一逻辑设备（同一 `meter`）时，执行器直接读该 DI 的 GPIO，按其 `debounceMs` 判稳（与采集线程无关，采集因优先控制暂停时也能确认）；属于其他设备（例如另一台 IO 模块）时从共享点库读取，只认好质量、未过期且时间戳严格晚于写出时刻的值。坏质量、已过期、写出之前的旧值都不算反馈。

@@ -6525,6 +6525,11 @@ bool GraphEmsEngine::runConfirmedControlWrite(
         const auto oldFault = flight.fault;
         const auto oldPending = flight.pending;
         const auto route = router_.routeByIndex(paramIndex(node, "targetIndex"));
+        // The target decides what confirms an action and what its readback is (driver read-back, or
+        // the auxiliary contact / device status signal of write.verifyIndex for local_dio and CAN).
+        const auto targetSpec = route
+            ? confirmedControlTargetSpec(route->protocolType, route->writable, route->write, route->index)
+            : ConfirmedControlTargetSpec{"target route is missing", paramIndex(node, "targetIndex"), false, 1.0};
         // A completed receipt is evidence only for this exact original transaction.
         // Apply the deadline before observing it so a late success cannot erase a timeout.
         flight.checkTimeout(nowMs, static_cast<std::int64_t>(paramDouble(node, "receiptTimeoutMs").value()));
@@ -6536,7 +6541,20 @@ bool GraphEmsEngine::runConfirmedControlWrite(
         const bool discontinuity = !first && (nowMs <= flight.lastScan || nowMs - flight.lastScan > gap);
         flight.lastScan = nowMs;
         const auto input = read("inputIndex"), permit = read("permitIndex"), reset = read("resetIndex"),
-                   stopped = read("stoppedIndex"), readback = read("targetIndex"), actual = read("feedbackIndex");
+                   stopped = read("stoppedIndex"), actual = read("feedbackIndex");
+        Optional<PointSnapshot> readback;
+        if (targetSpec.refusal.empty()) {
+            const auto p = latestPoint(targetSpec.readbackIndex, nowMs);
+            double mapped = 0;
+            if (p && p->quality == 1 && !p->stale && std::isfinite(p->value) && p->ts > 0 && p->ts <= nowMs &&
+                nowMs - p->ts <= maxAge && p->expireAt > p->ts && nowMs <= p->expireAt &&
+                confirmedControlReadback(targetSpec, p->value, &mapped)) {
+                readback = p;
+                readback->value = mapped;
+            }
+        } else {
+            readback = read("targetIndex");
+        }
         const auto binary = [](const Optional<PointSnapshot>& p) {
             return p && (p->value == 0 || p->value == 1);
         };
@@ -6563,8 +6581,9 @@ bool GraphEmsEngine::runConfirmedControlWrite(
         publish(); // If the status route cannot be written, do not enqueue a command.
         if (!valid || discontinuity || first || flight.fault || flight.pending || !flight.armed ||
             reset->value != 0 || permit->value != 1 || !paramBool(node, "submitWrites", false)) return false;
-        if (!route || !route->writable || !route->write.verifyAfterWrite || !route->write.verifyByRead)
-            throw std::runtime_error("confirmedControlWrite requires writable target with driver read verification");
+        if (!route || !targetSpec.refusal.empty())
+            throw std::runtime_error("confirmedControlWrite requires a target that confirms the action: " +
+                                     targetSpec.refusal);
         // An equal point value does not substitute for the first command's receipt. Only
         // a previously confirmed command can suppress unchanged output.
         const auto deadband = paramDouble(node, "deadband").value_or(0.0);

@@ -21,7 +21,18 @@ struct Fixture {
     std::unique_ptr<GraphEmsEngine> engine;
     std::int64_t now = 1792368000000LL;
     double request = 20, readback = 0, actual = 0, permit = 0, reset = 0, stopped = 1;
-    Fixture() {
+    // Auxiliary feedback (write.verifyIndex) of local_dio / CAN targets: index 8.
+    double feedback = 0;
+    bool hasFeedbackRoute = false;
+    struct Target {
+        std::string protocol = "modbus_tcp";
+        std::uint32_t verifyIndex = 0;
+        bool verifyByRead = true;
+        bool pulse = false;
+        Optional<double> verifyValue;
+    };
+    Fixture() : Fixture(Target{}) {}
+    explicit Fixture(const Target& target) {
         fs::create_directory(root);
         MemoryStoreConfig memory; memory.sharedMemoryName = name;
         memory.maxLatestPoints = 16; memory.maxPendingWrites = 8; memory.maxPersistentSamples = 16;
@@ -29,10 +40,22 @@ struct Fixture {
         for (unsigned index = 1; index <= 7; ++index) {
             PointStoreRoute r; r.index = index; r.sharedMemoryName = name;
             r.machineCode = "ISOLATED"; r.meterCode = "PCS"; r.pointCode = std::to_string(index);
-            r.protocolType = "modbus_tcp"; r.writable = index == 2;
+            r.protocolType = index == 2 ? target.protocol : "modbus_tcp"; r.writable = index == 2;
             r.write.enable = true; r.write.minValue = -100; r.write.maxValue = 100;
-            r.write.verifyAfterWrite = true; r.write.verifyByRead = true;
+            r.write.verifyAfterWrite = true; r.write.verifyByRead = index == 2 ? target.verifyByRead : true;
+            if (index == 2) {
+                r.write.verifyIndex = target.verifyIndex;
+                r.write.verifyValue = target.verifyValue;
+                r.write.can.pulse = target.pulse;
+            }
             router.addRoute(r);
+        }
+        if (target.verifyIndex == 8) {
+            PointStoreRoute r; r.index = 8; r.sharedMemoryName = name;
+            r.machineCode = "ISOLATED"; r.meterCode = "FEEDBACK"; r.pointCode = "8";
+            r.protocolType = target.protocol == "local_dio" ? "local_dio" : "can_socketcan";
+            router.addRoute(r);
+            hasFeedbackRoute = true;
         }
         config.graphCode = "confirmed-test";
         GraphEmsNodeConfig n; n.id = "output"; n.type = "confirmedControlWrite";
@@ -48,6 +71,10 @@ struct Fixture {
         for (unsigned i = 0; i < 6; ++i) {
             PointValue p; p.index = i + 1; p.value = values[i]; p.ts = timestamp; p.expireAt = timestamp + ttl; p.quality = 1;
             require(router.putLatestByIndex(p).accepted, "seed input");
+        }
+        if (hasFeedbackRoute) {
+            PointValue p; p.index = 8; p.value = feedback; p.ts = timestamp; p.expireAt = timestamp + ttl; p.quality = 1;
+            require(router.putLatestByIndex(p).accepted, "seed feedback");
         }
     }
     GraphEmsRunResult step(bool errorsAllowed = false, std::size_t budget = 5) {
@@ -83,7 +110,8 @@ struct Fixture {
             n.find("confirmed")->asBool() == confirmed, "owner phase distinct from receipt outcome");
         require(store->peekPendingWriteCommands().size() == before, "observation must not consume or submit commands");
     }
-    void arm() { permit = reset = 0; readback = actual = 0; stopped = 1; step(); reset = 1; step(); require(status() == 1, "reset arms only"); reset = 0; step(); }
+    double stoppedContact = 0;  // contact value that maps to output 0 (NO contact: 0, NC contact: 1)
+    void arm() { permit = reset = 0; readback = actual = 0; feedback = stoppedContact; stopped = 1; step(); reset = 1; step(); require(status() == 1, "reset arms only"); reset = 0; step(); }
     PendingWriteCommand send() {
         arm(); permit = 1; require(step().deviceWrites == 1 && status() == 2, "one original transaction");
         auto q = store->drainPendingWriteCommands(); require(q.size() == 1, "one queue entry"); return q.front();
@@ -198,6 +226,111 @@ void testFormulaExpiryDuringCapture() {
     }
 }
 }
+// confirmedControlWrite on local_dio / CAN targets: only the auxiliary feedback of write.verifyIndex
+// (contact DI / device status signal) confirms an action; latch read-back, "submitted" receipts, bad,
+// stale or pre-command feedback never do.
+void testAuxiliaryFeedbackTargets() {
+    using Target = Fixture::Target;
+    const auto refused = [](const Target& target, const std::string& reason) {
+        Fixture f(target); f.request = 1; f.arm(); f.permit = 1;
+        const auto r = f.step(true);
+        require(r.deviceWrites == 0 && f.store->peekPendingWriteCommands().empty(), reason + ": no command");
+        require(!r.errors.empty() && r.errors.front().find("confirms the action") != std::string::npos, reason + ": reported");
+        require(f.status() == -2, reason + ": fails closed");
+    };
+    Target dioLatch; dioLatch.protocol = "local_dio";  // verifyAfterWrite + verifyByRead, no contact
+    refused(dioLatch, "DO output latch read-back is not an action confirmation");
+    Target canPlain; canPlain.protocol = "can_socketcan";
+    refused(canPlain, "a SocketCAN send is only a submission");
+    Target canPulse; canPulse.protocol = "can_socketcan"; canPulse.verifyIndex = 8; canPulse.pulse = true;
+    refused(canPulse, "a CAN pulse has no level to confirm");
+    Target modbusNoRead; modbusNoRead.verifyByRead = false;
+    refused(modbusNoRead, "a Modbus target without read verification is still refused");
+    {
+        const auto spec = confirmedControlTargetSpec("local_dio", true, WriteSpec{}, 2);
+        require(!spec.refusal.empty(), "spec: local_dio without verifyIndex");
+        WriteSpec w; w.verifyIndex = 2;
+        require(!confirmedControlTargetSpec("local_dio", true, w, 2).refusal.empty(), "spec: contact must not be the output");
+        w.verifyIndex = 8; w.verifyValue = 0.5;
+        require(!confirmedControlTargetSpec("local_dio", true, w, 2).refusal.empty(), "spec: contact value must be binary");
+        require(!confirmedControlTargetSpec("local_dio", false, w, 2).refusal.empty(), "spec: not writable");
+    }
+
+    for (const auto* protocol : {"local_dio", "can_socketcan"}) {
+        const std::string p = protocol;
+        Target target; target.protocol = p; target.verifyIndex = 8;
+        const auto verified = [](Fixture& f, const PendingWriteCommand& c) {
+            auto r = f.receipt(c); r.stage = "writeback-succeeded"; return r;
+        };
+        { // consistent: the auxiliary feedback confirmed the action
+            Fixture f(target); f.request = 1; auto c = f.send();
+            require(c.index == 2 && c.value == 1, p + ": one original command");
+            f.store->recordWritebackResult(verified(f, c)); f.feedback = 1; f.actual = 1;
+            f.step(); require(f.status() == 3, p + ": verified feedback confirms");
+            f.step(); require(f.store->peekPendingWriteCommands().empty(), p + ": confirmed unchanged output suppressed");
+        }
+        { // submitted only: never a confirmation; the action may have happened, so unknown
+            Fixture f(target); f.request = 1; auto c = f.send();
+            auto r = f.receipt(c); r.stage = "writeback-submitted"; r.verifyAttempted = r.verifyPassed = false;
+            f.store->recordWritebackResult(r); f.feedback = 1; f.actual = 1;
+            f.step(); require(f.status() == -2, p + ": submitted is unknown, not confirmed and not failed");
+            f.request = 0; f.step(); require(f.store->peekPendingWriteCommands().empty(), p + ": unknown is never retried");
+        }
+        { // inconsistent feedback: unknown (-2), not a definite failure
+            Fixture f(target); f.request = 1; auto c = f.send();
+            auto r = f.receipt(c, false); r.stage = "writeback-mismatch"; r.feedbackMismatch = true; r.outcomeUnknown = true;
+            r.verifyAttempted = true; r.verifyPassed = false;
+            f.store->recordWritebackResult(r); f.feedback = 0;
+            f.step(); require(f.status() == -2, p + ": feedback mismatch is unknown");
+            f.restart(); f.step(); require(f.status() == -2, p + ": unknown survives restart");
+        }
+        { // definite failure before the wire
+            Fixture f(target); f.request = 1; auto c = f.send();
+            auto r = f.receipt(c, false); r.stage = "writeback-failed";
+            f.store->recordWritebackResult(r);
+            f.step(); require(f.status() == -1, p + ": definite failure");
+        }
+        { // timeout, then a late verified receipt resolves the transaction but never clears the fault
+            Fixture f(target); f.request = 1; auto c = f.send();
+            for (int i = 0; i < 5; ++i) f.step();
+            require(f.status() == -2, p + ": missing receipt times out as unknown");
+            f.store->recordWritebackResult(verified(f, c)); f.feedback = 1; f.step();
+            require(f.status() == -2, p + ": late confirmation never clears the timeout");
+            f.checkObservation(c, -2, false, true);
+        }
+        { // ledger replay without a result keeps waiting; the final result resolves it
+            Fixture f(target); f.request = 1; auto c = f.send();
+            auto r = f.receipt(c, false); r.stage = "writeback-unconfirmed"; r.outcomeUnknown = true;
+            r.verifyAttempted = r.verifyPassed = false;
+            f.store->recordWritebackResult(r); f.step(); require(f.status() == 2, p + ": unconfirmed replay is not final");
+            f.store->recordWritebackResult(verified(f, c)); f.feedback = 1; f.actual = 1; f.step();
+            require(f.status() == 3, p + ": final verified result after the replay confirms");
+        }
+        { // restart while pending: original transaction kept, receipt resolves it, nothing replayed
+            Fixture f(target); f.request = 1; auto c = f.send();
+            f.restart(); f.step(); require(f.status() == 2, p + ": restart keeps the original pending");
+            f.store->recordWritebackResult(verified(f, c)); f.feedback = 1; f.step();
+            require(f.status() == 0 && f.store->peekPendingWriteCommands().empty(), p + ": restart never replays or re-arms");
+        }
+        { // stale or bad auxiliary feedback is no readback at all: the node fails closed
+            Fixture f(target); f.request = 1; f.arm(); f.permit = 1;
+            f.now += 100; f.seed(f.now);
+            PointValue bad; bad.index = 8; bad.value = 0; bad.quality = 0; bad.ts = f.now; bad.expireAt = f.now + 2000;
+            require(f.router.putLatestByIndex(bad).accepted, "bad feedback");
+            const auto r = f.engine->runOnce(f.now, 5);
+            require(r.deviceWrites == 0 && f.status() == -4, p + ": bad-quality feedback blocks the command");
+        }
+    }
+    { // NC contact (verifyValue 0): contact 1 is output 0; the stopped check uses the mapped state
+        Target nc; nc.protocol = "local_dio"; nc.verifyIndex = 8; nc.verifyValue = 0.0;
+        Fixture f(nc); f.stoppedContact = 1; f.request = 1; f.arm();
+        require(f.status() == 1, "NC contact closed means output off: armed");
+        Fixture g(nc); g.stoppedContact = 0; g.request = 1;
+        g.permit = g.reset = 0; g.feedback = 0; g.step(); g.reset = 1; g.step();
+        require(g.status() != 1, "NC contact open means output on: not stopped, never armed");
+    }
+}
+
 int main() {
     try {
         testRecoverySnapshotClock();
@@ -265,6 +398,7 @@ int main() {
           try { GraphEmsEngine second(f.config, f.router, 600, (f.root / "state.json").string()); }
           catch (...) { blocked = true; } require(blocked, "exclusive journal ownership"); }
         { Fixture f; f.send(); f.now += 1100; f.step(); require(f.status() < 0, "scan discontinuity blocks output"); }
+        testAuxiliaryFeedbackTargets();
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     std::cout << "confirmed control identity, failure, timeout and restart passed\n";
 }
