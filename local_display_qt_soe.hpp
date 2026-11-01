@@ -43,7 +43,9 @@ public:
         table_->setAlternatingRowColors(true);table_->setWordWrap(true);table_->setShowGrid(false);layout->addWidget(table_);
         setStyleSheet("QWidget{font-size:14px;color:#303438;background:#FFFFFF;}"
             "QHeaderView::section{background:#F0F3F7;padding:8px;border:0;}"
-            "QTableWidget{border:0;alternate-background-color:#F5F7FA;selection-background-color:#E3F2FC;}"
+            // Selected rows keep the dark body text on the light highlight (white on #E3F2FC is unreadable).
+            "QTableWidget{border:0;alternate-background-color:#F5F7FA;selection-background-color:#E3F2FC;"
+            "selection-color:#303438;}"
             "QPushButton{border:1px solid #D8E0E4;border-radius:4px;}");
         connect(latest,&QPushButton::clicked,this,[this]{pages_.clear();before_=0;refresh();});
         connect(previous_,&QPushButton::clicked,this,[this]{if(pages_.empty())return;before_=pages_.back();pages_.pop_back();refresh();});

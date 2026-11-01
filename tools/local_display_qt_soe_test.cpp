@@ -2,11 +2,56 @@
 #include <QApplication>
 #include <QDir>
 #include <QTemporaryDir>
+#include <QImage>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <map>
 #include <stdexcept>
+#include <string>
 
 void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
+}
+
+// WCAG relative luminance and contrast ratio.
+double luminance(QRgb rgb) {
+    auto channel = [](int v) { const double c = v / 255.0; return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    return 0.2126 * channel(qRed(rgb)) + 0.7152 * channel(qGreen(rgb)) + 0.0722 * channel(qBlue(rgb));
+}
+double contrast(QRgb a, QRgb b) {
+    double la = luminance(a), lb = luminance(b);
+    if (la < lb) std::swap(la, lb);
+    return (la + 0.05) / (lb + 0.05);
+}
+
+struct CellPixels { QRgb background = 0; double textContrast = 0.0; };
+
+// Background = the most frequent colour in the cell; text = the pixel with the highest contrast to it.
+CellPixels measureCell(const QImage& image, const QRect& rect) {
+    std::map<QRgb, int> counts;
+    for (int y = rect.top(); y <= rect.bottom(); ++y)
+        for (int x = rect.left(); x <= rect.right(); ++x) ++counts[image.pixel(x, y) & 0xFFFFFFu];
+    CellPixels cell;
+    int best = 0;
+    for (const auto& entry : counts) if (entry.second > best) { best = entry.second; cell.background = entry.first; }
+    for (const auto& entry : counts) cell.textContrast = std::max(cell.textContrast, contrast(entry.first, cell.background));
+    return cell;
+}
+
+// Every text column of a row must stay readable (WCAG AA for normal text: 4.5:1).
+CellPixels checkRow(QTableWidget* table, const QImage& image, int row, const char* what) {
+    CellPixels first;
+    for (int c = 1; c < table->columnCount(); ++c) {
+        const auto rect = table->visualItemRect(table->item(row, c)).adjusted(2, 2, -2, -2);
+        const auto cell = measureCell(image, rect);
+        if (cell.textContrast < 4.5)
+            throw std::runtime_error(std::string(what) + ": column " + std::to_string(c) + " contrast " +
+                                     std::to_string(cell.textContrast) + " < 4.5, background #" +
+                                     QString::number(cell.background, 16).toStdString());
+        if (c == 1) first = cell;
+    }
+    return first;
 }
 
 int main(int argc, char** argv) {
@@ -60,6 +105,22 @@ int main(int argc, char** argv) {
         require(table->item(0, c)->textAlignment() == Qt::AlignCenter, "cell alignment");
     }
     if (argc > 1) require(view.grab().save(QString::fromLocal8Bit(argv[1])), "save simulated screenshot");
+    // Selected and unselected rows stay readable, with and without keyboard focus, and the selection
+    // remains visible. Row 0 selected; row 2 plain; row 3 alternate background.
+    table->selectRow(0);
+    for (const bool focused : {false, true}) {
+        if (focused) { view.activateWindow(); table->setFocus(); } else { table->clearFocus(); }
+        app.processEvents();
+        const auto image = table->viewport()->grab().toImage().convertToFormat(QImage::Format_RGB32);
+        if (argc > 2)
+            require(image.save(QString::fromLocal8Bit(argv[2]) + (focused ? "/soe-selected-focus.png" : "/soe-selected-nofocus.png")),
+                    "save selection screenshot");
+        const auto selected = checkRow(table, image, 0, focused ? "selected row (focus)" : "selected row (no focus)");
+        const auto plain = checkRow(table, image, 2, "unselected row");
+        const auto alternate = checkRow(table, image, 3, "unselected alternate row");
+        require(selected.background != plain.background && selected.background != alternate.background,
+                "selected row must remain visibly highlighted");
+    }
     next->click(); app.processEvents();
     require(table->rowCount() == 5 && previous->isEnabled() && !next->isEnabled(), "second page");
     previous->click(); require(table->rowCount() == 50, "previous page");
