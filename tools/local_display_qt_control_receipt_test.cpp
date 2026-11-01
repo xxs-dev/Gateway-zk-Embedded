@@ -9,6 +9,7 @@
 #include <QThread>
 #include <QWidget>
 
+#include <functional>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -21,6 +22,7 @@ void require(bool ok, const std::string& what) {
 }
 
 std::int64_t now() { return QDateTime::currentMSecsSinceEpoch(); }
+std::int64_t steadyNow() { return edge_gateway::ControlTransactionRegistry::steadyNowMs(); }
 
 class FakeRuntime final : public ScadaSceneRuntimeSource {
 public:
@@ -98,6 +100,20 @@ void spin(QApplication& app, int ms) {
         app.processEvents();
         QThread::msleep(5);
     }
+    app.processEvents();  // timers that fell due during the last sleep
+}
+
+// Expected outcomes are awaited with an upper bound, not a fixed window against the 200 ms poll; the
+// bound only limits how long a failing case takes. Time windows that the code itself defines (wait,
+// tracking) are asserted separately with elapsed-time checks.
+bool waitFor(QApplication& app, const std::function<bool()>& done, int limitMs = 3000) {
+    const auto until = now() + limitMs;
+    while (!done() && now() < until) {
+        app.processEvents();
+        QThread::msleep(5);
+    }
+    app.processEvents();
+    return done();
 }
 
 }  // namespace
@@ -109,7 +125,7 @@ int main(int argc, char** argv) {
             Run run("C1");
             run.runtime.receipt = makeReceipt("C1", true, edge_gateway::kWritebackSubmittedStage);
             auto tracker = run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.waitEnded; });
             require(run.text().contains(QString::fromUtf8("已下发，未确认")), "submitted wording");
             require(run.icon() == QMessageBox::Warning, "submitted is not shown as success");
             require(run.waitEnded && !run.locked(), "a definite final receipt releases the point");
@@ -118,7 +134,7 @@ int main(int argc, char** argv) {
             Run run("C2");
             run.runtime.receipt = makeReceipt("C2", true, edge_gateway::kWritebackSucceededStage);
             run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.waitEnded; });
             require(run.text().contains(QString::fromUtf8("协议写入成功，动作未确认")), "written wording");
         }
         { // verified read-back / feedback
@@ -127,7 +143,7 @@ int main(int argc, char** argv) {
             r.verifyAttempted = r.verifyPassed = true;
             run.runtime.receipt = r;
             run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.waitEnded; });
             require(run.text().contains(QString::fromUtf8("反馈确认成功")) && run.text().contains("998"),
                     "feedback confirmation names its source");
             require(run.icon() == QMessageBox::Information, "confirmed action is positive");
@@ -135,35 +151,40 @@ int main(int argc, char** argv) {
         { // unknown outcome is not a failure
             Run run("C4");
             run.runtime.receipt = makeReceipt("C4", false, edge_gateway::kWritebackMismatchStage);
+            const auto started = steadyNow();  // the lock deadline runs on the monotonic clock
             run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.waitEnded; });
             require(run.text().contains(QString::fromUtf8("结果未知")) && run.text().contains(QString::fromUtf8("不一致")) &&
                     !run.text().contains(QString::fromUtf8("执行失败")), "mismatch is unknown, not failed");
             require(run.locked() && run.text().contains(QString::fromUtf8("保持锁定")),
                     "an unknown final receipt keeps the point locked and says so");
-            spin(app, 1400);
+            waitFor(app, [&] { return !run.locked(); }, 4000);
             require(!run.locked(), "the unknown point is released at the end of the tracking period");
+            require(steadyNow() - started >= run.request.trackMs, "the unknown point was released before the tracking period ended");
         }
         { // definite failure shows the reason
             Run run("C5");
             run.runtime.receipt = makeReceipt("C5", false, edge_gateway::kWritebackFailedStage, "illegal data value");
             run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.waitEnded; });
             require(run.text().contains(QString::fromUtf8("执行失败")) && run.text().contains("illegal data value"),
                     "failure shows the actual reason");
         }
         { // a receipt of another command is ignored; no receipt -> unknown; late final replaces it
             Run run("C6");
             run.runtime.receipt = makeReceipt("OTHER", true, edge_gateway::kWritebackSucceededStage);
+            run.request.waitMs = 2000;   // room for several polls before the wait ends
+            run.request.trackMs = 8000;
             auto tracker = run.start();
-            spin(app, 150);
+            spin(app, 450);
             require(run.text().contains(QString::fromUtf8("等待")) && !run.waitEnded, "foreign receipt must not complete this command");
-            spin(app, 300);
+            waitFor(app, [&] { return run.waitEnded; }, 5000);
+            require(now() - run.request.commandTs >= run.request.waitMs, "the wait ended before waitMs");
             require(run.waitEnded && run.text().contains(QString::fromUtf8("等待回执超时，结果未知")),
                     "missing receipt by the wait time is unknown");
             require(run.locked(), "unknown result keeps the point locked");
             run.runtime.receipt = makeReceipt("C6", true, edge_gateway::kWritebackSucceededStage);
-            spin(app, 300);
+            waitFor(app, [&] { return run.text().startsWith(QString::fromUtf8("晚到回执：")); });
             require(run.text().startsWith(QString::fromUtf8("晚到回执：")) &&
                     run.text().contains(QString::fromUtf8("协议写入成功")), "late final receipt replaces the unknown view");
             require(!run.locked(), "late final receipt releases the point");
@@ -172,7 +193,7 @@ int main(int argc, char** argv) {
             Run run("C7");
             run.runtime.receipt = makeReceipt("C7", false, edge_gateway::kWritebackFailedStage, "rejected");
             run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.waitEnded; });
             require(run.text().contains("rejected"), "first final result shown");
             run.runtime.receipt = makeReceipt("C7", true, edge_gateway::kWritebackSucceededStage);
             spin(app, 450);
@@ -182,7 +203,7 @@ int main(int argc, char** argv) {
         { // no receipt at all: tracking ends unknown, point released, nothing re-sent
             Run run("C8");
             run.start();
-            spin(app, 1700);
+            waitFor(app, [&] { return run.text().contains(QString::fromUtf8("仍无最终回执")) && !run.locked(); }, 5000);
             require(run.text().contains(QString::fromUtf8("仍无最终回执，结果未知")), "end of tracking stays unknown");
             require(!run.locked(), "point released after tracking");
             require(run.runtime.writes == 0, "tracking never re-sends");
@@ -191,18 +212,19 @@ int main(int argc, char** argv) {
             Run run("C9");
             run.request.feedbackTag = "PCS.running";
             run.request.feedbackValue = 1;
-            run.request.waitMs = 600;
+            run.request.waitMs = 3000;
             run.runtime.receipt = makeReceipt("C9", true, edge_gateway::kWritebackSucceededStage);
             edge_gateway::StoredPointValue old;
             old.value = 1; old.quality = 1; old.ts = run.request.commandTs - 10;
             run.runtime.values["PCS.running"] = old;
             run.start();
-            spin(app, 250);
+            waitFor(app, [&] { return run.text().contains(QString::fromUtf8("画面反馈点")); });
+            spin(app, 450);  // two more polls: the old value still does not confirm
             require(run.text().contains(QString::fromUtf8("等待命令之后的新值")), "old feedback value does not confirm");
             auto fresh = old;
             fresh.ts = now() + 1;
             run.runtime.values["PCS.running"] = fresh;
-            spin(app, 250);
+            waitFor(app, [&] { return run.text().contains(QString::fromUtf8("新鲜反馈与目标一致")); });
             require(run.text().contains(QString::fromUtf8("新鲜反馈与目标一致")) && run.icon() == QMessageBox::Information,
                     "fresh equal feedback confirms");
         }
@@ -221,20 +243,20 @@ int main(int argc, char** argv) {
         { // the page is destroyed and no receipt comes: the lock ends at the deadline, not later
             Run run("C11");
             auto* page = new QWidget(&run.host);
+            const auto started = steadyNow();
             ControlReceiptTracker::start(page, run.runtime, run.request, {});
             delete page;
             windowPoll(run.runtime);
-            spin(app, 1200);
             require(run.locked(), "still within the tracking period");
-            spin(app, 400);
-            windowPoll(run.runtime);
+            waitFor(app, [&] { windowPoll(run.runtime); return !run.locked(); }, 4000);
+            require(steadyNow() - started >= run.request.trackMs, "released before the deadline");
             require(!run.locked() && run.runtime.writes == 0, "released at the deadline, nothing re-sent");
         }
         { // a late receipt of an old command never releases a newer command on the same point
             Run old("C12A");
             old.request.trackMs = 300;
             old.start();
-            spin(app, 400);
+            waitFor(app, [&] { return !old.locked(); });
             require(!old.locked(), "old command expired");
             Run fresh("C12B");
             fresh.request.tagId = old.request.tagId;

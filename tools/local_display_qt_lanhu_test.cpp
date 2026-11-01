@@ -6,6 +6,7 @@
 #include "local_display_qt_control_receipt.hpp"
 
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -317,6 +318,15 @@ int main(int argc, char** argv) {
             auto spin = [&](int milliseconds) {
                 const auto until = QDateTime::currentMSecsSinceEpoch() + milliseconds;
                 while (QDateTime::currentMSecsSinceEpoch() < until) { app.processEvents(); QThread::msleep(5); }
+                app.processEvents();  // timers that fell due during the last sleep
+            };
+            // Expected outcomes are awaited with an upper bound instead of a fixed 250 ms window
+            // against the 200 ms receipt poll; the bound only limits how long a failure takes.
+            auto waitFor = [&](const std::function<bool()>& done, int limitMs) {
+                const auto until = QDateTime::currentMSecsSinceEpoch() + limitMs;
+                while (!done() && QDateTime::currentMSecsSinceEpoch() < until) { app.processEvents(); QThread::msleep(5); }
+                app.processEvents();
+                return done();
             };
             auto receiptText = [&] {
                 const auto boxes = view.findChildren<QMessageBox*>();
@@ -327,28 +337,33 @@ int main(int argc, char** argv) {
             ack.success = true; ack.completedAt = controls.lastCommand.ts + 1;
             controls.acknowledgement = ack;
             controls.put(2, 1); controls.values[2].ts = controls.lastCommand.ts - 1;
-            spin(250);
+            spin(450);  // at least two receipt polls without a confirmation
             require(ScadaSceneViewTestAccess::pending(view), "old matching feedback falsely confirmed command");
             controls.values[2].ts = ack.completedAt + 1;
             controls.values[2].value = 3;
-            spin(250);
+            spin(450);
             require(ScadaSceneViewTestAccess::pending(view), "write enum incorrectly reused for readback enum");
             controls.values[2].value = 1; controls.values[2].stale = true;
-            spin(250);
+            spin(450);
             require(ScadaSceneViewTestAccess::pending(view), "stale feedback confirmed command");
-            controls.values[2].stale = false; spin(250);
+            controls.values[2].stale = false;
+            waitFor([&] { return !ScadaSceneViewTestAccess::pending(view); }, 3000);
             require(!ScadaSceneViewTestAccess::pending(view) && receiptText().contains(QString::fromUtf8("新鲜反馈")), "fresh readback not confirmed");
             for (auto* box : view.findChildren<QMessageBox*>()) box->close();
             app.processEvents();
             command.properties.erase("controlOptionsJson");
             command.action.value = "0"; command.action.requiresConfirmation = false;
             ack.success = false; ack.message = "fixture transport error"; controls.acknowledgement = ack;
-            ScadaSceneViewTestAccess::control(view, command); spin(250);
+            ScadaSceneViewTestAccess::control(view, command);
+            waitFor([&] { return !ScadaSceneViewTestAccess::pending(view); }, 3000);
             require(!ScadaSceneViewTestAccess::pending(view) && receiptText().contains("fixture transport error"), "driver failure not reported");
             for (auto* box : view.findChildren<QMessageBox*>()) box->close();
             app.processEvents();
             controls.acknowledgement = edge_gateway::NullOpt;
-            ScadaSceneViewTestAccess::control(view, command); spin(10300);
+            const auto timeoutStart = QDateTime::currentMSecsSinceEpoch();
+            ScadaSceneViewTestAccess::control(view, command);
+            waitFor([&] { return !ScadaSceneViewTestAccess::pending(view); }, 13000);
+            require(QDateTime::currentMSecsSinceEpoch() - timeoutStart >= 10000, "receipt wait ended before its 10 s limit");
             require(!ScadaSceneViewTestAccess::pending(view) && receiptText().contains(QString::fromUtf8("超时")) && controls.writeCalls == 3, "timeout retried command or hid uncertainty");
         }
         {
