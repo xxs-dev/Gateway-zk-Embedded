@@ -55,6 +55,8 @@ public:
     bool ready() const;
 
 private:
+    friend class PcsPhasePowerControlTestAccess;
+
     enum class PowerKind {
         Active,
         Reactive

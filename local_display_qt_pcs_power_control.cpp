@@ -680,41 +680,24 @@ void PcsPhasePowerControl::pollWriteback() {
 
 void PcsPhasePowerControl::finishPending(bool timedOut) {
     pollTimer_->stop();
-    using edge_gateway::ControlReceiptState;
-    int confirmed = 0, written = 0, unknown = 0, failed = 0;
+    edge_gateway::ControlReceiptTally tally;
     std::int64_t elapsed = 0;
     for (std::size_t index = 0; index < pending_.views.size(); ++index) {
         const auto& view = pending_.views[index];
-        switch (view.state) {
-        case ControlReceiptState::FeedbackConfirmed: ++confirmed; break;
-        case ControlReceiptState::Submitted:
-        case ControlReceiptState::Written:
-        case ControlReceiptState::Committed: ++written; break;
-        case ControlReceiptState::Failed: ++failed; break;
-        default: ++unknown; break;
-        }
+        edge_gateway::countControlReceipt(tally, view);
         if (pending_.results[index]) elapsed = std::max(elapsed, pending_.results[index]->totalElapsedMs);
         if (!view.final) {
             resultLabels_[index]->setText(QString::fromUtf8("%1相：等待回执已结束，结果未知；设备可能已执行，未自动重发")
                 .arg(phaseName(index)));
         }
     }
-    QString summary;
-    if (failed > 0) {
-        summary = QString::fromUtf8("%1 相执行失败，请查看各相原因；其余相按各自结果显示").arg(failed);
-    } else if (unknown > 0) {
-        summary = timedOut
-            ? QString::fromUtf8("%1 相在 %2 秒内无最终回执，结果未知；未自动重发，请先核实设备")
-                  .arg(unknown).arg((pending_.trackUntil - pending_.requestedAt) / 1000)
-            : QString::fromUtf8("%1 相结果未知（超时或反馈不一致）；未自动重发，请先核实设备").arg(unknown);
-    } else if (confirmed == 3) {
-        summary = QString::fromUtf8("三相写入均经回读/反馈确认，边端总耗时 %1 ms").arg(elapsed);
-    } else {
-        summary = QString::fromUtf8("三相协议写入成功，其中 %1 相未经回读确认（动作未确认），边端总耗时 %2 ms")
-            .arg(written).arg(elapsed);
-    }
+    // Each receipt class is reported separately; the summary is never stronger than the phases.
+    auto summary = QString::fromUtf8("A/B/C 三相：") + QString::fromStdString(edge_gateway::controlReceiptTallyText(tally));
+    if (timedOut) summary += QString::fromUtf8("（已跟踪 %1 秒）").arg((pending_.trackUntil - pending_.requestedAt) / 1000);
+    if (tally.unknown + tally.open > 0) summary += QString::fromUtf8("。请先核实设备，不要重复下发");
+    if (elapsed > 0) summary += QString::fromUtf8("。边端总耗时 %1 ms").arg(elapsed);
     statusLabel_->setText(summary);
-    const bool allConfirmed = confirmed == 3;
+    const bool allConfirmed = tally.confirmed == 3;
     pending_.active = false;
     activeSubmitButton_->setEnabled(true);
     reactiveSubmitButton_->setEnabled(true);

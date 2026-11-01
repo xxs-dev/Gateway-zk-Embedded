@@ -115,6 +115,49 @@ inline bool controlReceiptShouldReplace(const ControlReceiptView& current, const
     return next.state != current.state;
 }
 
+// Counts of a multi-point command (e.g. the three PCS phases). Every receipt class is kept apart: a
+// summary is never stronger than the weakest evidence of the points it counts.
+struct ControlReceiptTally {
+    int confirmed = 0;  // FeedbackConfirmed
+    int written = 0;    // Written: protocol write succeeded, action unconfirmed
+    int submitted = 0;  // Submitted: handed to the output or transport only
+    int committed = 0;  // Committed: local parameter / mailbox, no device involved
+    int unknown = 0;    // Unknown outcome
+    int failed = 0;     // definite failure
+    int open = 0;       // Waiting / NoReceipt: no final receipt
+};
+
+inline void countControlReceipt(ControlReceiptTally& tally, const ControlReceiptView& view) {
+    switch (view.state) {
+    case ControlReceiptState::FeedbackConfirmed: ++tally.confirmed; break;
+    case ControlReceiptState::Written: ++tally.written; break;
+    case ControlReceiptState::Submitted: ++tally.submitted; break;
+    case ControlReceiptState::Committed: ++tally.committed; break;
+    case ControlReceiptState::Unknown: ++tally.unknown; break;
+    case ControlReceiptState::Failed: ++tally.failed; break;
+    case ControlReceiptState::Waiting:
+    case ControlReceiptState::NoReceipt: ++tally.open; break;
+    }
+}
+
+// One line per class present, strongest problem first (UTF-8), e.g. for three PCS phases.
+inline std::string controlReceiptTallyText(const ControlReceiptTally& tally) {
+    std::string text;
+    const auto add = [&text](int count, const char* what) {
+        if (count <= 0) return;
+        if (!text.empty()) text += "；";
+        text += std::to_string(count) + " 相" + what;
+    };
+    add(tally.failed, "执行失败（见各相原因）");
+    add(tally.unknown, "结果未知，设备可能已执行，未自动重发");
+    add(tally.open, "无最终回执，结果未知，未自动重发");
+    add(tally.submitted, "已下发、未确认（仅交给输出或通信，设备是否动作未确认）");
+    add(tally.written, "协议写入成功、动作未确认");
+    add(tally.committed, "本地参数已提交（未下发设备）");
+    add(tally.confirmed, "反馈确认成功（确认范围以各相回执的反馈来源为准）");
+    return text;
+}
+
 // Screen-level feedback point (controlFeedbackTag): only a good, unexpired value stored strictly after
 // both the command and its receipt counts, and only when it equals the expected value.
 inline bool screenFeedbackConfirms(

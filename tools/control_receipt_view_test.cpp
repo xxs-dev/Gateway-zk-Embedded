@@ -111,6 +111,30 @@ int main() {
         require(!controlReceiptMatches(written, "SCADA_LOCAL_1", 1202), "another point's receipt is ignored");
         require(!controlReceiptMatches(written, "", 1201), "an empty command id matches nothing");
 
+        // Multi-point summary: each receipt class counted apart, never merged into a stronger one.
+        {
+            ControlReceiptTally tally;
+            for (int i = 0; i < 3; ++i) countControlReceipt(tally, classifyControlReceipt(some(receipt(true, kWritebackSubmittedStage)), false));
+            const auto text = controlReceiptTallyText(tally);
+            require(text.find("3 相已下发、未确认") != std::string::npos && text.find("协议写入成功") == std::string::npos,
+                    "submitted-only phases are not reported as protocol writes");
+            ControlReceiptTally mixed;
+            auto confirmed = receipt(true, kWritebackSucceededStage);
+            confirmed.verifyAttempted = confirmed.verifyPassed = true;
+            for (const auto& r : {confirmed, receipt(true, kWritebackSucceededStage), receipt(true, kWritebackSubmittedStage),
+                                  receipt(true, "local-parameter-committed"), receipt(false, kWritebackTimeoutStage),
+                                  receipt(false, kWritebackFailedStage)})
+                countControlReceipt(mixed, classifyControlReceipt(some(r), false));
+            countControlReceipt(mixed, classifyControlReceipt(none, true));
+            require(mixed.confirmed == 1 && mixed.written == 1 && mixed.submitted == 1 && mixed.committed == 1 &&
+                    mixed.unknown == 1 && mixed.failed == 1 && mixed.open == 1, "each class counted once");
+            const auto mixedText = controlReceiptTallyText(mixed);
+            for (const char* part : {"1 相执行失败", "1 相结果未知", "1 相无最终回执", "1 相已下发、未确认",
+                                     "1 相协议写入成功、动作未确认", "1 相本地参数已提交", "1 相反馈确认成功"})
+                require(mixedText.find(part) != std::string::npos, std::string("mixed summary lacks: ") + part);
+            require(mixedText.find("执行失败") < mixedText.find("反馈确认成功"), "problems are listed first");
+        }
+
         // Screen feedback point: newer than command and receipt, good, unexpired, equal.
         const auto good = Optional<StoredPointValue>(sample(1, 2001));
         require(screenFeedbackConfirms(good, 1500, 2000, 1), "fresh equal feedback confirms");
