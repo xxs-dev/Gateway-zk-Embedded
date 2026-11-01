@@ -1831,9 +1831,10 @@ void ScadaSceneView::refreshState(
         }
     }
     if (widget.stateImage == nullptr && widget.valueText != nullptr && !isTrendType(widget.type)) {
-        // A value that matches no state rule is an unknown enumeration: keep the raw value visible
-        // instead of a bare "--" (single-source states only; a combined state has no single raw value).
-        std::string unknownLabel = widget.defaultLabel.empty() ? std::string("未知") : widget.defaultLabel;
+        // A single-source value that matches no state rule is an unknown enumeration: show it as
+        // unknown with its raw value. A combined state (several sources, e.g. a grid/off-grid pair) has
+        // no single raw value: an invalid combination keeps the "--" of no valid state.
+        std::string unknownLabel = widget.defaultLabel.empty() ? std::string("--") : widget.defaultLabel;
         if (matched == nullptr && allConditionsAvailable) {
             std::set<std::uint32_t> sources;
             for (const auto& rule : widget.stateRules)
@@ -1842,12 +1843,13 @@ void ScadaSceneView::refreshState(
             if (raw != values.end()) {
                 // Keep the raw value when it fits the field; a narrow field shows the bare marker and
                 // keeps the raw value in the tooltip instead of an elided or overflowing text.
-                const auto withRaw = unknownLabel + "(" + formatNumber(raw->second.value).toStdString() + ")";
+                const auto marker = widget.defaultLabel.empty() ? std::string("未知") : widget.defaultLabel;
+                const auto withRaw = marker + "(" + formatNumber(raw->second.value).toStdString() + ")";
                 const auto available = widget.valueText != nullptr ? widget.valueText->textWidth() : -1.0;
                 const bool fits = available <= 0 || widget.valueText == nullptr ||
                     QFontMetricsF(widget.valueText->font()).horizontalAdvance(QString::fromStdString(withRaw)) <= available;
                 if (widget.valueText != nullptr) widget.valueText->setToolTip(QString::fromStdString(withRaw));
-                if (fits) unknownLabel = withRaw;
+                unknownLabel = fits ? withRaw : marker;
             }
         }
         const auto label = !allConditionsAvailable
