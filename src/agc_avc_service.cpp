@@ -54,6 +54,12 @@ const StoredPointValue* findValue(
     return it == values.end() ? nullptr : &it->second;
 }
 
+// The same setpoint as an earlier command (identical up to floating-point rounding), regardless of
+// any configured deadband.
+bool sameSetpoint(double a, double b) {
+    return std::abs(a - b) <= 1e-9 * std::max(1.0, std::max(std::abs(a), std::abs(b)));
+}
+
 bool pointUsable(const StoredPointValue& value, std::int64_t nowMs, int maxAgeMs) {
     if (value.quality <= 0 || value.stale || !std::isfinite(value.value) || value.ts <= 0) {
         return false;
@@ -637,11 +643,11 @@ void AgcAvcService::registerWriteFailure(std::uint32_t index) {
 }
 
 void AgcAvcService::registerUnknownWrite(std::uint32_t index, const PendingWriteObservation& pending, std::int64_t nowMs) {
-    // Counts towards the repeated-failure health limit, but keeps lastSubmittedValue_: no re-send of
-    // the same setpoint on an unknown result.
+    // Counts once towards the repeated-failure health limit. The transaction stays open (see
+    // UnknownWriteTransaction): ordinary failure handling never clears it.
     lastWriteStatus_ = -1;
-    unknownResultIndexes_.insert(index);
     ++consecutiveWriteFailures_;
+    unknownWrites_[index] = UnknownWriteTransaction{pending.route, pending.cmdId, pending.value, nowMs};
     if (pending.pcsIndex < config_.pcs.size() && config_.pcs[pending.pcsIndex].feedbackTimeoutMs > 0) {
         pendingFeedback_.erase(
             std::remove_if(pendingFeedback_.begin(), pendingFeedback_.end(),
@@ -649,7 +655,29 @@ void AgcAvcService::registerUnknownWrite(std::uint32_t index, const PendingWrite
                     return item.pcsIndex == pending.pcsIndex && item.reactive == pending.reactive;
                 }),
             pendingFeedback_.end());
-        pendingFeedback_.push_back({pending.pcsIndex, pending.reactive, pending.target, nowMs});
+        pendingFeedback_.push_back({pending.pcsIndex, pending.reactive, pending.target, nowMs, true});
+    }
+}
+
+void AgcAvcService::resolveUnknownWrites() {
+    // A late final receipt for the same command closes the transaction. A definite failure means the
+    // command was not executed, so a new attempt is allowed; a success needs no further action.
+    for (auto it = unknownWrites_.begin(); it != unknownWrites_.end();) {
+        const auto result = pointBus_.readWriteResult(it->second.route, it->second.cmdId);
+        if (!result || result->cmdId != it->second.cmdId || isUnconfirmedWriteback(*result)) {
+            ++it;
+            continue;
+        }
+        const std::string outcome = writebackOutcome(*result);
+        if (outcome == "unknown") {
+            ++it;
+            continue;
+        }
+        if (outcome == "failed") {
+            lastSubmittedValue_.erase(it->first);
+            lastSubmittedAtMs_.erase(it->first);
+        }
+        it = unknownWrites_.erase(it);
     }
 }
 
@@ -695,7 +723,8 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
                         pending.pcsIndex,
                         pending.reactive,
                         pending.target,
-                        result->completedAt > 0 ? result->completedAt : nowMs
+                        result->completedAt > 0 ? result->completedAt : nowMs,
+                        false
                     });
                 }
             } else {
@@ -711,6 +740,7 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
         }
         ++it;
     }
+    resolveUnknownWrites();
 
     for (auto it = pendingFeedback_.begin(); it != pendingFeedback_.end();) {
         if (it->pcsIndex >= input.pcs.size() || it->pcsIndex >= config_.pcs.size()) {
@@ -721,14 +751,19 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
         const auto& pcs = config_.pcs[it->pcsIndex];
         const double actual = it->reactive ? runtime.actualQkvar : runtime.actualPkw;
         const double tolerance = it->reactive ? pcs.feedbackToleranceKvar : pcs.feedbackToleranceKw;
+        const auto& targets = it->reactive ? pcs.points.reactiveTargets : pcs.points.activeTargets;
         if (runtime.inputHealthy && std::abs(actual - it->target) <= tolerance) {
             successObserved = true;
+            if (it->fromUnknown) {
+                for (const auto& target : targets) unknownWrites_.erase(target.index);  // executed
+            }
             it = pendingFeedback_.erase(it);
             continue;
         }
         if (nowMs - it->startedAtMs >= pcs.feedbackTimeoutMs) {
-            const auto& targets = it->reactive ? pcs.points.reactiveTargets : pcs.points.activeTargets;
-            registerWriteFailure(targets.empty() ? 0 : targets.front().index);
+            // A confirmed write that the PCS does not follow is a failure and may be written again.
+            // An unknown result stays unknown (already counted once): no re-send of the same value.
+            if (!it->fromUnknown) registerWriteFailure(targets.empty() ? 0 : targets.front().index);
             it = pendingFeedback_.erase(it);
             continue;
         }
@@ -808,10 +843,17 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                 } else if (targets.size() > 1) {
                     value = total / static_cast<double>(targets.size());
                 }
+                const auto unknown = unknownWrites_.find(target.index);
+                // Never re-send the value of an open unknown transaction, independent of the deadband
+                // (which may be 0) and of failure handling. Safety exception: the best-effort 0 for an
+                // unavailable PCS.
+                if (unknown != unknownWrites_.end() && !zeroOnly && sameSetpoint(unknown->second.value, value)) {
+                    continue;
+                }
                 const auto lastValue = lastSubmittedValue_.find(target.index);
                 const auto lastAt = lastSubmittedAtMs_.find(target.index);
                 if (lastValue != lastSubmittedValue_.end() && std::abs(lastValue->second - value) < deadband &&
-                    !(zeroOnly && unknownResultIndexes_.count(target.index) != 0)) {
+                    !(zeroOnly && unknown != unknownWrites_.end())) {
                     continue;
                 }
                 if (lastAt != lastSubmittedAtMs_.end() && nowMs - lastAt->second < minIntervalMs) {
@@ -826,7 +868,7 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                 command.highPriority = false;
                 const auto result = pointBus_.submitControl(command);
                 if (result.accepted) {
-                    unknownResultIndexes_.erase(target.index);
+                    unknownWrites_.erase(target.index);  // superseded by a new command with another value
                     lastSubmittedValue_[target.index] = value;
                     lastSubmittedAtMs_[target.index] = nowMs;
                     pendingWrites_[target.index] = PendingWriteObservation{
@@ -835,6 +877,7 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                         i,
                         reactive,
                         total,
+                        value,
                         nowMs,
                         zeroOnly
                     };
