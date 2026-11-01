@@ -1,6 +1,6 @@
 # 控制确认链路与 EMS 2.0 画面审查（2026-11-01）
 
-基线 `realese1.0` = `eeaaa8a`。第六轮在本地分支 `r6/control-ems2` 提交 9 个提交（tip `7377901`），接收复核发现 3 项问题后在同一分支补修（tip `78feead`），再次复核发现 AGC 晚到结果的 2 项遗漏后又补修一次（第 8 节）。**未推送、未合并、未部署**。所有验证均为模拟验证（隔离测试数据、测试替身），不接设备、不发控制命令；不是现场验收。画面逐页清单见 [EMS 2.0 画面逐页审查](../../products/ems/mobile/2.0/doc/screen-audit-20261101.md)。
+基线 `realese1.0` = `eeaaa8a`。第六轮在本地分支 `r6/control-ems2` 提交 9 个提交（tip `7377901`），接收复核发现 3 项问题后在同一分支补修（tip `78feead`），再次复核发现 AGC 晚到结果的 2 项遗漏后又补修一次（tip `2a1a51f`）；接收方随后在内网用正式工具链构建并在 22.7 隔离验证，据此又做了两项测试与样式的最小补修（第 8 节）。**未推送、未合并、未部署**。云端验证与内网验证分开记录（8.6）；所有验证都使用隔离测试数据，不接真实设备、不发电气控制命令；不是现场验收。画面逐页清单见 [EMS 2.0 画面逐页审查](../../products/ems/mobile/2.0/doc/screen-audit-20261101.md)。
 
 ## 1. 回执语义（协议不变）
 
@@ -80,7 +80,7 @@
 - 通用生成器输出的柴油机监测页没有 HGM 读点绑定；104 现场工程当前页面是否已有绑定未核对，不能据此推断现场缺绑定。
 - 待决定：AGC/AVC 失效归零时，若未知事务的值本身是 0，是否也按安全态例外重发 0（当前不重发，保守）；是否需要“遥测不到位自动重试”的授权策略（当前未开放）；写入失败失效是否要求人工复位（当前与原设计相同，确定成功即退出）；是否为仍未结束的未知事务新增输出点。
 - KY-SCADA 进程重启、AGC/AVC 服务重启后，内存中的锁和未知事务不保留。
-- 22.11 交叉编译（含 Qt）、目标板运行、实屏显示与触摸、真实设备联调均未执行。
+- 22.11 正式构建与 22.7 隔离运行已由接收方对 `2a1a51f` 执行（8.6）；第三次补修 `31ee738`、`2ca4f24` 尚未在正式工具链和 22.7 上复验。正式全量 CTest、真实屏幕与触摸、104 实际绑定、真实设备、平台/KY-EMS 联调仍未执行。
 
 ## 7. 操作说明（本地画面）
 
@@ -139,7 +139,7 @@
 | CTest 全量 | 同上，独立 IPC/挂载命名空间 | 见 8.4 | 模拟验证 |
 | 布局审计 `--layout-audit`（含断路器排序修复后重新生成的工程） | 云端 Qt 6 | 448 次渲染，越界/重叠 0 项 | 模拟验证 |
 | PowerShell 生成器测试 5 组 | 云端 pwsh 7.4.6 | 第六轮结果，本轮未改生成器 | 模拟验证 |
-| 修改的 C++ 源文件与测试 GCC 6.4.0 aarch64 `-fsyntax-only`（Qt 部分对 Ubuntu Qt 5.15 头文件） | 云端，替身工具链，不是 22.11 的 Linaro 6.3.1 与厂商 sysroot | 通过；`agc_avc_controller_test.cpp` 中既有的 `has_value()`（GCC 6 的 experimental optional 没有）报错，非本轮引入，该测试不在 aarch64 构建列表 | 语法检查 |
+| 修改的 C++ 源文件与测试 GCC 6.4.0 aarch64 `-fsyntax-only`（Qt 部分对 Ubuntu Qt 5.15 头文件） | 云端，替身工具链，不是 22.11 的 Linaro 6.3.1 与厂商 sysroot | 通过；`agc_avc_controller_test.cpp` 中既有的 `has_value()`（GCC 6 的 experimental optional 没有）报错，非本轮引入，该测试不在 aarch64 构建列表（第三次补修 `31ee738` 已改，见 8.7） | 语法检查 |
 | 22.11 交叉编译（含 KY-SCADA Qt 5 与 5 个 Qt 测试）、目标板运行、实屏与触摸、真实设备、平台联调 | — | **未执行** | — |
 
 ### 8.4 CTest 全量
@@ -168,3 +168,60 @@
 `agc_avc_unknown_result_test` 增至 21 个场景，新增 9 个全部通过：超时后到达目标的遥测（正/零死区）、命令下发前采样的旧遥测不算、晚到成功（含全零目标的失效阈值）、晚到确定失败只计一次、回执 cmdId 不符不算、同周期另一点确定失败不清零、新旧事务隔离（旧命令晚到成功和到达旧目标的遥测都不结算新命令）。变异检查：去掉“采样晚于下发”、去掉晚到确定失败的本周期失败标记、去掉晚到成功的本周期成功标记，分别使对应场景失败。零死区时，事务结算后按原有零死区规则周期刷新已确认的值（新 cmdId），这是刷新，不是对未知结果的重试。
 
 CTest 全量（独立挂载、IPC 与 PID 命名空间，独立 `/dev/shm`）：160 项全部通过；`ems_control_mode_test` 单独构建运行通过。修改的源文件（`agc_avc_service.cpp`、`agc_avc_controller.cpp`、`agc_avc_main.cpp`、新测试）用替身 GCC 6.4.0 aarch64 做语法检查通过。22.11 构建、ARM 运行、Qt 实机、真实设备、平台联调仍未执行。
+
+### 8.6 内网正式构建与 22.7 隔离验证（接收方执行，对象 `2a1a51f`）
+
+以下是接收方在内网实际执行的结果，摘自其报告 `driver-r8-production-20261101/report.md`，云端没有执行这些步骤。
+
+**22.11 正式构建**：Ubuntu 18.04.4，Linaro GCC 6.3.1 20170404，CMake 3.25.2，Python 3.6.9，Allwinner Qt 5.12.8 sysroot；独立路径，没有覆盖 `/srv/build/Gateway-zk`。构建前后逐项校验 3182 个 Git blob 与执行位，均一致。使用仓库原有 `tools/build_edge_aarch64.sh` 与 `tools/build_scada_qt_aarch64.sh --with-tests`，没有使用发布或部署选项。
+
+| 构建对象 | 数量 | 结果 |
+| --- | ---: | --- |
+| 边端既定目标（含迁移工具、stress_runner） | 19 | 通过 |
+| KY-SCADA | 1 | 通过 |
+| Qt 测试：access、lanhu、soe、control_receipt、pcs_receipt | 5 | 通过 |
+| AGC 未知结果、confirmedControlWrite、回执分类、事务表测试 | 4 | 通过 |
+| 原始晚到结果复核夹具（源码 SHA256 `8eaabaee…`，诊断构建用 `-fno-access-control`） | 1 | 通过 |
+| 额外构建的 `agc_avc_controller_test` | 1 | **编译失败**（`has_value()`，`eeaaa8a` 已存在），未运行 |
+
+29 个主构建产物下载后重新读取，SHA256 全部一致。
+
+**22.7 隔离运行**：设备身份 `COMM202600998`，Ubuntu 20.04.6，aarch64，Linux 5.10.198。独立 mount/net/IPC/PID 命名空间，私有 `/dev/shm`、`/tmp`、`/run`，网络仅 lo 与 sit0 且均 DOWN 无地址；屏蔽安装目录与串口、CAN、framebuffer 等设备路径；UID 65534、无能力、NoNewPrivs。没有接入真实设备，没有发送电气控制命令。
+
+| 项目 | 实际结果 |
+| --- | --- |
+| AGC 未知结果 21 个场景 | 21/21 通过 |
+| 原始晚到结果 3 个反例 | 通过（`failures=0 lastWriteStatus=1 state=2 unknownTransactions=0 submitted=0`，未重放命令） |
+| confirmedControlWrite、回执分类、事务表 | 通过 |
+| Qt access、control receipt、PCS receipt | 通过 |
+| Qt Lanhu（带生成工程参数） | 通过 |
+| Qt SOE | **首轮失败**：隔离 `/tmp` 只有 128 MiB，低于 SOE 生产存储保护要求的 256 MiB 保留空间，报 `SOE storage unavailable: min-free-bytes`。复测只把私有 tmpfs 上限改为 512 MiB，二进制、夹具、断言和生产保护均未改，复测通过 |
+| 布局审计 | 56 页 × 4 种分辨率 × 2 种数据状态 = 448 次离屏渲染，报告 0 项。四种尺寸检查的是等比缩放；文字越界/重叠检测只针对 1920×1080 的文字控件，不覆盖颜色、图标和现场绑定 |
+| 正式 KY-SCADA | 加载生成工程与私有空共享内存运行 15 秒，发送终止信号后 exit 0；前后私有段 `pendingWrites=0` |
+
+首批 15 个运行条目为 14 通过、1 个 SOE 环境失败，之后只复测 SOE 并通过。**不能写成首轮 15/15，也不能写成正式全量 CTest 通过**。测试工程由快照生成（56 页、1905 tags/routes、模拟机器码 `COMM202600999`），不是 104 现场工程。
+
+**现场保持**：前后 130 个安装程序/配置/服务配置文件 SHA256 一致；显示、监测、健康看门狗的 PID、启动时间、重启计数一致；原有共享内存段名称/inode/大小一致；boot ID 与接口地址一致。没有重启现场服务，没有修改网络、EasyTier、4G、账号或电气控制配置；104 未操作。
+
+**截图抽查发现**：SOE 选中行为白字浅蓝底，难以阅读（`local_display_qt_soe.hpp` 与 `eeaaa8a` 相同，不是本分支回退）。布局审计不检查颜色，所以没有报告。
+
+### 8.7 第三次补修（`2a1a51f..`，云端验证）
+
+| 提交 | 内容 |
+| --- | --- |
+| `31ee738` | `tools/agc_avc_controller_test.cpp:705/710` 的 `has_value()` 改为 `static_cast<bool>(...)`，与同文件已有写法一致，断言语义不变；生产控制逻辑未改 |
+| `2ca4f24` | `local_display_qt_soe.hpp` 补 `selection-color:#303438`（与正文、蓝湖表格一致）；`local_display_qt_soe_test` 增加选中行（有/无键盘焦点）、普通行、交替行第 1–7 列文字对比度 ≥ 4.5:1（WCAG AA）及选中行背景可区分的像素检查，可选第二个参数保存选中状态截图 |
+| 本文档所在提交 | docs：8.6、8.7 与第 6 节 |
+
+| 项目 | 修复前（`2a1a51f`） | 修复后 | 环境与分级 |
+| --- | --- | --- | --- |
+| `agc_avc_controller_test` 用 GCC 6 编译 | 705、710 两处 `has_value` 报错 | 编译链接通过，`qemu-aarch64` 用户态运行 `agc_avc_controller_test passed` | 云端替身 GCC 6.4.0（Ubuntu 交叉编译器）+ qemu；**不是**正式 Linaro 6.3.1 与 sysroot，不能记为正式编译通过 |
+| `agc_avc_controller_test` x86 | 通过 | 通过 | 云端 GCC 13.3 |
+| SOE 选中行对比度 | 失败：选中行第 1 列 1.14:1（背景 `#e3f2fc`，白字） | 通过：选中行（有/无焦点）、普通行、交替行均 ≥ 4.5:1，选中背景可区分 | 云端 Qt 6 offscreen；设备 Qt 5.12.8 上**未复验** |
+| `local_display_qt_soe_test` 其余断言 | — | 分页、质量、录波关联、对齐、只读、机器隔离仍通过 | 云端 Qt 6 |
+| `local_display_qt_lanhu_test` 带工程参数 | — | 通过 | 云端 |
+| Qt/AGC/控制相关 CTest 17 项 | — | 第一次运行 16 项通过，`local_display_qt_lanhu` 在 1.63 秒处失败（未加 `--output-on-failure`，失败信息未保留）；带输出重跑 17 项通过；另单独 ctest 3 次、三项组合 6 次、直接运行 12 次、CPU 加载下 8 次均通过 | 云端；原因未查明，本轮未改该测试。该测试有 250 ms 等待对 200 ms 回执轮询的窄余量（`85917a30` 起就有），是可能原因之一，未证实 |
+
+另见：`tools/ota_original_job_query_test.cpp` 直接使用 `std::optional` 的 `has_value()`，正式 GCC 6 同样无法编译；它不在 aarch64 构建列表，与本分支无关，本轮未改。
+
+待接收方执行：用 22.11 正式工具链重新构建 `agc_avc_controller_test` 与 SOE 测试，并在 22.7 隔离环境运行（SOE 测试需要私有临时空间不少于 256 MiB 保留量加数据量），复看 SOE 选中行截图。在此之前，这两项只算云端修复。
