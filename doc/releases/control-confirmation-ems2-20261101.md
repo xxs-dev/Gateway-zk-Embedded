@@ -1,35 +1,37 @@
 # 控制确认链路与 EMS 2.0 画面审查（2026-11-01）
 
-基线 `realese1.0` = `eeaaa8a`。本轮在本地分支 `r6/control-ems2` 按功能分 9 个提交（见第 7 节），**未推送、未部署**。所有验证均为模拟验证（隔离测试数据、测试替身），不接设备、不发控制命令；不是现场验收。画面逐页清单见 [EMS 2.0 画面逐页审查](../../products/ems/mobile/2.0/doc/screen-audit-20261101.md)。
+基线 `realese1.0` = `eeaaa8a`。第六轮在本地分支 `r6/control-ems2` 提交 9 个提交（tip `7377901`），接收复核发现 3 项问题后，在同一分支补修（第 8 节）。**未推送、未合并、未部署**。所有验证均为模拟验证（隔离测试数据、测试替身），不接设备、不发控制命令；不是现场验收。画面逐页清单见 [EMS 2.0 画面逐页审查](../../products/ems/mobile/2.0/doc/screen-audit-20261101.md)。
 
 ## 1. 回执语义（协议不变）
 
 回执字段 `success`、`outcome`、`stage`、`verifyAttempted/verifyPassed`、共享内存标志位与 MQTT/直连维护接口**均未改变**。新增的只是一个共用分类 `include/edge_gateway/control_receipt_view.hpp`，供本地画面使用：
 
-| 回执 | 本地画面显示 | 是否算确认 |
-| --- | --- | --- |
-| 尚无回执（等待内） | 命令已受理，等待驱动回执 | 否 |
-| `writeback-submitted` | 已下发，未确认：仅交给输出或通信，设备是否动作未确认 | 否 |
-| `writeback-succeeded`，`verifyPassed=false` | 协议写入成功，动作未确认 | 否 |
-| `verifyPassed=true` | 反馈确认成功（确认范围以回执中的反馈来源为准，回执原文一并显示） | 是 |
-| `local-parameter-committed` / `mailbox-committed` | 本地参数已提交（未下发设备） | — |
-| outcome=unknown（`writeback-timeout`/`writeback-mismatch`） | 结果未知：设备可能已执行；未自动重发（不一致时说明反馈与目标不一致） | 否，也不是失败 |
-| 确定失败（`writeback-failed`、`control-rejected` 等） | 执行失败 + 阶段 + 实际原因 | — |
-| `writeback-unconfirmed`（账本重放，无结果） | 视为未结束，继续等待 | 否 |
-| 等待 10 秒仍无回执 | 等待回执超时，结果未知；继续跟踪到 70 秒，期间晚到的最终回执标为“晚到回执”替换显示 | 否 |
+| 回执 | 本地画面显示 | 是否算确认 | 该点的本地锁 |
+| --- | --- | --- | --- |
+| 尚无回执（等待内） | 命令已受理，等待驱动回执 | 否 | 保持 |
+| `writeback-submitted` | 已下发，未确认：仅交给输出或通信，设备是否动作未确认 | 否 | 解除 |
+| `writeback-succeeded`，`verifyPassed=false` | 协议写入成功，动作未确认 | 否 | 解除 |
+| `verifyPassed=true` | 反馈确认成功（确认范围以回执中的反馈来源为准，回执原文一并显示） | 是 | 解除 |
+| `local-parameter-committed` / `mailbox-committed` | 本地参数已提交（未下发设备） | — | 解除 |
+| outcome=unknown（`writeback-timeout`/`writeback-mismatch`） | 结果未知：设备可能已执行；未自动重发（不一致时说明反馈与目标不一致） | 否，也不是失败 | **保持到跟踪期结束** |
+| 确定失败（`writeback-failed`、`control-rejected` 等） | 执行失败 + 阶段 + 实际原因 | — | 解除 |
+| `writeback-unconfirmed`（账本重放，无结果） | 视为未结束，继续等待 | 否 | 保持 |
+| 等待 10 秒仍无回执 | 等待回执超时，结果未知；继续跟踪到 70 秒，期间晚到的最终回执标为“晚到回执”替换显示 | 否 | 保持 |
 
-规则：只认本条命令（cmdId + 点号）的回执；最终结果出现后不再被任何较旧或矛盾的记录替换；一条命令无最终回执期间，该点不能再下发第二条本地命令（提示先核实现场）；任何情况都不自动重发。
+规则：只认本条命令（cmdId + 点号）的回执；最终结果出现后不再被任何较旧或矛盾的记录替换；任何情况都不自动重发。
+
+本地锁（第 8 节修正后）：命令被边端受理时登记到进程级的本地控制事务表 `ControlTransactionRegistry`（`localControlTransactions()`），与页面和控件的生命周期无关。只有本命令、本点的确定最终回执（上表“解除”）才解锁；没有回执、非最终重放和结果未知都保持锁定，到跟踪期截止（单调时钟，按钮与参数输入 70 秒，PCS 三相 70 秒）一律解锁，不留永久锁。运行窗口每次刷新都会轮询事务表，所以页面因退出登录、登录过期或工程重载被重建后，晚到回执仍能结算；重新登录后锁仍有效。事务按 cmdId 区分，旧命令的晚到回执不会解除新命令的锁。事务表只在内存中：KY-SCADA 进程重启后不保留锁。
 
 ## 2. 修改的消费路径
 
 | 路径 | 修改前 | 修改后 |
 | --- | --- | --- |
-| 本地画面按钮（`local_display_qt_scada_scene.cpp` → 新 `local_display_qt_control_receipt.cpp`） | `success=false` 一律显示“驱动执行失败”（含结果未知）；成功不区分“仅提交/写入/反馈确认”；10 秒后不再接收晚到回执；不核对回执是否属于本命令 | 按上表分类；核对 cmdId+点号；晚到回执可替换超时显示；未结束命令锁住该点 |
+| 本地画面按钮（`local_display_qt_scada_scene.cpp` → `local_display_qt_control_receipt.cpp`） | `success=false` 一律显示“驱动执行失败”（含结果未知）；成功不区分“仅提交/写入/反馈确认”；10 秒后不再接收晚到回执；不核对回执是否属于本命令 | 按上表分类；核对 cmdId+点号；晚到回执可替换超时显示；锁见第 1 节 |
 | 本地画面参数输入（同上） | 提交后只提示“已提交”，不跟踪回执 | 与按钮共用同一跟踪 |
-| PCS 分相功率（`local_display_qt_pcs_power_control.cpp`） | 每相只显示“成功/失败”，取到第一条回执后不再刷新；汇总按 success | 每相按分类显示；未结束的相继续查询直到最终回执或 70 秒；汇总区分全部反馈确认、写入未确认、结果未知、失败；未结束期间锁定该三相点 |
+| PCS 分相功率（`local_display_qt_pcs_power_control.cpp`） | 每相只显示“成功/失败”，取到第一条回执后不再刷新；汇总按 success | 每相按分类显示；未结束的相继续查询直到最终回执或 70 秒；汇总按执行失败、结果未知、无最终回执、已下发未确认、协议写入未确认、本地参数已提交、反馈确认分别计数，不比逐相证据更强；三相锁见第 1 节，确认对话框之后再次检查 |
 | Windows 预览桥接（`scada_windows_renderer_main.cpp`） | 第一条主机回执即弹出待查队列，晚到的最终回执被丢弃；忽略 outcome 字段 | 读取 `outcome/outcomeUnknown/feedbackMismatch/isFinal`；非最终回执不出队；最终回执不被替换；缺少 outcome 字段时按旧版规则（只有未下发的阶段才算确定失败） |
 | 图形 EMS `confirmedControlWrite`（`confirmed_control.hpp`、`graph_ems_engine.cpp`） | 只接受“写后回读”的目标，CAN/DO 无法使用；所有未确认回执都记 -1（失败）；账本重放的未结束回执也被当成最终结果 | 见第 3 节 |
-| AGC/AVC（`agc_avc_service.cpp`） | 结果未知（含无回执超时）按失败处理并清除已下发值，之后会**以新 cmdId 重发同一设定值** | 结果未知仍计入连续失败次数，但保留已下发值，不重发同一值；配置了 PCS 遥测反馈时由遥测判定；只有安全态 0（不可用 PCS 的尽力下发）仍会重发；账本重放的未结束回执在超时内继续等待 |
+| AGC/AVC（`agc_avc_service.cpp`） | 结果未知（含无回执超时）按失败处理并清除已下发值，之后会**以新 cmdId 重发同一设定值** | 见第 4 节 |
 | MQTT 回执、直连维护、第三方转发、pointctl | 已原样转发 stage/outcome/verifyPassed，并有非最终/最终回执与同 cmdId 查询 | 未改 |
 
 ## 3. confirmedControlWrite 的目标规则
@@ -42,50 +44,100 @@
 
 不满足时节点在下发前拒绝、不发送，状态 -2 并报错。锁存回读、`writeback-submitted`、坏质量、过期或发送之前的旧值都不算确认。回执结果：确认 → 3；确定失败 → -1；结果未知、不一致、写入但未确认 → **-2**（原来记 -1）。账本重放的 `writeback-unconfirmed` 不结束事务，等待最终回执或超时。超时之后晚到的确认只结束事务、不清除故障；重启后保留原事务、不重放、不恢复使能。
 
-## 4. 兼容影响
+## 4. AGC/AVC 的结果未知
+
+结果未知（未知回执、反馈不一致、到 `writeResultTimeoutMs` 仍无回执、超时后的账本重放）登记为该目标点的**未知事务**（cmdId、值）。规则（第 8 节修正后）：
+
+- 未知事务的值**永不再发**，与写入死区（包括 0）和普通失败处理无关。第六轮的实现借用死区比较，死区为 0 时会以新 cmdId 重发同一值，已修正。
+- PCS 遥测反馈超时**不**结束未知事务：遥测不到位不能证明原命令没有执行。第六轮的实现在遥测超时后按普通失败清除已下发值，会以新 cmdId 重发，已修正；同一事务也不再被重复计入连续失败次数。
+- 未知事务在以下情况结束：同一 cmdId 的晚到**确定**回执（成功：结束；确定失败：原命令未执行，允许以新 cmdId 再试）；PCS 遥测到达目标（视为已执行）；控制器给出**不同**的设定值并被受理（新命令取代）。
+- 唯一例外（原有规则，保留）：已使能但不可用的 PCS（离线、SOC 不可用等）按尽力下发安全态 0，即使 0 正是未知事务的值。达到 `maxConsecutiveWriteFailures` 后的失效归零不属于该例外：若未知事务的值本身就是 0，不再重发 0（见第 6 节待决定）。
+- 未知事务只在内存中，AGC/AVC 服务重启后不保留。
+- 已确认写入（回执成功）之后 PCS 遥测超时，仍按原有规则视为失败并允许重发，这是第六轮之前就有的行为，未改。其中 `writeback-submitted`（仅提交）在 AGC/AVC 里按成功处理；若 PCS 目标点走 CAN/DO 等只能“仅提交”的通道，需另行评估。
+
+本轮**没有**开放“遥测不到位即自动重试”的策略；若现场确需自动重试，应单独定义授权与条件后再实现。
+
+## 5. 兼容影响
 
 - 回执协议、共享内存布局、MQTT 字段均未改变；平台和 KY-EMS 收到的内容不变。
 - `confirmedControlWrite` 的状态输出：未确认但可能已执行的情况由 -1 改为 -2。读该输出点的逻辑（若有）需知道 -2 也表示“需人工复位”。仓库发货配置中没有使用该节点。
-- AGC/AVC：结果未知时不再自动以新 cmdId 重发同一设定值。若现场依赖这种重发来补偿丢包，需要配置 PCS 遥测反馈（`feedbackTimeoutMs`），由遥测不到位触发重新下发。
-- 本地画面：未结束的命令会锁住该点最长 70 秒；需要紧急操作时应使用设备侧或独立急停回路，不依赖本画面。
-- 画面：单一来源的状态遇到未定义枚举由“--”改为“未知(原值)”（放不下时只显示“未知”，原值进提示；陈旧、坏质量仍为“--”）；预留按钮可以点击并说明原因（仍不下发）；电芯页共用探头只显示一次；PCS 模式标签改为“模式设定”；PCS 监测页“控制模式”改为“PCS远程/就地”。
+- AGC/AVC：结果未知时不再自动重发同一设定值，零死区和遥测超时也不例外。若现场以前依赖这种重发补偿丢包，升级后会表现为连续失败计数上升、按 `maxConsecutiveWriteFailures` 进入失效处理，需人工核实。
+- 本地画面：结果未知（包括驱动给出的超时/不一致回执）的点在 70 秒跟踪期内不能再次下发，退出登录、重新登录和工程重载都不能绕过；需要紧急操作时应使用设备侧或独立急停回路，不依赖本画面。
+- 画面：单一来源的状态遇到未定义枚举由“--”改为“未知(原值)”（控件配置了默认文字时用默认文字，如 PCS 模式设定显示“未知状态(7)”；放不下时只显示该文字，原值进提示；陈旧、坏质量仍为“--”）；组合状态（如并网/离网两路反馈）的无效组合仍显示“--”；预留按钮可以点击并说明原因（仍不下发）；电芯页共用探头只显示一次；PCS 模式标签改为“模式设定”；PCS 监测页“控制模式”改为“PCS远程/就地”。
 - 生成器：断路器槽位固定按 zh-CN 排序（并网、储能、负荷）。区域设置为 zh-CN 的主机（按拼音排序）结果与以前相同，Windows 上未实测；其他区域设置的主机上生成时，槽位顺序会与以前不同（以前随主机变化）。已发布的工程包不受影响，重新生成时才会体现。
-- 构建：新增源文件 `local_display_qt_control_receipt.cpp`，已加入 CMake、`tools/build_scada_qt_aarch64.sh` 和辅助脚本。Windows 预览工程补上了 SOE 依赖（`soe_store.cpp` 等）；修改前在 Linux 上无法链接，Windows 构建本轮未验证。
+- 构建：新增源文件 `local_display_qt_control_receipt.cpp`，已加入 CMake、`tools/build_scada_qt_aarch64.sh` 和辅助脚本；事务表是头文件，不新增源文件。22.11 的 Qt 测试由 3 个变为 5 个（新增 `local_display_qt_control_receipt_test`、`local_display_qt_pcs_receipt_test`）。Windows 预览工程补上了 SOE 依赖（`soe_store.cpp` 等）；修改前在 Linux 上无法链接，Windows 构建未验证。
 
-## 5. 未完成
+## 6. 未完成与待决定
 
-- **平台与 KY-EMS 仓库无法访问**：平台侧对“仅提交”“结果未知”“晚到回执”的展示和统计，以及旧 `ky-ems/KY-EMS` 二进制的行为，本轮未改、未验证。**不能宣称全链路闭环**。
-- 104 现场工程需用现场运行配置重新生成后复核实际绑定；HGM6110NC 发电机控制需在标准生成后再运行 `prepare_comm104_hgm6110nc_controls.py`；柴油机监测页尚未绑定 HGM 读点。
+- **平台与 KY-EMS 仓库无法访问**：平台侧对“仅提交”“结果未知”“晚到回执”的展示和统计，以及旧 `ky-ems/KY-EMS` 二进制的行为，未改、未验证。**不能宣称全链路闭环**。
+- 104 发布前提不变：通用 56 页生成器不能替代 104 现场工程。必须用现场运行配置（`-RuntimeConfigDirectory`）重新生成、显式传入 BAU（`-BauMeterCode`）、标准生成后再运行 `prepare_comm104_hgm6110nc_controls.py`；不得因为重新生成丢掉现场工程已有的绑定。未确认的电表口径（变压器/电网与 10xx/11xx、曲线“电源侧”）不猜测补齐。
+- 通用生成器输出的柴油机监测页没有 HGM 读点绑定；104 现场工程当前页面是否已有绑定未核对，不能据此推断现场缺绑定。
+- 待决定：AGC/AVC 失效归零时，若未知事务的值本身是 0，是否也按安全态例外重发 0（当前不重发，保守）；是否需要“遥测不到位自动重试”的授权策略（当前未开放）。
+- KY-SCADA 进程重启、AGC/AVC 服务重启后，内存中的锁和未知事务不保留。
 - 22.11 交叉编译（含 Qt）、目标板运行、实屏显示与触摸、真实设备联调均未执行。
 
-## 6. 操作说明（本地画面）
+## 7. 操作说明（本地画面）
 
 1. 点击控制按钮后，回执框按第 1 节显示。只有“反馈确认成功”或“画面反馈点…一致”是动作确认；“已下发，未确认”“协议写入成功，动作未确认”需现场核实。
-2. 出现“结果未知”时不要重复点击：该点会被锁住到最终回执或 70 秒，期间提示上一条命令编号。先到现场或在监测页核实实际状态，再决定是否重新操作。
-3. 灰色按钮可以点击，只会弹出不可用的原因（PCS 就地、反馈过期、未开放等），不会下发命令。
+2. 出现“结果未知”时不要重复点击：该点保持锁定，直到出现确定回执或 70 秒跟踪期结束，期间点击会提示上一条命令编号。退出登录或重新登录不会解除。先到现场或在监测页核实实际状态，再决定是否重新操作。
+3. PCS 三相功率的汇总逐类列出各相结果，例如“3 相已下发、未确认”不等于协议写入成功，更不等于功率已到位。
+4. 灰色按钮可以点击，只会弹出不可用的原因（PCS 就地、反馈过期、未开放等），不会下发命令。
 
-## 7. 提交与实际验证结果
+## 8. 提交与实际验证结果
+
+### 8.1 第六轮提交（`eeaaa8a..7377901`）
 
 | 提交 | 内容 |
 | --- | --- |
 | `9070897` | feat(control)：控制回执分类 `control_receipt_view.hpp` 与测试 |
 | `0c5f1e6` | fix(scada)：本地画面按钮/参数输入/PCS 分相功率/Windows 预览桥接按分类显示，晚到回执，未结束命令锁点 |
 | `542c8be` | fix(ems-graph)：`confirmedControlWrite` 支持 CAN/DO `verifyIndex` 辅助反馈 |
-| `f8f052e` | fix(agc-avc)：结果未知不以新 cmdId 重发同一设定值 |
-| `0181827` | fix(scada)：未知枚举原值、未开放控件说明原因、状态文字自适应 |
+| `f8f052e` | fix(agc-avc)：结果未知不以新 cmdId 重发同一设定值（不完整，见 8.2） |
+| `0181827` | fix(scada)：未知枚举原值、未开放控件说明原因、状态文字自适应（带入组合状态回退，见 8.2） |
 | `ea265cb` | fix(ems2)：电芯共用探头只显示一次、单位按倍率、PCS 标签与预留原因 |
 | `5e08dd6` | fix(ems2)：断路器槽位顺序不随构建主机区域设置变化 |
-| `1dde69e` | build(scada)：`tools/build_scada_qt_aarch64.sh --with-tests` 增加 `local_display_qt_control_receipt_test`（22.11 Qt 测试由 3 个变为 4 个） |
-| 本文档所在提交 | docs：本说明与画面逐页审查 |
+| `1dde69e` | build(scada)：22.11 Qt 测试加入回执跟踪测试 |
+| `7377901` | docs：本说明与画面逐页审查 |
 
-验证分级如下，只有“模拟验证”和“编译通过”两类，**没有现场验收**：
+### 8.2 接收复核后的补修（`7377901..`）
+
+接收复核在本机（WSL GCC 15.2 Debug、Qt 5.15.18 offscreen、隔离命名空间）用反例确认了 3 项问题；补修时又发现 1 项第六轮带入的回退。
+
+| 提交 | 问题 | 修正 |
+| --- | --- | --- |
+| `cae85de` | 第六轮 `0181827` 把状态无匹配时的默认文字改成“未知”，组合状态的无效组合不再显示“--”。只有带工程参数运行 `local_display_qt_lanhu_test` 才执行该断言，第六轮只跑了不带参数的 CTest，未发现 | 只有单一来源的未定义枚举显示“未知(原值)”，组合状态恢复“--” |
+| `adc4eac` | [P1] AGC 结果未知仍会以新 cmdId 重发同一值：死区为 0 时；遥测超时把未知当失败清除时 | 第 4 节 |
+| `daf21cf` | [P2] PCS 控件销毁后三相锁永不过期；普通回执框析构会提前解锁 | 第 1 节“本地锁” |
+| `4561ce5` | [P2] PCS 汇总把仅提交/本地提交/协议写入合并成“三相协议写入成功” | 第 2 节 PCS 一行 |
+| 本文档所在提交 | docs：本说明与画面逐页审查更新 | — |
+
+反例修复前后对照（云端 x86_64 GCC 13.3，Qt 6 offscreen；“修复前”= `7377901` 源码 + 新测试）：
+
+| 反例 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 复核者 PCS 夹具 `pcs-submitted-summary`（三相均为 `writeback-submitted`） | 失败：`三相协议写入成功，其中 3 相未经回读确认（动作未确认）` | 通过：`A/B/C 三相：3 相已下发、未确认（仅交给输出或通信，设备是否动作未确认）` |
+| 复核者 PCS 夹具 `pcs-destroy-lock`（受理后销毁控件，等待原 70000 ms 截止 + 200 ms） | 失败：`tagUnresolved=1` | 通过：`tagUnresolved=0`，`fakeWrites=1` |
+| 回执框页面销毁（新夹具，两版共用） | 失败：销毁后立即解锁 | 通过：销毁后仍锁定 |
+| `agc_avc_unknown_result_test` 12 个场景 | 7 个失败：零死区、反馈不一致、无回执、遥测超时（正/零死区）、晚到确定失败、失效阈值 | 12 个全部通过 |
+| `local_display_qt_lanhu_test` 带工程参数 | 失败：`invalid mode pair claims a mode` | 通过（含新增的退出/重新登录后锁仍有效、窗口刷新结算晚到回执） |
+
+修复前在零死区和遥测超时两种情况下观察到的就是复核报告中的同值重发；“晚到确定失败”在修复前失败，是因为旧实现根本不跟踪晚到回执（新增能力），不是复核所列问题。
+
+### 8.3 验证分级
+
+只有“模拟验证”“编译通过”和“语法检查”三类，**没有现场验收**：
 
 | 项目 | 环境 | 结果 | 分级 |
 | --- | --- | --- | --- |
-| CTest 全量（x86_64 GCC 13.3 Release，Qt 6 offscreen） | 云端 | 157 项中 156 项通过；`ems_control_mode_test` 默认不构建（Not Run），单独构建运行通过 | 模拟验证 |
-| 中间提交 `0c5f1e6` 单独构建 | 云端 | `control_receipt_view`、`local_display_qt_control_receipt`、`local_display_qt_lanhu` 通过 | 模拟验证 |
-| PowerShell 生成器测试（pwsh 7.4.6 Linux） | 云端 | `lanhu-scada`、`lanhu-inventory`、`generate-scada`、`local-controls`、`lanhu-controls` 全部通过 | 模拟验证 |
-| 布局审计 `--layout-audit` | 云端 Qt 6 | 448 次渲染，越界/重叠 0 项 | 模拟验证 |
-| 边端 19 个目标交叉编译（`tools/build_edge_aarch64.sh --clean`） | 云端 Ubuntu aarch64 GCC 6.4.0（放在 Linaro 路径名下的替身，不是 22.11 的 Linaro 6.3.1 与厂商 sysroot） | 通过，0 警告 | 编译通过（不可部署） |
-| Qt 源文件（回执跟踪、画面、PCS 功率、回执跟踪测试）GCC 6.4.0 `-std=gnu++17 -fsyntax-only` | 云端，Ubuntu Qt 5.15 头文件（不是设备 Qt 5 sysroot） | 通过；仅既有的 `QWheelEvent::pos()` 弃用警告 | 语法检查 |
-| 22.11 交叉编译（含 KY-SCADA Qt 5）、目标板运行、实屏与触摸、真实设备 | — | **未执行** | — |
+| 新增与相关测试：`agc_avc_unknown_result`、`agc_avc_controller`、`control_transaction_registry`、`control_receipt_view`、`local_display_qt_control_receipt`、`local_display_qt_pcs_receipt`、`local_display_qt_lanhu`（不带参数与带工程参数） | 云端 x86_64 GCC 13.3 Release，Qt 6 offscreen | 全部通过 | 模拟验证 |
+| CTest 全量 | 同上，独立 IPC/挂载命名空间 | 见 8.4 | 模拟验证 |
+| 布局审计 `--layout-audit`（含断路器排序修复后重新生成的工程） | 云端 Qt 6 | 448 次渲染，越界/重叠 0 项 | 模拟验证 |
+| PowerShell 生成器测试 5 组 | 云端 pwsh 7.4.6 | 第六轮结果，本轮未改生成器 | 模拟验证 |
+| 修改的 C++ 源文件与测试 GCC 6.4.0 aarch64 `-fsyntax-only`（Qt 部分对 Ubuntu Qt 5.15 头文件） | 云端，替身工具链，不是 22.11 的 Linaro 6.3.1 与厂商 sysroot | 通过；`agc_avc_controller_test.cpp` 中既有的 `has_value()`（GCC 6 的 experimental optional 没有）报错，非本轮引入，该测试不在 aarch64 构建列表 | 语法检查 |
+| 22.11 交叉编译（含 KY-SCADA Qt 5 与 5 个 Qt 测试）、目标板运行、实屏与触摸、真实设备、平台联调 | — | **未执行** | — |
+
+### 8.4 CTest 全量
+
+补修后的完整源码（与最终提交一致），云端 x86_64 GCC 13.3 Release、Qt 6 offscreen，独立挂载与 IPC 命名空间、独立 `/dev/shm`：160 项中 158 项通过。未通过的 `memory_point_store_migration`、`memory_point_store_v11_migration` 报“cannot inspect /proc/1/maps”，是运行环境没有独立 PID 命名空间所致，与本轮修改无关；在独立 PID 命名空间（`--pid --mount-proc`）中重跑这 2 项均通过。`ems_control_mode_test` 默认不构建，单独构建运行通过。新增的 3 项（`agc_avc_unknown_result`、`control_transaction_registry`、`local_display_qt_pcs_receipt`）包含在 160 项内。
+
+中间提交：`cae85de`、`adc4eac`、`daf21cf` 的修改文件逐一做了编译检查。`daf21cf` 单独构建后 `control_transaction_registry`、`local_display_qt_control_receipt`、`local_display_qt_lanhu`（不带参数与带工程参数）通过；`cae85de` 单独构建后 `local_display_qt_lanhu` 带工程参数通过。对照：`eeaaa8a` 带工程参数通过，`7377901` 失败（组合状态回退）。
