@@ -18,7 +18,7 @@ flags=(--sysroot="$sysroot" -std=gnu++17 -O2 -fPIC -DQT_WIDGETS_LIB -DQT_GUI_LIB
        -I"$qt" -I"$qt/QtCore" -I"$qt/QtGui" -I"$qt/QtWidgets")
 objects=()
 # Deliberately no libedge_gateway.a or point-store objects.
-for source in tools/scada_capture_readonly.cpp local_display_qt_scada_scene.cpp local_display_qt_access_control.cpp local_display_qt_pcs_power_control.cpp local_display_qt_value_map.cpp src/scada_project_loader.cpp; do
+for source in tools/scada_capture_readonly.cpp local_display_qt_scada_scene.cpp local_display_qt_access_control.cpp local_display_qt_pcs_power_control.cpp local_display_qt_control_receipt.cpp local_display_qt_value_map.cpp src/scada_project_loader.cpp; do
     object="$output/$(basename "$source").o"
     "$cxx" "${flags[@]}" -c "$root/$source" -o "$object"
     objects+=("$object")

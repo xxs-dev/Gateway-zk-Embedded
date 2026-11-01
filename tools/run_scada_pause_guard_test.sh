@@ -10,7 +10,7 @@ if ! pkg-config --exists "$qt"; then qt=Qt6Widgets; fi
 read -r -a qt_flags <<< "$(pkg-config --cflags "$qt")"
 read -r -a qt_libs <<< "$(pkg-config --libs "$qt")"
 objects=()
-for source in local_display_qt_scada_scene.cpp local_display_qt_access_control.cpp local_display_qt_pcs_power_control.cpp local_display_qt_value_map.cpp src/scada_project_loader.cpp; do
+for source in local_display_qt_scada_scene.cpp local_display_qt_access_control.cpp local_display_qt_pcs_power_control.cpp local_display_qt_control_receipt.cpp local_display_qt_value_map.cpp src/scada_project_loader.cpp; do
     object="$output/$(basename "$source").o"
     g++ -std=c++17 -fPIC -O0 -g -I"$root" -I"$root/include" "${qt_flags[@]}" -c "$root/$source" -o "$object"
     objects+=("$object")

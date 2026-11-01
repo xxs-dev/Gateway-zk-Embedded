@@ -363,6 +363,7 @@ if(Qt6Widgets_FOUND)
         local_display_qt_scada_scene.cpp
         local_display_qt_access_control.cpp
         local_display_qt_pcs_power_control.cpp
+        local_display_qt_control_receipt.cpp
         local_display_qt_value_map.cpp
     )
     target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt6::Widgets)
@@ -386,6 +387,7 @@ else()
             local_display_qt_scada_scene.cpp
             local_display_qt_access_control.cpp
             local_display_qt_pcs_power_control.cpp
+            local_display_qt_control_receipt.cpp
             local_display_qt_value_map.cpp
         )
         target_link_libraries(LocalDisplayQtEms PRIVATE edge_gateway Qt5::Widgets)
@@ -421,6 +423,7 @@ if(BUILD_TESTING AND TARGET LocalDisplayQtEms)
         local_display_qt_scada_scene.cpp
         local_display_qt_access_control.cpp
         local_display_qt_pcs_power_control.cpp
+        local_display_qt_control_receipt.cpp
         local_display_qt_value_map.cpp
     )
     target_include_directories(local_display_qt_lanhu_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -431,6 +434,19 @@ if(BUILD_TESTING AND TARGET LocalDisplayQtEms)
     endif()
     add_test(NAME local_display_qt_lanhu COMMAND local_display_qt_lanhu_test)
     set_tests_properties(local_display_qt_lanhu PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    # control-confirmation: receipt dialog wording, late receipts and the per-point lock
+    add_executable(local_display_qt_control_receipt_test
+        tools/local_display_qt_control_receipt_test.cpp
+        local_display_qt_control_receipt.cpp
+    )
+    target_include_directories(local_display_qt_control_receipt_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(Qt6Widgets_FOUND)
+        target_link_libraries(local_display_qt_control_receipt_test PRIVATE edge_gateway Qt6::Widgets)
+    else()
+        target_link_libraries(local_display_qt_control_receipt_test PRIVATE edge_gateway Qt5::Widgets)
+    endif()
+    add_test(NAME local_display_qt_control_receipt COMMAND local_display_qt_control_receipt_test)
+    set_tests_properties(local_display_qt_control_receipt PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 add_executable(CameraService camera_service_main.cpp)

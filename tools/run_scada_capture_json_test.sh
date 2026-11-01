@@ -9,7 +9,7 @@ mkdir -p "$output"
 read -r -a flags <<< "$(pkg-config --cflags Qt5Widgets)"
 read -r -a libs <<< "$(pkg-config --libs Qt5Widgets)"
 deps=()
-for name in local_display_qt_scada_scene.cpp local_display_qt_access_control.cpp local_display_qt_pcs_power_control.cpp local_display_qt_value_map.cpp scada_project_loader.cpp; do
+for name in local_display_qt_scada_scene.cpp local_display_qt_access_control.cpp local_display_qt_pcs_power_control.cpp local_display_qt_control_receipt.cpp local_display_qt_value_map.cpp scada_project_loader.cpp; do
     deps+=("$objects/$name.o")
 done
 for name in scada_capture_json_test scada_capture_readonly; do

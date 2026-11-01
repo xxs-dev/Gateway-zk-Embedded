@@ -5,6 +5,7 @@
 
 #include "edge_gateway/scada_project_loader.hpp"
 #include "local_display_qt_pcs_power_control.hpp"
+#include "local_display_qt_control_receipt.hpp"
 
 #include <algorithm>
 #include <array>
@@ -142,6 +143,17 @@ bool parseDouble(const std::string& text, double* result) {
     const auto value = std::strtod(text.c_str(), &end);
     if (end == text.c_str() || end == nullptr || *end != '\0' || !std::isfinite(value)) return false;
     *result = value;
+    return true;
+}
+
+// A local command whose result is still open locks its point: no second command until the first one
+// has a final receipt (or its tracking ended unknown), so an unknown result is never "retried" locally.
+bool refuseUnresolvedControl(QWidget* parent, const std::string& tagId) {
+    std::string cmdId;
+    if (!ControlReceiptTracker::tagUnresolved(tagId, &cmdId)) return false;
+    QMessageBox::warning(parent, QString::fromUtf8("控制未完成"),
+        QString::fromUtf8("该控制点上一条命令（%1）尚无最终回执，结果未知。请先在现场核实，不要重复下发。")
+            .arg(QString::fromStdString(cmdId)));
     return true;
 }
 
@@ -1575,6 +1587,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
         QMessageBox::warning(this, QString::fromUtf8("控制未完成"), QString::fromUtf8("上一条命令仍在等待回执，请勿重复下发。"));
         return;
     }
+    if (refuseUnresolvedControl(this, action.tagId)) return;
     if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
 
     const auto resolved = runtime_.resolveTag(action.tagId);
@@ -1669,6 +1682,7 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
     // A modal confirmation runs an event loop; the mode can change while it is open.
     if (!requirePcsRemote(this, runtime_, pcsRemoteTag, action.tagId, nowMs())) return;
     if (pauseGuardRequired && !requirePausedControl(pauseModeTag, pauseAppliedTag)) return;
+    if (controlInFlight_ || refuseUnresolvedControl(this, action.tagId)) return;
     const auto latest = runtime_.resolveTag(action.tagId);
     if (!latest || latest->tag.nodeId != runtime_.nodeId() || !latest->mapping.writable ||
         latest->mapping.index != resolved->mapping.index || latest->tag.deviceId != resolved->tag.deviceId) return;
@@ -1687,55 +1701,18 @@ void ScadaSceneView::handleAction(const edge_gateway::ScadaWidgetAction& action,
 
     // Queue admission, protocol acknowledgement and physical readback are distinct.
     controlInFlight_ = true;
-    auto* receipt = new QMessageBox(QMessageBox::Information, QString::fromUtf8("控制执行结果"),
-        QString::fromUtf8("命令已受理，等待驱动回执。\n%1").arg(QString::fromStdString(command.cmdId)),
-        QMessageBox::Close, this);
-    receipt->setAttribute(Qt::WA_DeleteOnClose);
-    receipt->setWindowModality(Qt::WindowModal);
-    receipt->show();
-    const QPointer<QMessageBox> receiptGuard(receipt);
-    auto* poll = new QTimer(this);
-    poll->setInterval(200);
-    const auto deadline = nowMs() + 10000;
-    QObject::connect(poll, &QTimer::timeout, this,
-        [this, poll, receiptGuard, command, action, feedbackTag, feedbackValue, deadline]() {
-        const auto now = nowMs();
-        const auto ack = runtime_.getWritebackResult(action.tagId, command.cmdId);
-        QString message;
-        bool finished = false;
-        bool success = false;
-        if (ack && !ack->success) {
-            message = QString::fromUtf8("驱动执行失败：%1").arg(QString::fromStdString(ack->message));
-            finished = true;
-        } else if (ack && feedbackTag.empty()) {
-            message = QString::fromUtf8("驱动回执成功，未配置独立状态核验；不代表设备动作已确认。");
-            finished = true;
-            success = true;
-        } else if (ack) {
-            const auto feedback = runtime_.readTag(feedbackTag, now);
-            const auto valid = feedback && feedback->quality == 1 && !feedback->stale &&
-                feedback->ts > std::max(command.ts, ack->completedAt) && std::isfinite(feedback->value);
-            if (valid && std::fabs(feedback->value - feedbackValue) < 0.00001) {
-                message = QString::fromUtf8("驱动回执成功，命令之后的新鲜反馈与目标一致。");
-                finished = success = true;
-            } else {
-                message = QString::fromUtf8("驱动回执成功，等待命令之后的新鲜目标反馈。");
-            }
-        } else {
-            message = QString::fromUtf8("命令已受理，等待驱动回执。");
-        }
-        if (!finished && now >= deadline) {
-            message = ack ? QString::fromUtf8("驱动回执成功，但设备反馈未确认（无效、过期或与目标不一致）。")
-                          : QString::fromUtf8("等待驱动回执超时；设备可能仍在执行，未自动重发。");
-            finished = true;
-        }
-        if (receiptGuard) {
-            receiptGuard->setText(message + QStringLiteral("\n") + QString::fromStdString(command.cmdId));
-            if (finished) receiptGuard->setIcon(success ? QMessageBox::Information : QMessageBox::Warning);
-        }
-        if (finished) { controlInFlight_ = false; poll->stop(); poll->deleteLater(); }
+    ControlReceiptTracker::Request tracked;
+    tracked.tagId = action.tagId;
+    tracked.index = latest->mapping.index;
+    tracked.cmdId = command.cmdId;
+    tracked.value = target;
+    tracked.commandTs = command.ts;
+    tracked.feedbackTag = feedbackTag;
+    tracked.feedbackValue = feedbackValue;
+    const QPointer<ScadaSceneView> self(this);
+    ControlReceiptTracker::start(this, runtime_, tracked, [self]() {
+        if (self) self->controlInFlight_ = false;
     });
-    poll->start();
 
     if (action.type == "pulse") {
         const auto tagId = action.tagId;
@@ -2043,6 +2020,11 @@ ScadaSceneView::RuntimeWidget* ScadaSceneView::inputWidgetAt(const QPoint& viewp
 }
 
 void ScadaSceneView::editInput(RuntimeWidget& widget) {
+    if (controlInFlight_) {
+        QMessageBox::warning(this, QString::fromUtf8("参数写入"), QString::fromUtf8("上一条命令仍在等待回执，请勿重复下发。"));
+        return;
+    }
+    if (refuseUnresolvedControl(this, widget.inputTagId)) return;
     if (widget.pauseGuardRequired &&
         !requirePausedControl(widget.pauseGuardModeTag, widget.pauseGuardAppliedTag)) return;
     const auto resolved = runtime_.resolveTag(widget.inputTagId);
@@ -2127,6 +2109,7 @@ void ScadaSceneView::editInput(RuntimeWidget& widget) {
     );
     if (answer != QMessageBox::Yes) return;
 
+    if (controlInFlight_ || refuseUnresolvedControl(this, widget.inputTagId)) return;
     if (widget.pauseGuardRequired &&
         !requirePausedControl(widget.pauseGuardModeTag, widget.pauseGuardAppliedTag)) return;
     edge_gateway::PendingWriteCommand command;
@@ -2147,14 +2130,18 @@ void ScadaSceneView::editInput(RuntimeWidget& widget) {
     }
 
     refresh(nowMs());
-    QMessageBox::information(
-        this,
-        QString::fromUtf8("写入请求已受理"),
-        QString::fromUtf8("%1 的目标值 %2 已提交，等待设备执行回执。\n边端返回：%3")
-            .arg(displayName)
-            .arg(formatNumber(target))
-            .arg(QString::fromStdString(result.message))
-    );
+    ControlReceiptTracker::Request tracked;
+    tracked.tagId = widget.inputTagId;
+    tracked.index = resolved->mapping.index;
+    tracked.cmdId = command.cmdId;
+    tracked.value = target;
+    tracked.commandTs = command.ts;
+    tracked.title = QString::fromUtf8("参数写入结果");
+    controlInFlight_ = true;
+    const QPointer<ScadaSceneView> self(this);
+    ControlReceiptTracker::start(this, runtime_, tracked, [self]() {
+        if (self) self->controlInFlight_ = false;
+    });
 }
 
 ScadaSceneView::RuntimeTrendSeries* ScadaSceneView::trendLegendSeriesAt(const QPoint& viewportPosition) {

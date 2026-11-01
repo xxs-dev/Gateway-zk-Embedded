@@ -8,6 +8,7 @@
 
 #include "edge_gateway/compat.hpp"
 #include "edge_gateway/models.hpp"
+#include "edge_gateway/control_receipt_view.hpp"
 #include "local_display_qt_scada_runtime.hpp"
 
 class QCheckBox;
@@ -66,8 +67,13 @@ private:
         std::array<std::string, 3> tagIds;
         std::array<double, 3> targets{{0.0, 0.0, 0.0}};
         std::array<edge_gateway::Optional<edge_gateway::WritebackResultRecord>, 3> results;
+        std::array<edge_gateway::ControlReceiptView, 3> views;
         std::int64_t requestedAt = 0;
         std::int64_t deadlineAt = 0;
+        // After the deadline a missing receipt is shown as unknown; a late final receipt is still
+        // taken until trackUntil. The batch stays locked (no second batch) until then.
+        std::int64_t trackUntil = 0;
+        bool deadlineReported = false;
     };
 
     void buildUi();

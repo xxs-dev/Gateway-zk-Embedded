@@ -134,7 +134,14 @@ public:
         ++groupWriteCalls;
         return {true, "fixture accepted, not executed"};
     }
-    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(const std::string&, const std::string&) const override { return acknowledgement; }
+    // The fixture answers for whichever command asked unless the acknowledgement names another one.
+    edge_gateway::Optional<edge_gateway::WritebackResultRecord> getWritebackResult(const std::string& tagId, const std::string& cmdId) const override {
+        if (!acknowledgement) return acknowledgement;
+        auto ack = *acknowledgement;
+        if (ack.cmdId.empty()) ack.cmdId = cmdId;
+        if (ack.index == 0 && tagId.size() > 1 && tagId[0] == 't') ack.index = static_cast<std::uint32_t>(std::stoul(tagId.substr(1)));
+        return ack;
+    }
     void put(std::uint32_t index, double value, bool stale = false, int quality = 1) {
         edge_gateway::StoredPointValue point;
         point.index = index;

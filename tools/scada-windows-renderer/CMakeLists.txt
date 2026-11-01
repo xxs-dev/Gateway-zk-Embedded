@@ -14,8 +14,13 @@ add_executable(KY-SCADA-Windows
     "${GATEWAY_ROOT}/local_display_qt_scada_scene.cpp"
     "${GATEWAY_ROOT}/local_display_qt_access_control.cpp"
     "${GATEWAY_ROOT}/local_display_qt_pcs_power_control.cpp"
+    "${GATEWAY_ROOT}/local_display_qt_control_receipt.cpp"
     "${GATEWAY_ROOT}/local_display_qt_value_map.cpp"
     "${GATEWAY_ROOT}/src/scada_project_loader.cpp"
+    "${GATEWAY_ROOT}/src/soe_store.cpp"
+    "${GATEWAY_ROOT}/src/storage_budget.cpp"
+    "${GATEWAY_ROOT}/src/iec103_soe.cpp"
+    "${GATEWAY_ROOT}/src/iec_codec.cpp"
 )
 
 target_include_directories(KY-SCADA-Windows PRIVATE
@@ -39,8 +44,13 @@ add_executable(KY-SCADA-Lanhu-Test
     "${GATEWAY_ROOT}/local_display_qt_scada_scene.cpp"
     "${GATEWAY_ROOT}/local_display_qt_access_control.cpp"
     "${GATEWAY_ROOT}/local_display_qt_pcs_power_control.cpp"
+    "${GATEWAY_ROOT}/local_display_qt_control_receipt.cpp"
     "${GATEWAY_ROOT}/local_display_qt_value_map.cpp"
     "${GATEWAY_ROOT}/src/scada_project_loader.cpp"
+    "${GATEWAY_ROOT}/src/soe_store.cpp"
+    "${GATEWAY_ROOT}/src/storage_budget.cpp"
+    "${GATEWAY_ROOT}/src/iec103_soe.cpp"
+    "${GATEWAY_ROOT}/src/iec_codec.cpp"
 )
 target_include_directories(KY-SCADA-Lanhu-Test PRIVATE "${GATEWAY_ROOT}" "${GATEWAY_ROOT}/include")
 target_link_libraries(KY-SCADA-Lanhu-Test PRIVATE Qt6::Widgets)

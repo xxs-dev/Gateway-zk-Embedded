@@ -1,4 +1,5 @@
 #include "local_display_qt_pcs_power_control.hpp"
+#include "local_display_qt_control_receipt.hpp"
 #include "local_display_qt_pcs_remote_guard.hpp"
 
 #include <algorithm>
@@ -467,6 +468,15 @@ void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
         return;
     }
 
+    for (const auto& tag : tagIds(kind)) {
+        std::string unresolved;
+        if (ControlReceiptTracker::tagUnresolved(tag, &unresolved)) {
+            showPcsMessage(this, QMessageBox::Warning, QString::fromUtf8("PCS 功率写入"),
+                QString::fromUtf8("该相功率点上一条命令（%1）尚无最终回执，结果未知。请先核实设备，不要重复下发。")
+                    .arg(QString::fromStdString(unresolved)));
+            return;
+        }
+    }
     const auto plan = planFor(kind);
     QString validation;
     if (!validatePlan(kind, plan, &validation)) {
@@ -589,6 +599,8 @@ void PcsPhasePowerControl::submitWrite(PowerKind kind, const PcsPhasePowerPlan& 
     pending_.targets = plan.phases;
     pending_.requestedAt = command.ts;
     pending_.deadlineAt = command.ts + 10000;
+    pending_.trackUntil = command.ts + 70000;
+    for (const auto& tag : tags) ControlReceiptTracker::markUnresolved(tag, command.cmdId);
     activeSubmitButton_->setEnabled(false);
     reactiveSubmitButton_->setEnabled(false);
     for (std::size_t index = 0; index < resultLabels_.size(); ++index) {
@@ -607,65 +619,97 @@ void PcsPhasePowerControl::pollWriteback() {
         pollTimer_->stop();
         return;
     }
-    bool complete = true;
+    const auto now = currentTimeMs();
+    const bool deadlinePassed = now >= pending_.deadlineAt;
+    bool allFinal = true;
     for (std::size_t index = 0; index < pending_.tagIds.size(); ++index) {
-        if (!pending_.results[index]) {
-            pending_.results[index] = runtime_.getWritebackResult(pending_.tagIds[index], pending_.cmdId);
+        if (!pending_.views[index].final) {
+            auto result = runtime_.getWritebackResult(pending_.tagIds[index], pending_.cmdId);
+            if (result && !edge_gateway::controlReceiptMatches(*result, pending_.cmdId, 0)) {
+                result = edge_gateway::Optional<edge_gateway::WritebackResultRecord>(edge_gateway::NullOpt);
+            }
+            const auto next = edge_gateway::classifyControlReceipt(result, deadlinePassed);
+            if (edge_gateway::controlReceiptShouldReplace(pending_.views[index], next)) {
+                pending_.views[index] = next;
+                if (result) pending_.results[index] = result;
+            }
         }
-        if (!pending_.results[index]) {
-            complete = false;
-            continue;
-        }
-        const auto& result = *pending_.results[index];
-        const auto actual = runtime_.readTag(pending_.tagIds[index], currentTimeMs());
+        allFinal = allFinal && pending_.views[index].final;
+        const auto& view = pending_.views[index];
+        const auto actual = runtime_.readTag(pending_.tagIds[index], now);
         const auto actualText = actual && actual->quality == 1 && !actual->stale
             ? displayNumber(actual->value, 6)
             : QStringLiteral("--");
+        const auto& result = pending_.results[index];
         resultLabels_[index]->setText(QString::fromUtf8(
-            "%1相：%2\n目标 %3，回读 %4 %5\n排队 %6 ms，写入 %7 ms，总耗时 %8 ms"
+            "%1相：%2\n目标 %3，当前读数 %4 %5%6"
         ).arg(phaseName(index))
-         .arg(result.success ? QString::fromUtf8("成功") : QString::fromUtf8("失败"))
+         .arg(QString::fromUtf8(edge_gateway::controlReceiptStateText(view)))
          .arg(displayNumber(pending_.targets[index], 6))
          .arg(actualText)
          .arg(unit(pending_.kind))
-         .arg(result.queueDelayMs)
-         .arg(result.deviceWriteMs)
-         .arg(result.totalElapsedMs));
-        resultLabels_[index]->setToolTip(QString::fromStdString(result.message));
+         .arg(result && view.final
+             ? QString::fromUtf8("\n排队 %1 ms，写入 %2 ms，总耗时 %3 ms")
+                   .arg(result->queueDelayMs).arg(result->deviceWriteMs).arg(result->totalElapsedMs)
+             : QString()));
+        resultLabels_[index]->setToolTip(QString::fromStdString(view.stage + (view.message.empty() ? "" : "：" + view.message)));
     }
-    if (complete) {
+    if (allFinal) {
         finishPending(false);
-    } else if (currentTimeMs() >= pending_.deadlineAt) {
+    } else if (now >= pending_.trackUntil) {
         finishPending(true);
+    } else if (deadlinePassed && !pending_.deadlineReported) {
+        pending_.deadlineReported = true;
+        statusLabel_->setText(QString::fromUtf8(
+            "等待回执超过 10 秒，结果未知；未自动重发，继续等待晚到回执：%1").arg(QString::fromStdString(pending_.cmdId)));
     }
 }
 
 void PcsPhasePowerControl::finishPending(bool timedOut) {
     pollTimer_->stop();
-    bool allSucceeded = !timedOut;
+    using edge_gateway::ControlReceiptState;
+    int confirmed = 0, written = 0, unknown = 0, failed = 0;
     std::int64_t elapsed = 0;
-    for (std::size_t index = 0; index < pending_.results.size(); ++index) {
-        if (!pending_.results[index]) {
-            allSucceeded = false;
-            resultLabels_[index]->setText(QString::fromUtf8("%1相：回执超时，设备可能仍在执行")
-                .arg(phaseName(index)));
-            continue;
+    for (std::size_t index = 0; index < pending_.views.size(); ++index) {
+        const auto& view = pending_.views[index];
+        switch (view.state) {
+        case ControlReceiptState::FeedbackConfirmed: ++confirmed; break;
+        case ControlReceiptState::Submitted:
+        case ControlReceiptState::Written:
+        case ControlReceiptState::Committed: ++written; break;
+        case ControlReceiptState::Failed: ++failed; break;
+        default: ++unknown; break;
         }
-        allSucceeded = allSucceeded && pending_.results[index]->success;
-        elapsed = std::max(elapsed, pending_.results[index]->totalElapsedMs);
+        if (pending_.results[index]) elapsed = std::max(elapsed, pending_.results[index]->totalElapsedMs);
+        if (!view.final) {
+            resultLabels_[index]->setText(QString::fromUtf8("%1相：等待回执已结束，结果未知；设备可能已执行，未自动重发")
+                .arg(phaseName(index)));
+        }
     }
-    statusLabel_->setText(allSucceeded
-        ? QString::fromUtf8("三相写入完成，边端总耗时 %1 ms").arg(elapsed)
-        : timedOut
-            ? QString::fromUtf8("等待回执超过 10 秒，请查看各相结果；超时不代表设备一定未执行")
-            : QString::fromUtf8("三相写入存在失败，请查看各相原因"));
+    QString summary;
+    if (failed > 0) {
+        summary = QString::fromUtf8("%1 相执行失败，请查看各相原因；其余相按各自结果显示").arg(failed);
+    } else if (unknown > 0) {
+        summary = timedOut
+            ? QString::fromUtf8("%1 相在 %2 秒内无最终回执，结果未知；未自动重发，请先核实设备")
+                  .arg(unknown).arg((pending_.trackUntil - pending_.requestedAt) / 1000)
+            : QString::fromUtf8("%1 相结果未知（超时或反馈不一致）；未自动重发，请先核实设备").arg(unknown);
+    } else if (confirmed == 3) {
+        summary = QString::fromUtf8("三相写入均经回读/反馈确认，边端总耗时 %1 ms").arg(elapsed);
+    } else {
+        summary = QString::fromUtf8("三相协议写入成功，其中 %1 相未经回读确认（动作未确认），边端总耗时 %2 ms")
+            .arg(written).arg(elapsed);
+    }
+    statusLabel_->setText(summary);
+    const bool allConfirmed = confirmed == 3;
+    for (const auto& tag : pending_.tagIds) ControlReceiptTracker::clearUnresolved(tag, pending_.cmdId);
     pending_.active = false;
     activeSubmitButton_->setEnabled(true);
     reactiveSubmitButton_->setEnabled(true);
     if (lanhuPresentation_) {
         QStringList details{statusLabel_->text()};
         for (const auto* label : resultLabels_) details.push_back(label->text());
-        showPcsMessage(this, allSucceeded ? QMessageBox::Information : QMessageBox::Warning,
+        showPcsMessage(this, allConfirmed ? QMessageBox::Information : QMessageBox::Warning,
             QString::fromUtf8("功率写入结果"), details.join(QStringLiteral("\n\n")));
     }
 }

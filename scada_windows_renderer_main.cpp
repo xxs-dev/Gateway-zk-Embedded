@@ -1,4 +1,5 @@
 #include "edge_gateway/scada_project_loader.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 #include "local_display_qt_scada_runtime.hpp"
 #include "local_display_qt_scada_scene.hpp"
 
@@ -14,6 +15,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -167,34 +169,69 @@ private:
         return lowerValue.isUndefined() ? object.value(QString::fromLatin1(upper)) : lowerValue;
     }
 
+    // A host result for a submitted command. The desktop host may send a non-final "unknown" result
+    // first and the final result later under the same requestId; a final result is never replaced.
+    // Without explicit outcome fields a failed result is classified as the legacy receipts are: only
+    // a stage that never reached a device stays a definite failure.
     void acceptControlResult(const QJsonObject& root) {
         const auto cmdId = root.value(QStringLiteral("requestId")).toString().toStdString();
         if (cmdId.empty()) return;
 
+        std::lock_guard<std::mutex> lock(resultsMutex_);
+        auto pending = pendingResultIndexes_.find(cmdId);
+        if (pending == pendingResultIndexes_.end() || pending->second.empty()) return;
         std::uint32_t index = 0;
-        {
-            std::lock_guard<std::mutex> lock(resultsMutex_);
-            auto pending = pendingResultIndexes_.find(cmdId);
-            if (pending == pendingResultIndexes_.end() || pending->second.empty()) return;
+        const auto explicitIndex = jsonInt64(root, "index");
+        if (explicitIndex > 0) {
+            const auto found = std::find(pending->second.begin(), pending->second.end(),
+                                         static_cast<std::uint32_t>(explicitIndex));
+            if (found == pending->second.end()) return;  // not a point of this command
+            index = *found;
+        } else {
             index = pending->second.front();
-            pending->second.pop_front();
-            if (pending->second.empty()) pendingResultIndexes_.erase(pending);
-
-            edge_gateway::WritebackResultRecord result;
-            result.cmdId = cmdId;
-            result.index = index;
-            result.value = valueFor(root, "value", "Value").toDouble();
-            result.success = root.value(QStringLiteral("success")).toBool(false);
-            result.stage = valueFor(root, "stage", "Stage").toString().toStdString();
-            result.message = valueFor(root, "message", "Message").toString().toStdString();
-            result.queueDelayMs = static_cast<std::int64_t>(valueFor(root, "queueDelayMs", "QueueDelayMs").toDouble());
-            result.deviceWriteMs = static_cast<std::int64_t>(valueFor(root, "deviceWriteMs", "DeviceWriteMs").toDouble());
-            result.edgeElapsedMs = static_cast<std::int64_t>(valueFor(root, "edgeElapsedMs", "EdgeElapsedMs").toDouble());
-            result.totalElapsedMs = static_cast<std::int64_t>(valueFor(root, "totalElapsedMs", "TotalElapsedMs").toDouble());
-            result.verifyAttempted = valueFor(root, "verifyAttempted", "VerifyAttempted").toBool(false);
-            result.verifyPassed = valueFor(root, "verifyPassed", "VerifyPassed").toBool(false);
-            writebackResults_[resultKey(cmdId, index)] = std::move(result);
         }
+
+        edge_gateway::WritebackResultRecord result;
+        result.cmdId = cmdId;
+        result.index = index;
+        result.value = valueFor(root, "value", "Value").toDouble();
+        result.success = root.value(QStringLiteral("success")).toBool(false);
+        result.stage = valueFor(root, "stage", "Stage").toString().toStdString();
+        result.message = valueFor(root, "message", "Message").toString().toStdString();
+        result.queueDelayMs = static_cast<std::int64_t>(valueFor(root, "queueDelayMs", "QueueDelayMs").toDouble());
+        result.deviceWriteMs = static_cast<std::int64_t>(valueFor(root, "deviceWriteMs", "DeviceWriteMs").toDouble());
+        result.edgeElapsedMs = static_cast<std::int64_t>(valueFor(root, "edgeElapsedMs", "EdgeElapsedMs").toDouble());
+        result.totalElapsedMs = static_cast<std::int64_t>(valueFor(root, "totalElapsedMs", "TotalElapsedMs").toDouble());
+        result.completedAt = static_cast<std::int64_t>(valueFor(root, "writeCompletedAt", "WriteCompletedAt").toDouble());
+        result.verifyAttempted = valueFor(root, "verifyAttempted", "VerifyAttempted").toBool(false);
+        result.verifyPassed = valueFor(root, "verifyPassed", "VerifyPassed").toBool(false);
+        const auto outcome = valueFor(root, "outcome", "Outcome").toString();
+        const auto mismatch = valueFor(root, "feedbackMismatch", "FeedbackMismatch");
+        const auto unknown = valueFor(root, "outcomeUnknown", "OutcomeUnknown");
+        if (!outcome.isEmpty() || mismatch.isBool() || unknown.isBool()) {
+            result.feedbackMismatch = mismatch.toBool(false);
+            result.outcomeUnknown = unknown.toBool(false) || outcome == QStringLiteral("unknown");
+            edge_gateway::normalizeWritebackOutcome(result);
+        } else {
+            edge_gateway::applyLegacyWritebackOutcome(result);
+        }
+        const auto finalValue = valueFor(root, "isFinal", "IsFinal");
+        const bool isFinal = finalValue.isBool() ? finalValue.toBool() : !edge_gateway::isUnconfirmedWriteback(result);
+
+        const auto key = resultKey(cmdId, index);
+        if (finalResultKeys_.count(key) != 0) return;  // the final result is never replaced
+        writebackResults_[key] = std::move(result);
+        if (!isFinal) {
+            // A non-final result is shown as unknown by the screen; keep waiting for the final one.
+            writebackResults_[key].success = false;
+            writebackResults_[key].outcomeUnknown = true;
+            if (writebackResults_[key].stage.empty() || writebackResults_[key].stage == edge_gateway::kWritebackTimeoutStage)
+                writebackResults_[key].stage = edge_gateway::kWritebackUnconfirmedStage;
+            return;
+        }
+        finalResultKeys_.insert(key);
+        pending->second.erase(std::find(pending->second.begin(), pending->second.end(), index));
+        if (pending->second.empty()) pendingResultIndexes_.erase(pending);
     }
 
     void applyPointBatch(const QJsonArray& points) {
@@ -243,6 +280,7 @@ private:
     std::vector<std::uint32_t> subscription_;
     std::unordered_map<std::string, std::deque<std::uint32_t>> pendingResultIndexes_;
     std::unordered_map<std::string, edge_gateway::WritebackResultRecord> writebackResults_;
+    std::unordered_set<std::string> finalResultKeys_;
 };
 
 class BridgeRuntimeSource final : public ScadaSceneRuntimeSource {
