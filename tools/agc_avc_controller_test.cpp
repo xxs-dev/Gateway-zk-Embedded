@@ -702,12 +702,12 @@ void testPowerControlReceiptFailureStillExpiresLease() {
         reservedReceipt.found && !reservedReceipt.accepted,
         "failed receipt write must preserve the previous valid reservation"
     );
-    require(remote.active(1999).has_value(), "finite lease should remain active before expiry");
+    require(static_cast<bool>(remote.active(1999)), "finite lease should remain active before expiry");
     require(
         !remote.authorize(16, "compute-engine", 0, false, 1999).allowed,
         "local control must remain blocked until the accepted remote command lease expires"
     );
-    require(!remote.active(2000).has_value(), "receipt failure must not keep ownership past its TTL");
+    require(!static_cast<bool>(remote.active(2000)), "receipt failure must not keep ownership past its TTL");
     require(
         remote.authorize(16, "compute-engine", 0, false, 2000).allowed,
         "local control must resume when a degraded receipt lease expires"
