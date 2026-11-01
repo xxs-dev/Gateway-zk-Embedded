@@ -62,6 +62,8 @@ public:
     std::vector<AgcAvcValidationIssue> validate() const;
     AgcAvcCycleOutput tick(std::int64_t nowMs);
     const AgcAvcCycleOutput& lastOutput() const;
+    // Open unknown write transactions (see UnknownWriteTransaction); diagnostics and tests.
+    std::size_t unknownWriteCount() const { return unknownWrites_.size(); }
 
 private:
     struct PendingWriteObservation {
@@ -77,33 +79,48 @@ private:
         bool bestEffortZero = false;
     };
 
+    // Telemetry watch after a confirmed write (feedbackTimeoutMs > 0): a timeout is a failure.
     struct PendingFeedbackObservation {
         std::size_t pcsIndex = 0;
         bool reactive = false;
         double target = 0.0;
         std::int64_t startedAtMs = 0;
-        // Started by an unknown result: reaching the target resolves it; a timeout does not, because
-        // telemetry not reaching the target does not prove that the command was not executed.
-        bool fromUnknown = false;
     };
 
     // A setpoint whose result is unknown (unknown receipt, or none by writeResultTimeoutMs). It may
     // have taken effect, so the same value is never re-sent, whatever the deadband or failure
-    // handling. It stays open until a final receipt for the same cmdId arrives, PCS telemetry reaches
-    // the target, or a new command with a different value is accepted for this target. Only the
-    // best-effort safe-state 0 for an unavailable PCS is exempt. Kept in memory only.
+    // handling; it was counted once as a failure. It stays open, without a time limit, until
+    //   - a final receipt for the same cmdId arrives (success, or a definite failure that allows a
+    //     new attempt), or
+    //   - PCS telemetry (feedbackTimeoutMs > 0) reaches this transaction's own target with a good,
+    //     unexpired sample taken after this command was submitted, or
+    //   - a new command with a different value is accepted for this target.
+    // A late success or telemetry confirmation is accounted exactly like an on-time success. Only
+    // the best-effort safe-state 0 for an unavailable PCS is exempt from the re-send rule. Kept in
+    // memory only.
     struct UnknownWriteTransaction {
         PointStoreRoute route;
         std::string cmdId;
         double value = 0.0;
+        std::size_t pcsIndex = 0;
+        bool reactive = false;
+        double target = 0.0;  // PCS total for this direction, compared with telemetry
+        std::int64_t submittedAtMs = 0;
         std::int64_t sinceMs = 0;
+    };
+
+    // Outcomes seen in one cycle. Health is reset only by a success in a cycle without a failure.
+    struct CycleOutcome {
+        bool success = false;
+        bool failure = false;
     };
 
     std::vector<std::uint32_t> collectInputIndexes() const;
     void processWriteResults(std::int64_t nowMs, const AgcAvcCycleInput& input);
-    void registerWriteFailure(std::uint32_t index);
-    void registerUnknownWrite(std::uint32_t index, const PendingWriteObservation& pending, std::int64_t nowMs);
-    void resolveUnknownWrites();
+    void registerWriteFailure(std::uint32_t index, CycleOutcome& cycle);
+    void registerUnknownWrite(std::uint32_t index, const PendingWriteObservation& pending, std::int64_t nowMs,
+                              CycleOutcome& cycle);
+    void resolveUnknownWrites(const AgcAvcCycleInput& input, CycleOutcome& cycle);
     void publishOutputs(const AgcAvcCycleOutput& output, std::int64_t nowMs);
     void submitAssignments(const AgcAvcCycleOutput& output, std::int64_t nowMs);
 

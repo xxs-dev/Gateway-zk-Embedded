@@ -40,6 +40,9 @@ struct AgcAvcPcsRuntimeInput {
     double soc = 0.0;
     double actualPkw = 0.0;
     double actualQkvar = 0.0;
+    // Sample time of a usable actual P/Q value (0: missing, stale or bad quality).
+    std::int64_t actualPts = 0;
+    std::int64_t actualQts = 0;
     double availableChargeKw = 0.0;
     double availableDischargeKw = 0.0;
     double availableReactiveKvar = 0.0;

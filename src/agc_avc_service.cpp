@@ -551,8 +551,12 @@ AgcAvcCycleOutput AgcAvcService::tick(std::int64_t nowMs) {
         pcs.online = readValue(pcsConfig.points.online, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure) > 0.5;
         pcs.ready = readValue(pcsConfig.points.ready, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure) > 0.5;
         pcs.soc = readValue(pcsConfig.points.soc, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure);
-        pcs.actualPkw = readValue(pcsConfig.points.actualP, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure);
-        pcs.actualQkvar = readValue(pcsConfig.points.actualQ, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure);
+        bool actualPValid = false;
+        bool actualQValid = false;
+        pcs.actualPkw = readValue(pcsConfig.points.actualP, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure, &actualPValid);
+        pcs.actualQkvar = readValue(pcsConfig.points.actualQ, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure, &actualQValid);
+        if (actualPValid) pcs.actualPts = findValue(values, pcsConfig.points.actualP.index)->ts;
+        if (actualQValid) pcs.actualQts = findValue(values, pcsConfig.points.actualQ.index)->ts;
         pcs.chargeAllowed = readValue(pcsConfig.points.chargeAllowed, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure, nullptr, 1.0) > 0.5;
         pcs.dischargeAllowed = readValue(pcsConfig.points.dischargeAllowed, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure, nullptr, 1.0) > 0.5;
         pcs.availableChargeKw = readValue(pcsConfig.points.availableChargeKw, values, nowMs, config_.inputMaxAgeMs, pcsHealthy, pcsFailure, &pcs.hasAvailableCharge);
@@ -633,7 +637,8 @@ AgcAvcCycleOutput AgcAvcService::tick(std::int64_t nowMs) {
     return lastOutput_;
 }
 
-void AgcAvcService::registerWriteFailure(std::uint32_t index) {
+void AgcAvcService::registerWriteFailure(std::uint32_t index, CycleOutcome& cycle) {
+    cycle.failure = true;
     lastWriteStatus_ = -1;
     ++consecutiveWriteFailures_;
     if (index != 0) {
@@ -642,48 +647,68 @@ void AgcAvcService::registerWriteFailure(std::uint32_t index) {
     }
 }
 
-void AgcAvcService::registerUnknownWrite(std::uint32_t index, const PendingWriteObservation& pending, std::int64_t nowMs) {
-    // Counts once towards the repeated-failure health limit. The transaction stays open (see
-    // UnknownWriteTransaction): ordinary failure handling never clears it.
+void AgcAvcService::registerUnknownWrite(
+    std::uint32_t index,
+    const PendingWriteObservation& pending,
+    std::int64_t nowMs,
+    CycleOutcome& cycle
+) {
+    // Counted once towards the repeated-failure health limit. The transaction stays open (see
+    // UnknownWriteTransaction); ordinary failure handling and telemetry timeouts never clear it.
+    cycle.failure = true;
     lastWriteStatus_ = -1;
     ++consecutiveWriteFailures_;
-    unknownWrites_[index] = UnknownWriteTransaction{pending.route, pending.cmdId, pending.value, nowMs};
-    if (pending.pcsIndex < config_.pcs.size() && config_.pcs[pending.pcsIndex].feedbackTimeoutMs > 0) {
-        pendingFeedback_.erase(
-            std::remove_if(pendingFeedback_.begin(), pendingFeedback_.end(),
-                [&](const PendingFeedbackObservation& item) {
-                    return item.pcsIndex == pending.pcsIndex && item.reactive == pending.reactive;
-                }),
-            pendingFeedback_.end());
-        pendingFeedback_.push_back({pending.pcsIndex, pending.reactive, pending.target, nowMs, true});
-    }
+    unknownWrites_[index] = UnknownWriteTransaction{
+        pending.route, pending.cmdId, pending.value, pending.pcsIndex, pending.reactive, pending.target,
+        pending.submittedAtMs, nowMs};
 }
 
-void AgcAvcService::resolveUnknownWrites() {
-    // A late final receipt for the same command closes the transaction. A definite failure means the
-    // command was not executed, so a new attempt is allowed; a success needs no further action.
+void AgcAvcService::resolveUnknownWrites(const AgcAvcCycleInput& input, CycleOutcome& cycle) {
     for (auto it = unknownWrites_.begin(); it != unknownWrites_.end();) {
-        const auto result = pointBus_.readWriteResult(it->second.route, it->second.cmdId);
-        if (!result || result->cmdId != it->second.cmdId || isUnconfirmedWriteback(*result)) {
-            ++it;
-            continue;
+        const auto& transaction = it->second;
+        // 1. A late final receipt of this very command.
+        const auto result = pointBus_.readWriteResult(transaction.route, transaction.cmdId);
+        if (result && result->cmdId == transaction.cmdId && !isUnconfirmedWriteback(*result)) {
+            const std::string outcome = writebackOutcome(*result);
+            if (outcome == "succeeded") {
+                cycle.success = true;  // same accounting as an on-time success
+                it = unknownWrites_.erase(it);
+                continue;
+            }
+            if (outcome == "failed") {
+                // Not executed: a new attempt is allowed. Already counted once when it became
+                // unknown, so this failure blocks a same-cycle health reset without counting again.
+                cycle.failure = true;
+                lastWriteStatus_ = -1;
+                lastSubmittedValue_.erase(it->first);
+                lastSubmittedAtMs_.erase(it->first);
+                it = unknownWrites_.erase(it);
+                continue;
+            }
         }
-        const std::string outcome = writebackOutcome(*result);
-        if (outcome == "unknown") {
-            ++it;
-            continue;
+        // 2. PCS telemetry at this transaction's own target, sampled after this command was sent.
+        if (transaction.pcsIndex < input.pcs.size() && transaction.pcsIndex < config_.pcs.size()) {
+            const auto& runtime = input.pcs[transaction.pcsIndex];
+            const auto& pcs = config_.pcs[transaction.pcsIndex];
+            const double actual = transaction.reactive ? runtime.actualQkvar : runtime.actualPkw;
+            const auto sampledAt = transaction.reactive ? runtime.actualQts : runtime.actualPts;
+            const double tolerance = transaction.reactive ? pcs.feedbackToleranceKvar : pcs.feedbackToleranceKw;
+            if (pcs.feedbackTimeoutMs > 0 && runtime.inputHealthy && sampledAt > transaction.submittedAtMs &&
+                std::abs(actual - transaction.target) <= tolerance) {
+                cycle.success = true;
+                it = unknownWrites_.erase(it);
+                continue;
+            }
         }
-        if (outcome == "failed") {
-            lastSubmittedValue_.erase(it->first);
-            lastSubmittedAtMs_.erase(it->first);
-        }
-        it = unknownWrites_.erase(it);
+        ++it;
     }
 }
 
 void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInput& input) {
-    const int failuresBefore = consecutiveWriteFailures_;
-    bool successObserved = false;
+    CycleOutcome cycle;
+    // Transactions that became unknown in an earlier cycle; one registered below is checked from the
+    // next cycle on, so its failure and a later confirmation never cancel out inside one cycle.
+    resolveUnknownWrites(input, cycle);
     for (auto it = pendingWrites_.begin(); it != pendingWrites_.end();) {
         const auto result = pointBus_.readWriteResult(it->second.route, it->second.cmdId);
         if (it->second.bestEffortZero && (result || nowMs - it->second.submittedAtMs >= config_.writeResultTimeoutMs)) {
@@ -699,13 +724,13 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
             continue;
         }
         if (result && (std::string(writebackOutcome(*result)) == "unknown")) {
-            registerUnknownWrite(it->first, it->second, nowMs);
+            registerUnknownWrite(it->first, it->second, nowMs, cycle);
             it = pendingWrites_.erase(it);
             continue;
         }
         if (result) {
             if (result->success) {
-                successObserved = true;
+                cycle.success = true;
                 const auto& pending = it->second;
                 if (pending.pcsIndex < config_.pcs.size() &&
                     config_.pcs[pending.pcsIndex].feedbackTimeoutMs > 0) {
@@ -723,24 +748,22 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
                         pending.pcsIndex,
                         pending.reactive,
                         pending.target,
-                        result->completedAt > 0 ? result->completedAt : nowMs,
-                        false
+                        result->completedAt > 0 ? result->completedAt : nowMs
                     });
                 }
             } else {
-                registerWriteFailure(it->first);
+                registerWriteFailure(it->first, cycle);
             }
             it = pendingWrites_.erase(it);
             continue;
         }
         if (nowMs - it->second.submittedAtMs >= config_.writeResultTimeoutMs) {
-            registerUnknownWrite(it->first, it->second, nowMs);  // no receipt: the result is unknown
+            registerUnknownWrite(it->first, it->second, nowMs, cycle);  // no receipt: the result is unknown
             it = pendingWrites_.erase(it);
             continue;
         }
         ++it;
     }
-    resolveUnknownWrites();
 
     for (auto it = pendingFeedback_.begin(); it != pendingFeedback_.end();) {
         if (it->pcsIndex >= input.pcs.size() || it->pcsIndex >= config_.pcs.size()) {
@@ -751,26 +774,25 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
         const auto& pcs = config_.pcs[it->pcsIndex];
         const double actual = it->reactive ? runtime.actualQkvar : runtime.actualPkw;
         const double tolerance = it->reactive ? pcs.feedbackToleranceKvar : pcs.feedbackToleranceKw;
-        const auto& targets = it->reactive ? pcs.points.reactiveTargets : pcs.points.activeTargets;
         if (runtime.inputHealthy && std::abs(actual - it->target) <= tolerance) {
-            successObserved = true;
-            if (it->fromUnknown) {
-                for (const auto& target : targets) unknownWrites_.erase(target.index);  // executed
-            }
+            cycle.success = true;
             it = pendingFeedback_.erase(it);
             continue;
         }
         if (nowMs - it->startedAtMs >= pcs.feedbackTimeoutMs) {
-            // A confirmed write that the PCS does not follow is a failure and may be written again.
-            // An unknown result stays unknown (already counted once): no re-send of the same value.
-            if (!it->fromUnknown) registerWriteFailure(targets.empty() ? 0 : targets.front().index);
+            // A confirmed write that the PCS does not follow is a failure and may be written again
+            // (unchanged behaviour). Unknown results are not watched here (see resolveUnknownWrites).
+            const auto& targets = it->reactive ? pcs.points.reactiveTargets : pcs.points.activeTargets;
+            registerWriteFailure(targets.empty() ? 0 : targets.front().index, cycle);
             it = pendingFeedback_.erase(it);
             continue;
         }
         ++it;
     }
 
-    if (successObserved && consecutiveWriteFailures_ == failuresBefore) {
+    // On-time and late successes are accounted alike; any failure in the same cycle (another point,
+    // a late definite failure) keeps the counter and the failed status.
+    if (cycle.success && !cycle.failure) {
         consecutiveWriteFailures_ = 0;
         lastWriteStatus_ = 1;
     }

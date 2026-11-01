@@ -1,7 +1,8 @@
 // AGC/AVC: a setpoint whose write result is unknown may have taken effect. The same value is never
 // re-sent, independent of the deadband (including 0) and of PCS telemetry timing out. The transaction
-// closes on a final receipt for the same cmdId, on telemetry reaching the target, or when a different
-// value is commanded. The only exemption is the best-effort safe-state 0 for an unavailable PCS.
+// closes on a final receipt for the same cmdId, on telemetry (sampled after the command) reaching its
+// own target, or when a different value is commanded; late results are accounted like on-time ones.
+// The only exemption is the best-effort safe-state 0 for an unavailable PCS.
 // Simulation with an in-memory point bus; no device, no shared memory.
 #include "agc_avc_test_fixture.hpp"
 
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -37,6 +39,7 @@ struct Rig {
     std::string lease;
     std::unique_ptr<AgcAvcService> service;
     std::vector<PendingWriteCommand> first;
+    std::map<std::uint32_t, std::int64_t> sampleTime;  // fixed sample times, e.g. taken before a command
 
     explicit Rig(const std::string& name) {
         config = agc_test::baseConfig();
@@ -59,6 +62,7 @@ struct Rig {
 
     AgcAvcCycleOutput tick(std::int64_t offsetMs) {
         for (auto& entry : bus.values) entry.second.ts = now + offsetMs - 10;
+        for (const auto& fixed : sampleTime) bus.values[fixed.first].ts = fixed.second;
         bus.submitted.clear();
         return service->tick(now + offsetMs);
     }
@@ -83,6 +87,23 @@ struct Rig {
             normalizeWritebackOutcome(r);
             bus.results[command.cmdId] = r;
         }
+    }
+
+    const PendingWriteCommand& firstFor(std::uint32_t index) const {
+        for (const auto& command : first)
+            if (command.index == index) return command;
+        throw std::runtime_error("no initial command for index " + std::to_string(index));
+    }
+    void answerOne(const std::string& cmdId, std::uint32_t index, bool success, const std::string& stage,
+                   const std::string& receiptCmdId = std::string()) {
+        WritebackResultRecord r;
+        r.cmdId = receiptCmdId.empty() ? cmdId : receiptCmdId;
+        r.index = index;
+        r.success = success;
+        r.stage = stage;
+        r.completedAt = now + 50;
+        normalizeWritebackOutcome(r);
+        bus.results[cmdId] = r;
     }
 
     bool sent(std::uint32_t index, double value) const {
@@ -255,6 +276,149 @@ void unavailablePcsZeroIsExempt() {
     require(rig.sent(kReactiveTarget, 0.0), "unavailable PCS: safe-state 0 kvar even though 0 kvar was unknown");
 }
 
+
+// ---- Late results: accounted exactly like on-time results ------------------------------------
+
+void setDeadband(Rig& rig, double deadband, int feedbackTimeoutMs) {
+    for (auto& pcs : rig.config.pcs) {
+        pcs.writeDeadbandKw = pcs.writeDeadbandKvar = deadband;
+        pcs.feedbackTimeoutMs = feedbackTimeoutMs;
+    }
+}
+
+// Telemetry reaching the target only after the telemetry watch would have timed out still settles
+// the unknown transactions, as a success, without a second failure count and without a retry.
+void lateTelemetryAfterWatchTimeout(double deadband) {
+    Rig rig("late-telemetry");
+    setDeadband(rig, deadband, 100);
+    rig.bus.values[13].value = 5.0;
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    rig.tick(600);
+    auto out = rig.tick(1200);
+    require(rig.service->unknownWriteCount() == 2 && out.consecutiveWriteFailures == 2,
+            "telemetry timeout: still unknown, counted once");
+    rig.bus.values[12].value = 80.0;
+    rig.bus.values[13].value = 0.0;
+    out = rig.tick(1500);
+    require(rig.service->unknownWriteCount() == 0, "late telemetry at the target settles the unknown transactions");
+    require(out.consecutiveWriteFailures == 0 && out.lastWriteStatus == 1, "late telemetry is accounted as success");
+    if (deadband > 0.0) require(!rig.resentOriginal(), "settled values inside the deadband are not written again");
+    // Deadband 0 refreshes a confirmed setpoint every interval; that refresh is not a retry.
+}
+
+// A sample taken before the command was submitted is not evidence for this command.
+void telemetrySampledBeforeCommand() {
+    Rig rig("telemetry-old-sample");
+    setDeadband(rig, 0.1, 1000);
+    rig.bus.values[12].value = 80.0;
+    rig.bus.values[13].value = 0.0;
+    rig.sampleTime[12] = rig.sampleTime[13] = rig.now - 5;  // already at the target, but sampled earlier
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    rig.tick(600);
+    rig.tick(900);
+    require(rig.service->unknownWriteCount() == 2, "a sample from before the command settled it");
+    rig.sampleTime.clear();
+    const auto out = rig.tick(1200);
+    require(rig.service->unknownWriteCount() == 0 && out.lastWriteStatus == 1, "a fresh sample after the command settles it");
+}
+
+// Late success receipt for the same cmdId: same accounting as an on-time success. With all-zero
+// targets and a failure threshold of 2 the write-failure failsafe ends on that evidence, as it does
+// after an on-time success; nothing is replayed.
+void lateSuccessReceipt(bool zeroTargetsFailsafe) {
+    Rig rig(zeroTargetsFailsafe ? "late-ok-failsafe" : "late-ok");
+    setDeadband(rig, 0.1, 0);
+    if (zeroTargetsFailsafe) {
+        rig.config.maxConsecutiveWriteFailures = 2;
+        rig.bus.values[4].value = 0.0;
+    }
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    auto out = rig.tick(600);
+    if (zeroTargetsFailsafe) require(out.state == AgcAvcRuntimeState::Failsafe, "threshold reached: failsafe");
+    rig.tick(1200);
+    rig.answer(true, kWritebackSucceededStage);
+    out = rig.tick(1500);
+    require(rig.service->unknownWriteCount() == 0, "late success settles the transactions");
+    require(out.consecutiveWriteFailures == 0 && out.lastWriteStatus == 1, "late success is accounted as success");
+    require(!rig.resentOriginal(), "late success replays nothing");
+    if (zeroTargetsFailsafe) require(out.state != AgcAvcRuntimeState::Failsafe, "write-failure failsafe ends like after an on-time success");
+}
+
+// Late definite failure: not counted a second time, keeps the failed status, allows a new attempt.
+void lateDefiniteFailureAccounting() {
+    Rig rig("late-failed-accounting");
+    setDeadband(rig, 0.1, 0);
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    rig.tick(600);
+    rig.answer(false, kWritebackFailedStage);
+    const auto out = rig.tick(900);
+    require(rig.service->unknownWriteCount() == 0, "late definite failure settles the transaction");
+    require(out.consecutiveWriteFailures == 2 && out.lastWriteStatus == -1, "late definite failure: counted once, status failed");
+    require(rig.sent(kActiveTarget, 80.0), "a new attempt is allowed after a definite failure");
+}
+
+// A record that names another command is ignored.
+void receiptOfAnotherCommand() {
+    Rig rig("late-other-cmd");
+    setDeadband(rig, 0.1, 0);
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    rig.tick(600);
+    for (const auto& command : rig.first)
+        rig.answerOne(command.cmdId, command.index, true, kWritebackSucceededStage, command.cmdId + "-OTHER");
+    const auto out = rig.tick(900);
+    require(rig.service->unknownWriteCount() == 2 && out.consecutiveWriteFailures == 2 && out.lastWriteStatus == -1,
+            "a receipt of another command settled this one");
+    require(!rig.resentOriginal(), "no re-send");
+}
+
+// A late success and a late definite failure of another point in the same cycle: no health reset.
+void sameCycleFailureKeepsHealth() {
+    Rig rig("late-same-cycle");
+    setDeadband(rig, 0.1, 0);
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    rig.tick(600);
+    rig.answerOne(rig.firstFor(kActiveTarget).cmdId, kActiveTarget, true, kWritebackSucceededStage);
+    rig.answerOne(rig.firstFor(kReactiveTarget).cmdId, kReactiveTarget, false, kWritebackFailedStage);
+    const auto out = rig.tick(900);
+    require(rig.service->unknownWriteCount() == 0, "both transactions settled");
+    require(out.consecutiveWriteFailures == 2 && out.lastWriteStatus == -1,
+            "a success must not clear a failure seen in the same cycle");
+}
+
+// A newer command on the same target replaces the old transaction; neither the old command's late
+// receipt nor telemetry at the old target settles the new one.
+void oldTransactionDoesNotSettleNew() {
+    Rig rig("late-old-new");
+    setDeadband(rig, 0.1, 1000);
+    rig.bus.values[13].value = 5.0;  // reactive stays off target throughout
+    rig.start();
+    rig.answer(false, kWritebackTimeoutStage);
+    rig.tick(600);
+    rig.bus.values[4].value = 60.0;
+    rig.bus.values[5].value = 2.0;
+    rig.bus.values[6].value = static_cast<double>(rig.now + 650);
+    rig.tick(900);
+    require(rig.sent(kActiveTarget, 60.0), "new target commanded");
+    std::string newCmd;
+    for (const auto& command : rig.bus.submitted)
+        if (command.index == kActiveTarget) newCmd = command.cmdId;
+    rig.answerOne(rig.firstFor(kActiveTarget).cmdId, kActiveTarget, true, kWritebackSucceededStage);  // old: late success
+    rig.answerOne(newCmd, kActiveTarget, false, kWritebackTimeoutStage);                              // new: unknown
+    rig.bus.values[12].value = 80.0;  // telemetry at the old target
+    rig.tick(1200);
+    rig.tick(1500);
+    require(rig.service->unknownWriteCount() == 2, "old receipt or old-target telemetry settled the new command");
+    require(!rig.sent(kActiveTarget, 60.0) && !rig.sent(kActiveTarget, 80.0), "no re-send of either value");
+    rig.bus.values[12].value = 60.0;  // telemetry at the new target
+    const auto out = rig.tick(1800);
+    require(rig.service->unknownWriteCount() == 1 && out.lastWriteStatus == 1, "new-target telemetry settles only the new command");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -271,6 +435,15 @@ int main(int argc, char** argv) {
         {"different-value", differentValueSupersedes},
         {"failure-threshold", failureThreshold},
         {"unavailable-pcs-zero", unavailablePcsZeroIsExempt},
+        {"late-telemetry-after-timeout-deadband", [] { lateTelemetryAfterWatchTimeout(0.1); }},
+        {"late-telemetry-after-timeout-zero-deadband", [] { lateTelemetryAfterWatchTimeout(0.0); }},
+        {"telemetry-sampled-before-command", telemetrySampledBeforeCommand},
+        {"late-success-receipt", [] { lateSuccessReceipt(false); }},
+        {"late-success-receipt-zero-targets-failsafe", [] { lateSuccessReceipt(true); }},
+        {"late-definite-failure-accounting", lateDefiniteFailureAccounting},
+        {"receipt-of-another-command", receiptOfAnotherCommand},
+        {"same-cycle-failure-keeps-health", sameCycleFailureKeepsHealth},
+        {"old-transaction-does-not-settle-new", oldTransactionDoesNotSettleNew},
     };
     // Every case runs and is reported; an optional argument selects one case.
     int failures = 0;
