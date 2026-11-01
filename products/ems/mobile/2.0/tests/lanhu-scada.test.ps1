@@ -178,12 +178,25 @@ try {
                     $slot=[int]($widget.widgetId-split'-')[1]
                     $number=[int]($screen.widgets|Where-Object widgetId -eq "cell-$slot-number").properties.qtText
                     if($index-ne(3000+[math]::Ceiling($number/2))){throw 'Each probe must serve its adjacent cell pair'}
+                    if($number%2-ne1){throw 'A shared probe is shown once, on the odd cell of its pair'}
                 }
             }
+            # The even cell of a pair names the shared probe instead of repeating its reading.
+            if($widget.widgetId-like'*-temperature'-and-not@($widget.bindings).Count){
+                $slot=[int]($widget.widgetId-split'-')[1]
+                $number=[int]($screen.widgets|Where-Object widgetId -eq "cell-$slot-number").properties.qtText
+                if($number%2-ne0-or$widget.properties.qtText-ne"共用探头#$([math]::Ceiling($number/2))"){throw "Shared probe label wrong for cell $number"}
+            }
         }
+        if(-not($screen.widgets|Where-Object widgetId -eq 'cells-probe-note')){throw 'Shared probe note missing'}
     }
     if((($voltageIndexes|Sort-Object)-join',') -ne ((2001..2260)-join',')){throw 'Cell voltage coverage is not exactly 260'}
-    if((($temperatureIndexes|Sort-Object)-join',') -ne ((3001..3130|ForEach-Object {$_;$_})-join',')){throw 'Cell temperature coverage is not exactly 130 shared probes'}
+    if((($temperatureIndexes|Sort-Object)-join',') -ne ((3001..3130)-join',')){throw 'Each of the 130 shared probes must be shown exactly once'}
+    $pcsControl=$screens|Where-Object screenId -eq 'Control-Pcs'
+    if(($pcsControl.widgets|Where-Object widgetId -eq 'control-mode-title').properties.qtText-ne'模式设定：'){throw 'PCS 1310 is a mode setting, not a running feedback'}
+    foreach($button in $pcsControl.widgets|Where-Object {$_.type-eq'qtButton'-and$null-eq$_.action-and$_.widgetId-like'*pcs*'}){
+        if($null-eq$button.properties.PSObject.Properties['controlUnavailableReason']-or-not$button.properties.controlUnavailableReason){throw "Reserved PCS control lacks a reason: $($button.widgetId)"}
+    }
     foreach($id in @('Devices-Diesel','Devices-Emu')){
         if(@(($screens|Where-Object screenId -eq $id).widgets|ForEach-Object {$_.bindings}).Count){throw "Reserved device borrows another source: $id"}
     }

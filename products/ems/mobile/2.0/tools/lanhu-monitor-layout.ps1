@@ -144,7 +144,8 @@ function Build-MonitorPcs {
     foreach($i in 0..5){$e=$temps[$i];Monitor-Field $w "pcs-temp-$i" $e.T $e.I '℃' (185+($i%3)*106) (263+[math]::Floor($i/3)*68) 100}
     $w.Add((New-Frame 'pcs-divider-1' 497 243 1 148 '#E5E8EB' 1));$w.Add((New-Frame 'pcs-divider-2' 938 243 1 148 '#E5E8EB' 1))
     Monitor-Heading $w 'pcs-signals' '遥信信息' 'monitor-signal.png' 516 230
-    Monitor-SignalField $w 'pcs-mode' '控制模式' 1214 '远程' '就地' 519 263 98 '1'
+    # PCS's own remote/local switch (1214), not the EMS platform-control permission.
+    Monitor-SignalField $w 'pcs-mode' 'PCS远程/就地' 1214 '远程' '就地' 519 263 98 '1'
     Monitor-SignalField $w 'pcs-online' '在线状态' 1399 '在线' '离线' 625 263 98 '1'
     $w.Add((Ref-Text 'pcs-run-label' '运行状态' 731 263 98 30 14 '#777E85'))
     $w.Add((New-Widget 'pcs-run' 'statusCard' '' 731 297 98 30 5 @((New-Binding 1209),(New-Binding 1210),(New-Binding 1211)) @((New-StateRule 'stop' '停机' '#90979F' 1209 'eq' '1' 10),(New-StateRule 'standby' '待机' '#F5A623' 1210 'eq' '1' 20),(New-StateRule 'run' '运行' '#18C773' 1211 'eq' '1' 30)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
@@ -152,7 +153,7 @@ function Build-MonitorPcs {
     Monitor-SignalField $w 'pcs-alarm' '总报警状态' 1213 '无告警' '告警' 519 331 98
     Monitor-SignalField $w 'pcs-emergency' '急停输入状态' 1215 '无急停' '急停' 625 331 103
     $w.Add((Ref-Text 'pcs-grid-label' '并离网状态' 731 331 196 30 14 '#777E85'))
-    $w.Add((New-Widget 'pcs-grid' 'statusCard' '' 731 365 196 30 5 @((New-Binding 1216),(New-Binding 1217)) @((New-StateRule 'grid' '并网状态' '#18C773' 1216 'eq' '1' 10),(New-StateRule 'offgrid' '离网状态' '#F52D59' 1217 'eq' '1' 20)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
+    $w.Add((New-Widget 'pcs-grid' 'statusCard' '' 731 365 196 30 5 @((New-Binding 1216),(New-Binding 1217)) @((New-StateRule 'grid' '并网' '#18C773' 1216 'eq' '1' 10),(New-StateRule 'offgrid' '离网' '#F52D59' 1217 'eq' '1' 20)) $null ([ordered]@{qtTheme='light';qtBackgroundColor='transparent';qtFontSize=16;qtStateTextColor='true';stateColorMode='indicator';qtHideStatusLamp='true';qtBorderless='true';qtVerticalAlignment='Center';unavailableStateLabel='--'})))
     Monitor-Heading $w 'pcs-alarms-heading' '告警信息' 'monitor-alarm.png' 960 230
     Monitor-Alarms $w 'pcs-alarms' @(1399) 960 264 390 127
     # Neutral diagram connectors do not assert power direction without confirmed feedback.
@@ -201,7 +202,7 @@ function Build-MonitorBms {
     $limits=@(@{T="簇允许充电`n最大功率";I=$null;U='kW'},@{T="簇允许充电`n最大电压";I=$null;U='V'},@{T="簇允许充电`n最大电流";I=1556;U='A'},@{T="簇允许放电`n最大功率";I=$null;U='kW'},@{T="簇允许放电`n最大电压";I=$null;U='V'},@{T="簇允许放电`n最大电流";I=1557;U='A'})
     foreach($i in 0..5){foreach($row in 0..1){$e=if($row-eq0){$top[$i]}else{$limits[$i]};Monitor-Field $w "bms-measurement-$row-$i" $e.T $e.I $e.U (616+$i*123) (261+$row*77) 118}}
     $w.Add((Ref-Panel 'bms-extrema-panel' 607 430 747 112 '#F3F8FC'))
-    $ext=@(@{T='最高单体电压';I=1574;U='mV';N=1576},@{T='最低单体电压';I=1577;U='mV';N=1579},@{T='最高单体温度';I=1580;U='℃';N=1582},@{T='最低单体温度';I=1583;U='℃';N=1585})
+    $ext=@(@{T='最高单体电压';I=1574;U=(Get-LanhuDisplayUnit 1574 'mV');N=1576},@{T='最低单体电压';I=1577;U=(Get-LanhuDisplayUnit 1577 'mV');N=1579},@{T='最高单体温度';I=1580;U='℃';N=1582},@{T='最低单体温度';I=1583;U='℃';N=1585})
     foreach($i in 0..3){$e=$ext[$i];$left=627+$i*184;Monitor-Field $w "bms-extrema-$i" $e.T $e.I $e.U $left 442 168;Ref-Value $w "bms-extrema-number-$i" $e.N $left 508 168 27 $(if($i-lt2){'号电芯'}else{'号探头'}) 12}
     Monitor-Heading $w 'bms-energy-heading' '电能统计' 'monitor-energy.png' 607 564
     $energy=@(@{T='可充电量';I=1590},@{T='可放电量';I=1591},@{T='最近一次充电量';I=1588},@{T='最近一次放电量';I=1589})
@@ -226,15 +227,16 @@ function Build-MonitorCells($Page=1,$Cluster=1) {
     $totals=@(@{T='BMS总电压';I=1566;U='V'},@{T='BMS总电流';I=1567;U='A'},@{T='平均温度';I=1573;U='℃'},@{T='簇实时充放电功率';I=$null;U='kW'})
     foreach($i in 0..3){$e=$totals[$i];$left=132+$i*322;$w.Add((Ref-Panel "cells-summary-$i-panel" $left 158 307 92));$w.Add((New-LanhuImage "cells-summary-icon-$i" "monitor-cells-$i.png" ($left+21) 174 60 60));Monitor-Field $w "cells-summary-$i" $e.T (Get-LanhuDevicePoint $points $summaryNames[$i]) $e.U ($left+100) 166 204 22}
     Monitor-Heading $w 'cells-heading' '电芯电压 / 连接点温度' 'power-heading.png' 132 263
+    $w.Add((Ref-Text 'cells-probe-note' '温度为相邻两节电芯连接点的共用探头，每个探头只显示一次' 470 263 700 31 13 '#90979F'))
     $selector=Ref-Button 'cells-page-selector' "全部电芯 · 第$Page 页" (Get-LanhuCellScreenId $Cluster) 1185 262 218 31
     $menu=@();for($p=1;$p-le$clusterInfo.Pages;$p++){$menu+=@{text="全部电芯 · 第$p 页";screen=(Get-LanhuCellScreenId $Cluster $p)}}
     $selector.properties|Add-Member qtMenuScreensJson (ConvertTo-Json -InputObject $menu -Compress)
     $w.Add($selector)
     $w.Add((Ref-Panel 'cells-body' 132 302 1271 486));$w.Add((Ref-Panel 'cells-extrema' 150 319 1234 84 '#F3F8FC'))
-    $ext=@(@{T='电芯最大电压';I=1574;U='mV';N=1576},@{T='电芯最小电压';I=1577;U='mV';N=1579},@{T='电芯最高温度';I=1580;U='℃';N=1582},@{T='电芯最低温度';I=1583;U='℃';N=1585})
+    $ext=@(@{T='电芯最大电压';I=1574;U=(Get-LanhuDisplayUnit 1574 'mV');N=1576},@{T='电芯最小电压';I=1577;U=(Get-LanhuDisplayUnit 1577 'mV');N=1579},@{T='电芯最高温度';I=1580;U='℃';N=1582},@{T='电芯最低温度';I=1583;U='℃';N=1585})
     $extNames=@('单体最高电压值','单体最低电压值','单体温度最高值','单体温度最低值')
     $numberNames=@('单体电压最高节序号','单体电压最低节序号','单体温度最高节序号','单体温度最低节序号')
-    foreach($i in 0..3){$e=$ext[$i];$left=175+$i*309;Monitor-Field $w "cells-extrema-$i" $e.T (Get-LanhuDevicePoint $points $extNames[$i]) $e.U $left 328 156 18;Monitor-Field $w "cells-extrema-number-$i" $(if($i-lt2){'电芯序号'}else{'探头序号'}) (Get-LanhuDevicePoint $points $numberNames[$i]) '' ($left+168) 328 99 18}
+    foreach($i in 0..3){$e=$ext[$i];$left=175+$i*309;$extPoint=Get-LanhuDevicePoint $points $extNames[$i];Monitor-Field $w "cells-extrema-$i" $e.T $extPoint $(if($i-lt2){Get-LanhuDisplayUnit $extPoint 'mV'}else{$e.U}) $left 328 156 18;Monitor-Field $w "cells-extrema-number-$i" $(if($i-lt2){'电芯序号'}else{'探头序号'}) (Get-LanhuDevicePoint $points $numberNames[$i]) '' ($left+168) 328 99 18}
     foreach($slot in 0..31){
         $number=($Page-1)*32+$slot+1;$left=150+($slot%4)*308.5;$top=419+[math]::Floor($slot/4)*41.25
         if(-not$clusterInfo.Cells.ContainsKey($number)){continue}
@@ -245,16 +247,16 @@ function Build-MonitorCells($Page=1,$Cluster=1) {
         $w.Add((New-Frame "cell-$slot-top-rule" $left $top 308.5 1 '#D3D9E1' 3))
         if($slot-ge28){$w.Add((New-Frame "cell-$slot-bottom-rule" $left ($top+40.25) 308.5 1 '#D3D9E1' 3))}
         $voltage=$clusterInfo.Cells[$number]
-        # The mobile battery harness measures the connection shared by two adjacent cells.
-        $temperature=$clusterInfo.Probes[[int][math]::Ceiling($number/2)]
-        $unit='V'
-        if($runtimePointByIndex.ContainsKey([uint32]$voltage)){
-            $read=$runtimePointByIndex[[uint32]$voltage].point.read
-            $unit=[string]$read.unit
-            if($unit-eq'mV'-and$read.scale-eq0.001){$unit='V'}
-        }
+        # The mobile battery harness measures the connection shared by two adjacent cells: probe k
+        # belongs to cells 2k-1 and 2k. Its value is shown once (on the odd cell); the even cell
+        # names the shared probe instead of repeating the reading as if it were its own measurement.
+        $probe=[int][math]::Ceiling($number/2)
+        $temperature=$clusterInfo.Probes[$probe]
+        # Cell voltages are scaled to V by the point table (scale 0.001 on a mV register).
+        $unit=Get-LanhuDisplayUnit $voltage 'V'
         Ref-Value $w "cell-$slot-voltage" $voltage ($left+76) $top 114 41.25 $unit 16
-        Ref-Value $w "cell-$slot-temperature" $temperature ($left+192) $top 115 41.25 '℃' 16
+        if($number%2-eq1){Ref-Value $w "cell-$slot-temperature" $temperature ($left+192) $top 115 41.25 '℃' 16}
+        else{$w.Add((Ref-Text "cell-$slot-temperature" "共用探头#$probe" ($left+192) $top 115 41.25 13 '#90979F' $false 'Center'))}
     }
     $w.Add((New-Frame 'cells-left-rule' 150 419 1 330 '#D3D9E1' 3))
     $w.Add((New-Frame 'cells-right-rule' 1383 419 1 330 '#D3D9E1' 3))

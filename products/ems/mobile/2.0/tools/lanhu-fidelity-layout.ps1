@@ -205,7 +205,8 @@ function Ref-ControlChrome($Widgets,$Kind) {
     }
     $Widgets.Add((New-LanhuImage 'control-mode-icon' 'control-mode.png' 162 250 66 66))
     $Widgets.Add((Ref-Text 'control-mode-heading' $(if($Kind-eq'Bms'-and$null-ne$script:lanhuBau){'BAU控制'}else{'模式控制'}) 252 248 420 32 20 '#303438' $true))
-    $Widgets.Add((Ref-Text 'control-mode-title' $(if($Kind-eq'Bms'){'充放电状态：'}else{'当前模式：'}) 252 289 120 26 18 '#777E85'))
+    # PCS 1310 is the mode setting read back from the holding register, not a running-mode feedback.
+    $Widgets.Add((Ref-Text 'control-mode-title' $(if($Kind-eq'Bms'){'充放电状态：'}elseif($Kind-eq'Pcs'){'模式设定：'}else{'当前模式：'}) 252 289 120 26 18 '#777E85'))
     switch($Kind){
         # Yingbo V3.3.24, holding register 301. This is a mode, not a running indication.
         'Pcs' {Ref-EnumValue $Widgets 'control-mode-value' 1310 ([ordered]@{'0'='无';'1'='恒流充电';'2'='恒压充电';'3'='恒功率充电';'4'='直流恒压模式'}) 376 289 220 26 18}
@@ -223,11 +224,13 @@ function Ref-ControlChrome($Widgets,$Kind) {
         $b.properties|Add-Member controlOptionsJson (ConvertTo-Json -Compress @(@{label='无';value=0},@{label='恒流充电';value=1},@{label='恒压充电';value=2},@{label='恒功率充电';value=3},@{label='直流恒压模式';value=4}))
         Set-RefFeedback $b 1310
     }
+    if($null-eq$b.action){$b.properties|Add-Member controlUnavailableReason $(if($Kind-eq'Pcs'){'模式切换未开放：运行配置中未确认PCS模式寄存器（301，功能码6），点击不会下发命令。'}elseif($Kind-eq'Thermal'){'模式切换未开放：运行配置中未确认液冷模式写入点（200，功能码6），点击不会下发命令。'}else{'该设备没有经协议确认的模式控制点，点击不会下发命令。'}) -Force}
     if($Kind-eq'Thermal'-and(Test-RefProtocolPoint 164 200 6 '_LIQUID_COOLING$')){
         $b.action=New-Action 'writeSetpoint' '' 164
         $b.properties|Add-Member controlOptionsJson (ConvertTo-Json -Compress @(@{label='自动控制';value=0;feedbackValue=4},@{label='制冷模式';value=1;feedbackValue=2},@{label='制热模式';value=2;feedbackValue=3},@{label='水泵循环';value=3;feedbackValue=1}))
         Set-RefFeedback $b 128
     }
+    if($null-ne$b.action-and$null-ne$b.properties.PSObject.Properties['controlUnavailableReason']){$b.properties.PSObject.Properties.Remove('controlUnavailableReason')}
     $Widgets.Add($b)
 }
 function Ref-Command($Widgets,$Id,$Title,$Index,$Value,$X,$Y,$Color='#2599D6') {
@@ -236,6 +239,7 @@ function Ref-Command($Widgets,$Id,$Title,$Index,$Value,$X,$Y,$Color='#2599D6') {
     $icon=if($Title-in@('停机','停止','快速停机')){'stop'}elseif($Title-eq'运行'-or$Title-eq'启用'){'run'}elseif($Title-eq'复位'){'reset'}elseif($Title-eq'合闸'){'breaker'}elseif($Title-eq'自动'){'auto'}else{''}
     if($icon){$b.properties | Add-Member qtIconFile "assets/lanhu-assets/command-$icon.png"}
     if($null-ne$Index -and (Is-WritableIndex ([uint32]$Index))){$b.action=New-Action 'writeSetpoint' '' $Index $Value}
+    else{$b.properties|Add-Member controlUnavailableReason "「$Title」未开放：没有经协议确认的写入点或命令值，点击不会下发命令。" -Force}
     $Widgets.Add($b)
 }
 function Ref-ControlPanel($Widgets,$Id,$Title,$X,$Y,$Width,$Height) {
@@ -434,7 +438,7 @@ function Build-RefTrends($Kind) {
     $w.Add((New-LanhuImage 'trend-top-icon' $(if($Kind-eq'Cell'){'cell-voltage-heading.png'}else{'power-heading.png'}) 132 150 26 26));$w.Add((Ref-Text 'trend-top-title' $title 170 149 600 30 18))
     $w.Add((Ref-Panel 'trend-top-panel' 132 188 1271 $(if($Kind-eq'Cell'){264}else{300})))
     if($Kind-eq'Cell'){
-        Ref-Chart $w 'trend-cell-v' @(1577,1574) @('最低电压','最高电压') @('mV','mV') 152 204 1230 236
+        Ref-Chart $w 'trend-cell-v' @(1577,1574) @('最低电压','最高电压') @((Get-LanhuDisplayUnit 1577 'mV'),(Get-LanhuDisplayUnit 1574 'mV')) 152 204 1230 236
         $series=@($w[$w.Count-1].properties.chartSeriesJson|ConvertFrom-Json);$series[1].color='#129AF5';$w[$w.Count-1].properties.chartSeriesJson=ConvertTo-Json -InputObject $series -Depth 8 -Compress
         $second='电芯温度';$indexes=@(1583,1580);$names=@('最低温度','最高温度');$units=@('℃','℃')
     }else{

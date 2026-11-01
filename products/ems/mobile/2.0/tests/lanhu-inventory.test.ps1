@@ -43,8 +43,10 @@ try{
     }}
     $last=$second|Where-Object screenId -eq 'Devices-Cells-2-Page2'
     if(@($last.widgets|Where-Object widgetId -match '^cell-\d+-number$').Count-ne2){throw 'Final cluster page has phantom cells'}
-    $probeIds=@($last.widgets|Where-Object widgetId -match '^cell-\d+-temperature$'|ForEach-Object {$_.bindings[0].tagId})
-    if($probeIds.Count-ne2-or$probeIds[0]-ne$probeIds[1]-or$probeIds[0]-notlike'*.mb3_s2_3017'){throw '33/34 must share probe 17'}
+    # Cells 33/34 share probe 17: its reading is shown once (cell 33), cell 34 names the shared probe.
+    $probeIds=@($last.widgets|Where-Object {$_.widgetId-match'^cell-\d+-temperature$'-and@($_.bindings).Count}|ForEach-Object {$_.bindings[0].tagId})
+    $sharedLabels=@($last.widgets|Where-Object {$_.widgetId-match'^cell-\d+-temperature$'-and-not@($_.bindings).Count}|ForEach-Object {$_.properties.qtText})
+    if($probeIds.Count-ne1-or$probeIds[0]-notlike'*.mb3_s2_3017'-or$sharedLabels.Count-ne1-or$sharedLabels[0]-ne'共用探头#17'){throw '33/34 must share probe 17, shown once'}
     # Retain one configured meter regardless of live online state, and one DIO breaker.
     $keep=($originalTags|Where-Object indexFallback -eq 9030).deviceId
     $remove=@(($originalTags|Where-Object indexFallback -in @(1030,1130)).deviceId)

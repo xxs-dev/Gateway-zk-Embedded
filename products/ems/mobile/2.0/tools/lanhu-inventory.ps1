@@ -5,6 +5,23 @@ function Get-LanhuDevicePoint($Points,$Name) {
     if($found.Count-eq1){return [uint32]$found[0].indexFallback}
     return $null
 }
+# Display unit of a bound point: the runtime point table decides when it is supplied (a register in
+# mV scaled by 0.001 is shown in V, never divided again); otherwise the confirmed default applies.
+function Get-LanhuDisplayUnit($Index,$Default) {
+    if($null-eq$Index){return $Default}
+    $key=[uint32]$Index
+    if($script:runtimePointByIndex.ContainsKey($key)){
+        $point=$script:runtimePointByIndex[$key].point
+        if($null-ne$point.PSObject.Properties['read']-and$null-ne$point.read){
+            $unit=if($null-ne$point.read.PSObject.Properties['unit']){[string]$point.read.unit}else{''}
+            $scale=if($null-ne$point.read.PSObject.Properties['scale']){[double]$point.read.scale}else{1.0}
+            if($unit-eq'mV'-and[math]::Abs($scale-0.001)-lt1e-12){return 'V'}
+            if($unit-eq'V'-and[math]::Abs($scale-1000)-lt1e-9){return 'mV'}
+            if(-not[string]::IsNullOrWhiteSpace($unit)){return $unit}
+        }
+    }
+    return $Default
+}
 function Get-LanhuCellScreenId($Cluster=1,$Page=1) {
     $id=if($Cluster-eq1){'Devices-Cells'}else{"Devices-Cells-$Cluster"}
     if($Page-gt1){$id+="-Page$Page"}
