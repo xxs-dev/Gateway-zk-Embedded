@@ -81,7 +81,9 @@
 - 待决定：AGC/AVC 失效归零时，若未知事务的值本身是 0，是否也按安全态例外重发 0（当前不重发，保守）；是否需要“遥测不到位自动重试”的授权策略（当前未开放）；写入失败失效是否要求人工复位（当前与原设计相同，确定成功即退出）；是否为仍未结束的未知事务新增输出点。
 - KY-SCADA 进程重启、AGC/AVC 服务重启后，内存中的锁和未知事务不保留。
 - 22.11 正式构建与 22.7 隔离运行已由接收方对 `2a1a51f` 执行（8.6）；第三次补修 `31ee738`、`2ca4f24` 已由接收方用正式工具链和 22.7 隔离复验通过（8.8）。正式全量 CTest、真实屏幕与触摸、104 实际绑定、真实设备、平台/KY-EMS 联调仍未执行。
-- 未闭环：云端 `local_display_qt_lanhu` 偶发失败一次，原因未查明（22.7 带工程参数连续 3 次通过只说明未复现）；`ota_original_job_query_test` 在正式 GCC 6 下的兼容问题只是交付方的判断，未构建、未修改。
+- 未闭环：`local_display_qt_lanhu` 偶发失败——云端已复现同类的固定等待窗口时序失败，并在测试中改为有上限的条件等待（8.9，只改测试）；尚未用 22.11 正式工具链重编、未在 22.7 复验。8.7 那次失败没有保留失败信息，不能确认就是同一原因。
+- 未闭环：`event_store_sender` 在全量 CTest 负载下和 CPU 饥饿条件下失败（过期 ACK 被记为已发送），单独运行通过；与本分支无关，原因未查（8.9）。
+- 未闭环：`ota_original_job_query_test` 不在任何 CMake/CTest/构建脚本中，依赖 GCC 6 标准库没有的 `<filesystem>`、`<optional>`，要在 GCC 6 下编译需要移植而不是小改（8.9）。本轮未改，是否登记、移植或删除待 OTA 测试负责人决定。
 
 ## 7. 操作说明（本地画面）
 
@@ -223,7 +225,7 @@ CTest 全量（独立挂载、IPC 与 PID 命名空间，独立 `/dev/shm`）：
 | `local_display_qt_lanhu_test` 带工程参数 | — | 通过 | 云端 |
 | Qt/AGC/控制相关 CTest 17 项 | — | 第一次运行 16 项通过，`local_display_qt_lanhu` 在 1.63 秒处失败（未加 `--output-on-failure`，失败信息未保留）；带输出重跑 17 项通过；另单独 ctest 3 次、三项组合 6 次、直接运行 12 次、CPU 加载下 8 次均通过 | 云端；原因未查明，本轮未改该测试。该测试有 250 ms 等待对 200 ms 回执轮询的窄余量（`85917a30` 起就有），是可能原因之一，未证实 |
 
-另见：`tools/ota_original_job_query_test.cpp` 直接使用 `std::optional` 的 `has_value()`，正式 GCC 6 同样无法编译；它不在 aarch64 构建列表，与本分支无关，本轮未改。
+另见：`tools/ota_original_job_query_test.cpp` 直接使用 `std::optional` 的 `has_value()`，正式 GCC 6 同样无法编译；它不在 aarch64 构建列表，与本分支无关，本轮未改。（此说法不准确，更正见 8.9。）
 
 接收方随后用 22.11 正式工具链重建这两个测试并在 22.7 隔离运行，结果见 8.8。
 
@@ -251,3 +253,67 @@ CTest 全量（独立挂载、IPC 与 PID 命名空间，独立 `/dev/shm`）：
 **现场保持**：前后 130 个安装程序/配置/服务配置哈希一致；显示、监测、健康看门狗的 PID、启动时间、重启计数一致；boot ID、接口地址、6 个现场共享内存段名称/inode/大小一致；私有共享内存结束时为空。没有重启现场服务、连接真实设备或改变网络/EasyTier/4G；104 未操作。
 
 **结论分层**：`31ee738`、`2ca4f24` 两项为“22.11 正式工具链与 22.7 ARM/Qt 隔离复验通过”，不是现场全链路验收，也不是合并、推送或部署许可。仍未闭环：云端 `local_display_qt_lanhu` 偶发失败（原因未明；板上 3 次通过只说明未复现，250 ms/200 ms 时序余量仍只是假设）；`ota_original_job_query_test` 的 GCC 6 兼容问题（未构建、未修改）；正式全量 CTest；真实触摸屏、104 现场绑定、真实设备、电气动作、平台/KY-EMS 联调。四项 AGC 策略和进程重启不保留未知事务/画面锁的限制不变。
+
+### 8.9 测试等待加固与 OTA 旧测试核实（`1d28d35..`，云端验证）
+
+本轮只改两个 Qt 测试文件，不改生产代码、生成器、CMake 或现场配置。
+
+| 提交 | 内容 |
+| --- | --- |
+| `255642e` | `tools/local_display_qt_lanhu_test.cpp`、`tools/local_display_qt_control_receipt_test.cpp`：期待结果的固定 250 ms 窗口改为有上限的条件等待；`spin` 结束前再处理一次事件；“不得确认/不得结束”的反向检查从 250 ms 延长到 450 ms（至少两次 200 ms 轮询）；新增“不早于等待/跟踪期限”的耗时断言 |
+| 本文档所在提交 | docs：8.9、第 6 节，8.7 末尾标注更正 |
+
+文件长度：`local_display_qt_lanhu_test.cpp` 在基线 `eeaaa8a` 已有 1046 行，超过单文件 800 行的约束；第六轮后 1102 行，本轮再加 15 行到 1117 行，未拆分。`local_display_qt_control_receipt_test.cpp` 275 行。
+
+**Lanhu 偶发失败的原因**
+
+- 8.7 那次失败只留下“1.63 秒处失败”，没有失败信息。把旧测试复制一份、只加计时输出（单独编译，不入库），常规运行 3 次：前一个检查点 `fresh readback not confirmed` 约 1.33 秒，`driver failure not reported` 约 1.58–1.60 秒，再下一个检查点约 11.9 秒。1.63 秒的失败只能落在 1.33–1.6 秒这一段，与 `driver failure not reported` 吻合。这是按耗时推断，不是原失败的直接记录。
+- 机制：旧测试下发控制后固定等 250 ms 再断言回执结果，而回执跟踪器每 200 ms 轮询一次；旧 `spin` 在最后一次 5 ms 休眠后直接退出，不处理休眠期间到期的定时器。调度稍有延迟，250 ms 内可能一次轮询都没执行，断言就失败。生产代码的轮询周期、等待时间和锁定期限都没有改。
+- `local_display_qt_control_receipt_test` 有同类的 250 ms 固定窗口，一并处理。
+
+复现条件：测试进程绑定 CPU1、nice 19，同一 CPU 上 3 个 `yes` 忙循环（nice 0）。
+
+| 测试 | 修改前（`1d28d35`；Lanhu 用上面只加计时输出的副本） | 修改后 |
+| --- | --- | --- |
+| `local_display_qt_lanhu_test`（不带参数，即 CTest 方式） | 4/4 失败：`driver failure not reported` | 3/3 通过 |
+| `local_display_qt_control_receipt_test` | 3/3 失败：`submitted wording` | 3/3 通过 |
+
+**断言的变化**（原有断言内容都保留，阈值未降低）
+
+- 期待的结果：条件满足即继续，等待上限 3/4/5/13 秒；上限只决定失败时要等多久。
+- 反向检查（旧反馈值、写入枚举冒充反馈、过期反馈、外来命令的回执、命令前的反馈值都不得确认或结束等待）：观察时间 250 ms → 450 ms。
+- 新增“不早于”：Lanhu 10 秒回执等待不早于 10 秒结束；C4、C11 的锁不早于跟踪期限释放（用登记表同一个单调时钟计时）；C6 的等待不早于 `waitMs` 结束（从命令时间戳计，与跟踪器同一个系统时钟）。
+- 需要说明的变化：两个 Qt 测试原来用固定窗口顺带检查“到期就释放、不会晚”（约 1.6 秒内），现在只检查在 4 秒上限内释放。准确到期（69999 ms 仍锁、70000 ms 释放）仍由注入时钟的 `control_transaction_registry_test`、`local_display_qt_pcs_receipt_test` 确定性检查，未改。
+- 夹具参数：C6 `waitMs` 300→2000、`trackMs` 1500→8000；C9 `waitMs` 600→3000，让反向检查发生在等待期内。生产默认值不变。
+
+**首版加固的失败（保留）**
+
+- 首版加固后，两项各常规运行 5 次，出现 1 次失败；当时的失败信息没有保存，原因未查明。
+- 随后两项各常规运行 30 次，59/60 通过。失败 1 次：control receipt 第 29 次，`the unknown point was released before the tracking period ended`。首版新增的 C4 耗时断言用系统时钟毫秒计时，而锁定期限按单调时钟毫秒计算，两个时钟各自截断到毫秒，测量值可以比实际少 1–2 ms；失败时没有输出实际耗时，所以这是推断，不是测量。修正：C4、C11 改用同一个单调时钟（开始计时在登记之前，同一时钟下测得的耗时不可能小于期限，失败就说明确实提前释放），C6 改为从命令时间戳计。阈值未降低。
+
+**最终版本的云端结果**（x86_64 GCC 13.3 Release，Qt 6 offscreen）
+
+| 项目 | 结果 |
+| --- | --- |
+| 两项各常规运行 30 次 | 60/60 通过（Lanhu 每次约 14.3 秒，control receipt 约 9.7 秒） |
+| CPU 饥饿条件下各 3 次 | 6/6 通过 |
+| `local_display_qt_lanhu_test` 带工程参数（第六轮生成的 56 页隔离工程） | 3/3 通过（15.5–16.1 秒） |
+| CTest 全量（160 项，`-j2`，独立 mount/IPC/PID 命名空间与 `/dev/shm`） | 157 通过、1 跳过、2 失败。跳过的 `memory_point_store_migration` 和失败的 `memory_point_store_v11_migration` 是因为没有设置隔离备份目录 `GATEWAY_MIGRATION_TEST_BACKUP_DIR`，设置后两项均通过。另一项失败是 `event_store_sender`，见下文 |
+
+**新发现：`event_store_sender` 在负载下失败（与本轮修改无关，未改）**
+
+- 全量 CTest（`-j2`）中失败：`sender-batch-storage-expiry-delete: expired sparse storage ACK counted as sent`，用时 28.6 秒（单独运行约 9 秒）。
+- 单独 `ctest -R event_store_sender` 连续 5 次通过。按上面的 CPU 饥饿条件运行 2 次都失败：两次都有 `sender-batch-storage-expiry-delete`、`-wal`，第二次还有 `sender-factory-real-ipc-3: expired ACK counted as effective delivery`；第 3 次因云端命令时限中断，不计。
+- 本分支没有改 event store 发送器的源码和这个测试，本轮也没有重编它。用例本身按 100 ms 租约、发送回调里睡 130 ms 设计，对调度敏感。是测试时序问题，还是发送器在负载下确实会把过期 ACK 记为已发送，**没有查**，需要另行决定是否排查。在这之前，正式全量 CTest 仍可能被它打断。
+
+**OTA 旧测试 `tools/ota_original_job_query_test.cpp`（核实，更正 8.7）**
+
+- 8.7 说它“直接使用 `std::optional` 的 `has_value()`”，不准确。实际：677 行，直接 `#include "../src/ota_service.cpp"`；依赖 C++17 标准库头 `<filesystem>`（`std::filesystem` 22 处）和 `<optional>`（3 处）。GCC 6 的 libstdc++ 只有 `experimental/filesystem`、`experimental/optional`。云端替身 GCC 6.4（不是正式 Linaro 6.3.1 与 sysroot）在第 5 行 `#include <filesystem>` 处致命错误停止；x86 GCC 13 `-std=c++17` 语法检查通过。
+- 它不在任何 CMakeLists、CTest、构建或发布脚本中，Git 历史中也从未登记过，所以正式全量 CTest 和 aarch64 构建都不会编译它。它在基线 `eeaaa8a` 内（2026-10-03 由 `5c26295` 加入，最后修改 `845499d`，2026-10-14，均为 OTA 方向的提交），与本分支无关。
+- 要在 GCC 6 下编译，需要把文件系统操作和 optional 改写到工程自己的实现，是 OTA 测试的移植，不是兼容小改。本轮未改；是否登记、移植或删除待 OTA 测试负责人决定。
+
+**结论分层**
+
+- 云端：Lanhu、control receipt 两个测试的固定窗口时序失败已复现，并在测试中修正；修正后这两个测试在上表各项中都通过。只代表云端 x86 Qt 6 offscreen。全量 CTest 没有跑干净：`event_store_sender` 在负载下失败，原因未查。
+- 8.7 那次失败没有原始信息，只能说“同类时序失败已复现并消除”，不能断言就是同一次失败的原因。
+- 未执行：用 22.11 正式工具链重编这两个测试并在 22.7（Qt 5.12.8）复验；正式全量 CTest；OTA 旧测试的处理；以及第 6 节其余未闭环项（真实屏幕与触摸、104 实际绑定、真实设备、平台/KY-EMS 联调）。不是合并、推送或部署许可。
