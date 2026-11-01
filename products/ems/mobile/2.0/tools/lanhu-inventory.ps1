@@ -101,7 +101,9 @@ function Initialize-LanhuInventory {
             $script:lanhuBreakers+=@{Name=$name;DeviceId=$point.deviceId;Position=[uint32]$point.indexFallback;Online=$null;Trip=$null;Close=$null}
         }
     }
-    $script:lanhuBreakers=@($script:lanhuBreakers|Sort-Object Name)
+    # Fixed zh-CN collation: slot order must not depend on the build host locale (ordinal or invariant
+    # sorting puts 储能 before 并网 and moves the commanded breaker to another slot).
+    $script:lanhuBreakers=@($script:lanhuBreakers|Sort-Object Name -Culture 'zh-CN')
     $script:lanhuMeters=@($script:lanhuMeters|Sort-Object Source)
 }
 function Get-LanhuExpectedScreens {

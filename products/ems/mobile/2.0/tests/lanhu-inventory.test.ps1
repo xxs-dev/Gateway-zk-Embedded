@@ -35,7 +35,13 @@ try{
         $tags+=$copy;$routes+=$route
     }
     Save-Fixture $tags $routes
-    Generate-Fixture 'two-clusters'
+    # Breaker slot order must not depend on the host locale: generate under the invariant culture.
+    $hostCulture=[cultureinfo]::CurrentCulture
+    try{[cultureinfo]::CurrentCulture=[cultureinfo]::InvariantCulture;Generate-Fixture 'two-clusters'}finally{[cultureinfo]::CurrentCulture=$hostCulture}
+    foreach($id in @('Devices-Mccb','Control-Mccb')){
+        $titles=@(0..2|ForEach-Object {(($screens|Where-Object screenId -eq $id).widgets|Where-Object widgetId -eq "mccb-$_-title").properties.qtText})
+        if(($titles-join',')-ne'并网断路器,储能断路器,负荷断路器'){throw "Breaker order depends on host locale: $id $($titles-join',')"}
+    }
     $second=@($screens|Where-Object screenId -like 'Devices-Cells-2*')
     if($second.Count-ne2){throw 'Second cluster needs exactly two pages for 34 cells'}
     foreach($page in $second){foreach($binding in @($page.widgets|ForEach-Object {$_.bindings})){
