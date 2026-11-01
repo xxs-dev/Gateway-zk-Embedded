@@ -1,7 +1,6 @@
 #include "local_display_qt_control_receipt.hpp"
 
 #include <chrono>
-#include <unordered_map>
 #include <utility>
 
 #include <QMessageBox>
@@ -15,12 +14,6 @@ std::int64_t receiptNowMs() {
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-// tagId -> cmdId of the unresolved local command (GUI thread only).
-std::unordered_map<std::string, std::string>& unresolvedTags() {
-    static std::unordered_map<std::string, std::string> tags;
-    return tags;
-}
-
 bool successfulOutcome(const edge_gateway::ControlReceiptView& view) {
     using edge_gateway::ControlReceiptState;
     return view.state == ControlReceiptState::Submitted || view.state == ControlReceiptState::Written ||
@@ -29,20 +22,13 @@ bool successfulOutcome(const edge_gateway::ControlReceiptView& view) {
 
 }  // namespace
 
+edge_gateway::ControlTransactionRegistry& localControlTransactions() {
+    static edge_gateway::ControlTransactionRegistry registry;
+    return registry;
+}
+
 bool ControlReceiptTracker::tagUnresolved(const std::string& tagId, std::string* cmdId) {
-    const auto found = unresolvedTags().find(tagId);
-    if (found == unresolvedTags().end()) return false;
-    if (cmdId != nullptr) *cmdId = found->second;
-    return true;
-}
-
-void ControlReceiptTracker::markUnresolved(const std::string& tagId, const std::string& cmdId) {
-    if (!tagId.empty()) unresolvedTags()[tagId] = cmdId;
-}
-
-void ControlReceiptTracker::clearUnresolved(const std::string& tagId, const std::string& cmdId) {
-    const auto found = unresolvedTags().find(tagId);
-    if (found != unresolvedTags().end() && found->second == cmdId) unresolvedTags().erase(found);
+    return localControlTransactions().locked(tagId, cmdId);
 }
 
 QString ControlReceiptTracker::describe(
@@ -77,7 +63,7 @@ ControlReceiptTracker::ControlReceiptTracker(
     Request request,
     std::function<void()> onWaitEnded
 ) : QObject(parent), runtime_(runtime), request_(std::move(request)), onWaitEnded_(std::move(onWaitEnded)) {
-    markUnresolved(request_.tagId, request_.cmdId);
+    localControlTransactions().begin(request_.cmdId, {{request_.tagId, request_.index, false}}, request_.trackMs);
     auto* dialog = new QMessageBox(QMessageBox::Information,
         request_.title.isEmpty() ? QString::fromUtf8("控制执行结果") : request_.title,
         QString::fromUtf8("命令已受理，等待驱动回执。\n命令：%1").arg(QString::fromStdString(request_.cmdId)),
@@ -94,7 +80,7 @@ ControlReceiptTracker::ControlReceiptTracker(
 }
 
 ControlReceiptTracker::~ControlReceiptTracker() {
-    clearUnresolved(request_.tagId, request_.cmdId);
+    // The transaction stays in localControlTransactions() until its receipt or deadline.
     if (!waitEnded_ && onWaitEnded_) {
         waitEnded_ = true;
         onWaitEnded_();
@@ -114,6 +100,8 @@ void ControlReceiptTracker::poll() {
         if (next.final && shownNoReceipt_) late_ = true;
         view_ = next;
         if (view_.state == edge_gateway::ControlReceiptState::NoReceipt) shownNoReceipt_ = true;
+        if (edge_gateway::ControlTransactionRegistry::settlesTransaction(view_))
+            localControlTransactions().settle(request_.cmdId, request_.tagId);
     }
 
     // Screen feedback point: only after a successful receipt, only a value newer than both.
@@ -136,8 +124,13 @@ void ControlReceiptTracker::poll() {
                                !screenFeedbackDone_;
     const bool finished = view_.final && !screenPending;
     if (dialog_) {
-        dialog_->setText(describe(view_, late_, screenFeedback_) + QString::fromUtf8("\n命令：") +
-                         QString::fromStdString(request_.cmdId));
+        const bool lockedUntilDeadline = !edge_gateway::ControlTransactionRegistry::settlesTransaction(view_);
+        dialog_->setText(describe(view_, late_, screenFeedback_) +
+                         (view_.final && lockedUntilDeadline
+                              ? QString::fromUtf8("\n该点保持锁定，直到出现确定回执或跟踪期（%1 秒）结束。")
+                                    .arg(request_.trackMs / 1000)
+                              : QString()) +
+                         QString::fromUtf8("\n命令：") + QString::fromStdString(request_.cmdId));
         if (finished || waitExpired) {
             const bool positive = edge_gateway::controlReceiptPositive(view_) || screenFeedbackConfirmed_;
             dialog_->setIcon(finished && positive ? QMessageBox::Information : QMessageBox::Warning);
@@ -160,7 +153,6 @@ void ControlReceiptTracker::finishWait() {
 
 void ControlReceiptTracker::stop() {
     if (timer_ != nullptr) timer_->stop();
-    clearUnresolved(request_.tagId, request_.cmdId);
     finishWait();
     deleteLater();
 }

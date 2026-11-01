@@ -147,13 +147,15 @@ bool parseDouble(const std::string& text, double* result) {
     return true;
 }
 
-// A local command whose result is still open locks its point: no second command until the first one
-// has a final receipt (or its tracking ended unknown), so an unknown result is never "retried" locally.
+// A local command whose result is still open locks its point (localControlTransactions()): no second
+// command until the first one has a definite final receipt or its tracking period has ended, so an
+// unknown result is never "retried" locally, also not after logout or a page rebuild.
 bool refuseUnresolvedControl(QWidget* parent, const std::string& tagId) {
     std::string cmdId;
     if (!ControlReceiptTracker::tagUnresolved(tagId, &cmdId)) return false;
     QMessageBox::warning(parent, QString::fromUtf8("控制未完成"),
-        QString::fromUtf8("该控制点上一条命令（%1）尚无最终回执，结果未知。请先在现场核实，不要重复下发。")
+        QString::fromUtf8("该控制点上一条命令（%1）还没有确定结果（无回执或结果未知），跟踪期内不能再次下发。"
+                          "请先在现场核实，不要重复下发。")
             .arg(QString::fromStdString(cmdId)));
     return true;
 }
@@ -2628,6 +2630,12 @@ void ScadaRuntimeWindow::refreshCurrent() {
 }
 
 void ScadaRuntimeWindow::refreshAll(std::int64_t now) {
+    // Settle local control transactions independently of the pages that started them.
+    if (runtime_) {
+        localControlTransactions().poll([this](const std::string& tagId, const std::string& cmdId) {
+            return runtime_->getWritebackResult(tagId, cmdId);
+        });
+    }
     auto* current = dynamic_cast<ScadaSceneView*>(stack_->currentWidget());
     for (auto* view : views_) {
         if (view == nullptr) continue;

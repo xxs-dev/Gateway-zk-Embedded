@@ -3,6 +3,7 @@
 #include "local_display_qt_pcs_remote_guard.hpp"
 #include "local_display_qt_parallel_topology.hpp"
 #include "local_display_qt_system_info.hpp"
+#include "local_display_qt_control_receipt.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -55,15 +56,17 @@ public:
     static bool expireWithoutRebuild(ScadaRuntimeWindow& window) {
         return window.accessSession_.authenticate("operator", "lanhu-preview-only", 1);
     }
-    static void confirmedWrite(ScadaRuntimeWindow& window) {
+    static void confirmedWrite(ScadaRuntimeWindow& window, const std::string& tagId = "t1") {
         edge_gateway::ScadaWidgetAction action;
         action.type = "writeSetpoint";
-        action.tagId = "t1";
+        action.tagId = tagId;
         action.value = "1";
         action.requiresConfirmation = true;
         auto* view = dynamic_cast<ScadaSceneView*>(window.stack_->currentWidget());
         view->handleAction(action, {}, {}, false);
     }
+    static void logout(ScadaRuntimeWindow& window) { window.logoutLocalUser(); }
+    static void refresh(ScadaRuntimeWindow& window) { window.refreshAll(QDateTime::currentMSecsSinceEpoch()); }
 };
 
 namespace {
@@ -163,6 +166,14 @@ edge_gateway::ScadaWidget widget(const std::string& type, double y = 0) {
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
+    // Local control locks are process-wide (they outlive pages). Each fixture block below stands for
+    // a separate edge, so open commands of one block are moved past their tracking period before the
+    // next block reuses the same tag names.
+    std::int64_t fixtureClockOffset = 0;
+    localControlTransactions().setClock([&fixtureClockOffset] {
+        return edge_gateway::ControlTransactionRegistry::steadyNowMs() + fixtureClockOffset;
+    });
+    const auto endFixtureCommands = [&fixtureClockOffset] { fixtureClockOffset += 3600000; };
     try {
         FixtureRuntime runtime;
         {
@@ -264,6 +275,7 @@ int main(int argc, char** argv) {
             require(guarded.groupWriteCalls == 1, "remote power command rejected");
             closer.stop();
         }
+        endFixtureCommands();
         {
             FixtureRuntime controls;
             bool authorized = true;
@@ -518,6 +530,7 @@ int main(int argc, char** argv) {
         }
         // Audit the real renderer without connecting any data/control transport.
         if (argc > 3 && std::string(argv[3]) == "--layout-audit") {
+            endFixtureCommands();
             ScadaRuntimeWindow window(argv[1], 500, false, [](const edge_gateway::ScadaProject&) {
                 return std::make_unique<FixtureRuntime>();
             });
@@ -883,6 +896,7 @@ int main(int argc, char** argv) {
         ScadaSceneView lanhuPcs(screen, ".", {}, {}, runtime, [](const std::string&) {});
         require(ScadaSceneViewTestAccess::widgets(lanhuPcs)[0].pcsPowerControl->findChildren<QLabel*>().size() > 10, "Lanhu PCS native rows missing");
         if (argc > 1) {
+            endFixtureCommands();
             ScadaRuntimeWindow window(argv[1], 500, false, [](const edge_gateway::ScadaProject&) {
                 return std::make_unique<FixtureRuntime>();
             });
@@ -1038,6 +1052,37 @@ int main(int argc, char** argv) {
             require(ScadaSceneViewTestAccess::gated(window), "expired session did not return to gate");
             require(ScadaSceneViewTestAccess::screenIndex(window, "Control-Pcs") < 0, "expired controls remain built");
             require(window.authenticateLocalAccess("operator", "lanhu-preview-only", &message), "second login failed");
+            {   // An open command outlives its page: logout and re-login rebuild every page, the point
+                // stays locked, and the window refresh settles it on the late final receipt.
+                transport.acknowledgement = edge_gateway::NullOpt;
+                QTimer yes;
+                QObject::connect(&yes, &QTimer::timeout, &window, []() {
+                    auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                    if (dialog && (dialog->standardButtons() & QMessageBox::Yes)) dialog->button(QMessageBox::Yes)->click();
+                    else if (dialog) dialog->accept();
+                });
+                yes.start(10);
+                window.showScreen("Control-Pcs");
+                const auto before = transport.writeCalls;
+                endFixtureCommands();
+                ScadaSceneViewTestAccess::confirmedWrite(window, "t7");
+                require(transport.writeCalls == before + 1 && ControlReceiptTracker::tagUnresolved("t7"),
+                        "accepted command without receipt must lock its point");
+                ScadaSceneViewTestAccess::logout(window);
+                require(ControlReceiptTracker::tagUnresolved("t7"), "logout released an open command");
+                require(window.authenticateLocalAccess("operator", "lanhu-preview-only", &message), "re-login failed");
+                window.showScreen("Control-Pcs");
+                ScadaSceneViewTestAccess::confirmedWrite(window, "t7");
+                require(transport.writeCalls == before + 1, "re-login bypassed the open command lock");
+                edge_gateway::WritebackResultRecord late;
+                late.success = true;
+                late.stage = edge_gateway::kWritebackSucceededStage;
+                late.message = "fixture late receipt";
+                transport.acknowledgement = late;
+                ScadaSceneViewTestAccess::refresh(window);
+                require(!ControlReceiptTracker::tagUnresolved("t7"), "window refresh did not settle the late receipt");
+                yes.stop();
+            }
             window.showScreen("Meters-Overview");
             auto* header = window.findChild<QPushButton*>("scadaLogoutButton");
             require(header && header->isVisible() && header->text() == QString::fromUtf8("退出"), "public screen loses logged-in state");

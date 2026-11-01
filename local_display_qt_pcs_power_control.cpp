@@ -32,6 +32,9 @@
 
 namespace {
 
+// Tracking period of a three-phase batch: its phase locks end at the latest here.
+constexpr std::int64_t kPcsTrackMs = 70000;
+
 std::int64_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
@@ -468,15 +471,7 @@ void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
         return;
     }
 
-    for (const auto& tag : tagIds(kind)) {
-        std::string unresolved;
-        if (ControlReceiptTracker::tagUnresolved(tag, &unresolved)) {
-            showPcsMessage(this, QMessageBox::Warning, QString::fromUtf8("PCS 功率写入"),
-                QString::fromUtf8("该相功率点上一条命令（%1）尚无最终回执，结果未知。请先核实设备，不要重复下发。")
-                    .arg(QString::fromStdString(unresolved)));
-            return;
-        }
-    }
+    if (refuseLockedPhases(kind)) return;
     const auto plan = planFor(kind);
     QString validation;
     if (!validatePlan(kind, plan, &validation)) {
@@ -565,8 +560,22 @@ void PcsPhasePowerControl::prepareWrite(PowerKind kind) {
     submitWrite(kind, plan);
 }
 
+bool PcsPhasePowerControl::refuseLockedPhases(PowerKind kind) {
+    for (const auto& tag : tagIds(kind)) {
+        std::string open;
+        if (ControlReceiptTracker::tagUnresolved(tag, &open)) {
+            showPcsMessage(this, QMessageBox::Warning, QString::fromUtf8("PCS 功率写入"),
+                QString::fromUtf8("该相功率点上一条命令（%1）还没有确定结果（无回执或结果未知），跟踪期内不能再次下发。"
+                                  "请先核实设备，不要重复下发。").arg(QString::fromStdString(open)));
+            return true;
+        }
+    }
+    return false;
+}
+
 void PcsPhasePowerControl::submitWrite(PowerKind kind, const PcsPhasePowerPlan& plan) {
-    if (!requireRemote(kind)) return;
+    // Checked again after the confirmation dialog: a page rebuilt meanwhile shares the same locks.
+    if (!requireRemote(kind) || pending_.active || refuseLockedPhases(kind)) return;
     std::vector<ScadaSceneWriteTarget> targets;
     const auto& tags = tagIds(kind);
     for (std::size_t index = 0; index < tags.size(); ++index) {
@@ -599,8 +608,10 @@ void PcsPhasePowerControl::submitWrite(PowerKind kind, const PcsPhasePowerPlan& 
     pending_.targets = plan.phases;
     pending_.requestedAt = command.ts;
     pending_.deadlineAt = command.ts + 10000;
-    pending_.trackUntil = command.ts + 70000;
-    for (const auto& tag : tags) ControlReceiptTracker::markUnresolved(tag, command.cmdId);
+    pending_.trackUntil = command.ts + kPcsTrackMs;
+    std::vector<edge_gateway::ControlTransactionRegistry::Point> points;
+    for (const auto& tag : tags) points.push_back({tag, 0, false});
+    localControlTransactions().begin(command.cmdId, std::move(points), kPcsTrackMs);
     activeSubmitButton_->setEnabled(false);
     reactiveSubmitButton_->setEnabled(false);
     for (std::size_t index = 0; index < resultLabels_.size(); ++index) {
@@ -632,6 +643,8 @@ void PcsPhasePowerControl::pollWriteback() {
             if (edge_gateway::controlReceiptShouldReplace(pending_.views[index], next)) {
                 pending_.views[index] = next;
                 if (result) pending_.results[index] = result;
+                if (edge_gateway::ControlTransactionRegistry::settlesTransaction(next))
+                    localControlTransactions().settle(pending_.cmdId, pending_.tagIds[index]);
             }
         }
         allFinal = allFinal && pending_.views[index].final;
@@ -702,7 +715,6 @@ void PcsPhasePowerControl::finishPending(bool timedOut) {
     }
     statusLabel_->setText(summary);
     const bool allConfirmed = confirmed == 3;
-    for (const auto& tag : pending_.tagIds) ControlReceiptTracker::clearUnresolved(tag, pending_.cmdId);
     pending_.active = false;
     activeSubmitButton_->setEnabled(true);
     reactiveSubmitButton_->setEnabled(true);

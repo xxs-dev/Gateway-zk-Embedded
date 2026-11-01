@@ -71,7 +71,8 @@ private:
         std::int64_t requestedAt = 0;
         std::int64_t deadlineAt = 0;
         // After the deadline a missing receipt is shown as unknown; a late final receipt is still
-        // taken until trackUntil. The batch stays locked (no second batch) until then.
+        // taken until trackUntil. The phase locks live in localControlTransactions() (they survive
+        // this widget) and end on a definite final receipt per phase or at trackUntil.
         std::int64_t trackUntil = 0;
         bool deadlineReported = false;
     };
@@ -81,6 +82,7 @@ private:
     void setMode(PcsPhasePowerMode mode);
     void updateDerivedInputs(PowerKind kind);
     void prepareWrite(PowerKind kind);
+    bool refuseLockedPhases(PowerKind kind);
     void submitWrite(PowerKind kind, const PcsPhasePowerPlan& plan);
     void pollWriteback();
     void finishPending(bool timedOut);

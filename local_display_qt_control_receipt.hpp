@@ -9,6 +9,7 @@
 #include <QString>
 
 #include "edge_gateway/control_receipt_view.hpp"
+#include "edge_gateway/control_transaction_registry.hpp"
 #include "local_display_qt_scada_runtime.hpp"
 
 class QMessageBox;
@@ -22,7 +23,9 @@ class QWidget;
 //   - A final result is never replaced by an older or non-final one.
 //   - Without a receipt by waitMs the command is shown as unknown, and tracking continues until
 //     trackMs: a late final receipt then replaces it (marked as late). Nothing is re-sent.
-//   - While a command is unresolved its control point is locked against another local command.
+//   - The point lock belongs to the process-wide localControlTransactions(), not to this dialog: it
+//     survives the page (logout, session expiry, project reload) and ends on a definite final
+//     receipt or at trackMs. Destroying the tracker neither releases nor extends it.
 class ControlReceiptTracker final : public QObject {
 public:
     struct Request {
@@ -48,10 +51,8 @@ public:
         std::function<void()> onWaitEnded
     );
 
-    // Whether a local command on this point is still unresolved (cmdId of that command).
+    // Whether a local command on this point is still open in localControlTransactions().
     static bool tagUnresolved(const std::string& tagId, std::string* cmdId = nullptr);
-    static void markUnresolved(const std::string& tagId, const std::string& cmdId);
-    static void clearUnresolved(const std::string& tagId, const std::string& cmdId);
 
     // Message for one poll (exposed for tests).
     static QString describe(
@@ -83,3 +84,7 @@ private:
     bool screenFeedbackConfirmed_ = false;
     QString screenFeedback_;
 };
+
+// Process-wide local control transactions (GUI thread). The runtime window polls it every refresh so
+// that a transaction whose page was destroyed is still settled by its late receipt.
+edge_gateway::ControlTransactionRegistry& localControlTransactions();
