@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "edge_gateway/agc_avc_controller.hpp"
@@ -86,6 +87,9 @@ private:
     std::vector<std::uint32_t> collectInputIndexes() const;
     void processWriteResults(std::int64_t nowMs, const AgcAvcCycleInput& input);
     void registerWriteFailure(std::uint32_t index);
+    // A setpoint whose result is unknown (unknown receipt, or none by writeResultTimeoutMs): it may
+    // have taken effect, so the same value is not re-sent; PCS telemetry decides when configured.
+    void registerUnknownWrite(std::uint32_t index, const PendingWriteObservation& pending, std::int64_t nowMs);
     void publishOutputs(const AgcAvcCycleOutput& output, std::int64_t nowMs);
     void submitAssignments(const AgcAvcCycleOutput& output, std::int64_t nowMs);
 
@@ -101,6 +105,9 @@ private:
     AgcAvcCommandInput latchedCommand_;
     AgcAvcCycleOutput lastOutput_;
     int lastWriteStatus_ = 0;
+    // Targets whose last submitted value has an unknown result. The same value is not re-sent, except
+    // the best-effort safe-state 0 for an unavailable PCS.
+    std::unordered_set<std::uint32_t> unknownResultIndexes_;
     int consecutiveWriteFailures_ = 0;
     std::unordered_map<std::uint32_t, double> lastSubmittedValue_;
     std::unordered_map<std::uint32_t, std::int64_t> lastSubmittedAtMs_;

@@ -1,5 +1,6 @@
 #include "edge_gateway/agc_avc_service.hpp"
 #include "edge_gateway/agc_avc_command_mailbox.hpp"
+#include "edge_gateway/writeback_outcome.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -635,6 +636,23 @@ void AgcAvcService::registerWriteFailure(std::uint32_t index) {
     }
 }
 
+void AgcAvcService::registerUnknownWrite(std::uint32_t index, const PendingWriteObservation& pending, std::int64_t nowMs) {
+    // Counts towards the repeated-failure health limit, but keeps lastSubmittedValue_: no re-send of
+    // the same setpoint on an unknown result.
+    lastWriteStatus_ = -1;
+    unknownResultIndexes_.insert(index);
+    ++consecutiveWriteFailures_;
+    if (pending.pcsIndex < config_.pcs.size() && config_.pcs[pending.pcsIndex].feedbackTimeoutMs > 0) {
+        pendingFeedback_.erase(
+            std::remove_if(pendingFeedback_.begin(), pendingFeedback_.end(),
+                [&](const PendingFeedbackObservation& item) {
+                    return item.pcsIndex == pending.pcsIndex && item.reactive == pending.reactive;
+                }),
+            pendingFeedback_.end());
+        pendingFeedback_.push_back({pending.pcsIndex, pending.reactive, pending.target, nowMs});
+    }
+}
+
 void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInput& input) {
     const int failuresBefore = consecutiveWriteFailures_;
     bool successObserved = false;
@@ -644,6 +662,16 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
             if (!result || !result->success) {
                 lastSubmittedValue_.erase(it->first);  // retry after the interval, never count as a failure
             }
+            it = pendingWrites_.erase(it);
+            continue;
+        }
+        if (result && isUnconfirmedWriteback(*result) &&
+            nowMs - it->second.submittedAtMs < config_.writeResultTimeoutMs) {
+            ++it;  // a final result may still follow this ledger replay
+            continue;
+        }
+        if (result && (std::string(writebackOutcome(*result)) == "unknown")) {
+            registerUnknownWrite(it->first, it->second, nowMs);
             it = pendingWrites_.erase(it);
             continue;
         }
@@ -677,7 +705,7 @@ void AgcAvcService::processWriteResults(std::int64_t nowMs, const AgcAvcCycleInp
             continue;
         }
         if (nowMs - it->second.submittedAtMs >= config_.writeResultTimeoutMs) {
-            registerWriteFailure(it->first);
+            registerUnknownWrite(it->first, it->second, nowMs);  // no receipt: the result is unknown
             it = pendingWrites_.erase(it);
             continue;
         }
@@ -782,7 +810,8 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                 }
                 const auto lastValue = lastSubmittedValue_.find(target.index);
                 const auto lastAt = lastSubmittedAtMs_.find(target.index);
-                if (lastValue != lastSubmittedValue_.end() && std::abs(lastValue->second - value) < deadband) {
+                if (lastValue != lastSubmittedValue_.end() && std::abs(lastValue->second - value) < deadband &&
+                    !(zeroOnly && unknownResultIndexes_.count(target.index) != 0)) {
                     continue;
                 }
                 if (lastAt != lastSubmittedAtMs_.end() && nowMs - lastAt->second < minIntervalMs) {
@@ -797,6 +826,7 @@ void AgcAvcService::submitAssignments(const AgcAvcCycleOutput& output, std::int6
                 command.highPriority = false;
                 const auto result = pointBus_.submitControl(command);
                 if (result.accepted) {
+                    unknownResultIndexes_.erase(target.index);
                     lastSubmittedValue_[target.index] = value;
                     lastSubmittedAtMs_[target.index] = nowMs;
                     pendingWrites_[target.index] = PendingWriteObservation{

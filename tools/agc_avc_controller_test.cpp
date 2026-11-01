@@ -137,10 +137,13 @@ public:
 
     edge_gateway::Optional<edge_gateway::WritebackResultRecord> readWriteResult(
         const edge_gateway::PointStoreRoute&,
-        const std::string&
+        const std::string& cmdId
     ) const override {
-        return edge_gateway::Optional<edge_gateway::WritebackResultRecord>();
+        const auto it = results.find(cmdId);
+        return it == results.end() ? edge_gateway::Optional<edge_gateway::WritebackResultRecord>()
+                                   : edge_gateway::Optional<edge_gateway::WritebackResultRecord>(it->second);
     }
+    std::unordered_map<std::string, edge_gateway::WritebackResultRecord> results;
 
     void add(std::uint32_t index, double value, std::int64_t ts, bool writable = false) {
         edge_gateway::PointStoreRoute route;
@@ -458,6 +461,40 @@ void testShadowServiceDoesNotWrite() {
         for (const auto& command : shadowBus.submitted) {
             require(command.value == 0.0, "an unauthorized command may at most hold the safe 0 target");
         }
+    }
+    std::remove(ownershipPath.c_str());
+    std::remove((ownershipPath + ".lock").c_str());
+
+    // A setpoint whose receipt is unknown (timeout / mismatch) may have taken effect: the same value
+    // is not re-sent. A definite failure releases it for a new attempt.
+    for (const bool unknown : {true, false}) {
+        auto resultConfig = config;
+        resultConfig.writeResultTimeoutMs = 100;
+        for (auto& pcs : resultConfig.pcs) pcs.feedbackTimeoutMs = 0;
+        FakePointBus resultBus = bus;
+        resultBus.published.clear();
+        resultBus.submitted.clear();
+        AgcAvcService resultService(resultConfig, resultBus);
+        resultService.tick(now + 1);
+        require(resultBus.submitted.size() == 2, "initial targets for the receipt test");
+        for (const auto& command : resultBus.submitted) {
+            edge_gateway::WritebackResultRecord r;
+            r.cmdId = command.cmdId; r.index = command.index; r.value = command.value;
+            r.success = false;
+            r.stage = unknown ? "writeback-timeout" : "writeback-failed";
+            r.outcomeUnknown = unknown;
+            resultBus.results[command.cmdId] = r;
+        }
+        const auto first = resultBus.submitted;
+        resultBus.submitted.clear();
+        for (auto& entry : resultBus.values) entry.second.ts = now + 590;
+        resultService.tick(now + 600);
+        bool resent = false;
+        for (const auto& command : resultBus.submitted)
+            for (const auto& original : first)
+                if (command.index == original.index && command.value == original.value) resent = true;
+        require(resent != unknown, unknown ? "an unknown setpoint result must not be re-sent with the same value"
+                                           : "a definitely failed setpoint may be attempted again");
     }
     std::remove(ownershipPath.c_str());
     std::remove((ownershipPath + ".lock").c_str());
