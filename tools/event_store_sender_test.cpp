@@ -7,6 +7,9 @@
 #include "edge_gateway/event_store_clock.hpp"
 #include "edge_gateway/event_store_replay_factory.hpp"
 
+#include <algorithm>
+#include <map>
+
 namespace {
 using Pump = edge_gateway::EventStoreSender;
 using PumpOptions = edge_gateway::EventStoreSenderOptions;
@@ -37,6 +40,77 @@ std::size_t finishCount(Lab& lab, const char* op) {
     const auto exchanges = lab.proxy.exchanges(op);
     require(!exchanges.empty(), "missing finish operation");
     return field(field(parse(exchanges.back().request), "args"), "items").asArray().values.size();
+}
+
+// Real-IPC lease cases (real CLOCK_BOOTTIME, nothing injected):
+//   kLeaseMs   = sender leaseMs, sent in ClaimBatch. The store sets leaseUntilMs = its clock + kLeaseMs
+//                inside the claim transaction, before COMMIT; it refuses an ACK once its clock >= leaseUntilMs.
+//   kNetworkMs = sender networkTimeoutMs. Before any network callback the sender requires
+//                leaseUntilMs - now >= kNetworkMs + kReserveMs, then sets deadlineMs = now + kNetworkMs;
+//                attempt and confirm must happen before deadlineMs.
+//   kReserveMs = sender completionReserveMs (validated: 1 <= reserve < lease, network <= lease - reserve).
+// The claim reply may therefore take up to kLeaseMs - kNetworkMs - kReserveMs = 799 ms to reach the sender,
+// and the callback has kNetworkMs to attempt and confirm. These budgets make the cases robust against
+// scheduling delay; they are not deterministic. A slower environment still fails, and then reports which
+// precondition was not met instead of a combined message.
+constexpr int kLeaseMs = 1000, kNetworkMs = 200, kReserveMs = 1;
+
+// Every failed expectation prints all observed values of the run, so a refusal before sending can never be
+// read as "an ACK was counted" (the earlier combined message did exactly that).
+template <typename Progress> std::string progressText(const Progress& p, int calls) {
+    return "pending=" + std::to_string(p.pending) + " healthy=" + std::to_string(p.healthy) +
+        " ackedCount=" + std::to_string(p.ackedCount) + " attemptedBytes=" + std::to_string(p.attemptedBytes) +
+        " calls=" + std::to_string(calls) + " error=\"" + p.error + "\"";
+}
+void expectValue(const std::string& what, long long actual, long long expected, const std::string& values) {
+    require(actual == expected, what + ": expected " + std::to_string(expected) + ", actual " +
+        std::to_string(actual) + " (" + values + ")");
+}
+// Passes the real clock through unchanged and keeps the sender's first reading (its pre-send budget check),
+// only to report how much lease was left when a precondition fails.
+struct LeaseProbe {
+    std::int64_t firstRead = -1;
+    void attach(std::function<edge_gateway::EventStoreLeaseTime()>& clock) {
+        clock = [this] {
+            const auto now = edge_gateway::readEventStoreLeaseTime();
+            if (firstRead < 0) firstRead = now.milliseconds;
+            return now;
+        };
+    }
+    std::string text(Lab& lab) const {
+        std::int64_t until = -1;
+        for (const auto& exchange : lab.proxy.exchanges("ClaimBatch")) {
+            const auto reply = parse(exchange.runtimeReply);
+            if (const auto* value = reply.find("leaseUntilMs")) until = std::stoll(value->asString());
+        }
+        return " leaseUntilMs=" + std::to_string(until) + " senderFirstClockRead=" + std::to_string(firstRead) +
+            (until >= 0 && firstRead >= 0 ? " remainingAtSenderCheck=" + std::to_string(until - firstRead) + "ms" : "");
+    }
+};
+// Waits on the store's clock until the claim lease has ended; the ACK sent afterwards meets an expired lease.
+void waitLeaseEnd(const edge_gateway::EventStoreSenderCall& call) {
+    for (;;) {
+        const auto now = edge_gateway::readEventStoreLeaseTime();
+        require(now.bootId == call.bootId, "boot changed while waiting for the lease to end");
+        if (now.milliseconds >= call.leaseUntilMs) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(std::min<std::int64_t>(call.leaseUntilMs - now.milliseconds, 20)));
+    }
+}
+std::string finishStatuses(const ReplyProxy::Exchange& exchange) {
+    std::string result;
+    const auto reply = parse(exchange.runtimeReply);
+    for (const auto& row : field(reply, "results").asArray().values)
+        result += (result.empty() ? "" : ",") + stringField(*row, "status");
+    return result;
+}
+// The ACK path was really reached: one AckBatch with one item, and the store refused it as expired.
+void expectExpiredAck(Lab& lab, const std::string& values) {
+    const auto acks = lab.proxy.exchanges("AckBatch");
+    expectValue("precondition: AckBatch requests (0 = the confirmed message never reached the ACK path)",
+        static_cast<long long>(acks.size()), 1, values);
+    expectValue("AckBatch items", static_cast<long long>(finishCount(lab, "AckBatch")), 1, values);
+    const auto statuses = finishStatuses(acks.back());
+    require(statuses == "EXPIRED", "store reply to the late ACK: expected EXPIRED, actual " + statuses + " (" + values + ")");
 }
 void lostFinish(Profile profile, bool release) {
     Lab lab(profile);
@@ -206,13 +280,17 @@ void factoryAdapter(int mode) {
     options.lane = MqttEventReplayLane::MainBusiness;
     options.targetId = "main";
     options.eventTypes = {"alarm", "change"};
-    options.send = [&](const auto&, const auto&) {
+    LeaseProbe leaseProbe;
+    options.send = [&](const auto&, const auto& call) {
         ++calls;
         if (mode == 2 || mode == 4) return calls == 1;
-        if (mode == 3) std::this_thread::sleep_for(std::chrono::milliseconds(130));
+        if (mode == 3) waitLeaseEnd(call); // Delivered, but only after the lease (and the deadline) ended.
         return true;
     };
-    if (mode == 3) { options.leaseMs = 100; options.networkTimeoutMs = 10; options.completionReserveMs = 1; }
+    if (mode == 3) {
+        options.leaseMs = kLeaseMs; options.networkTimeoutMs = kNetworkMs; options.completionReserveMs = kReserveMs;
+        leaseProbe.attach(options.leaseClock);
+    }
     auto factory = makeEventStoreReplayFactory(options);
     { EventStoreClient probe(lab.client(Role::Sender)); } // Closure construction must not take actor lock.
     MqttEventReplayRequest request;
@@ -256,8 +334,15 @@ void factoryAdapter(int mode) {
         require(!first.pending && !first.healthy && first.ackedCount == 1 && first.changeCount == 1 && calls == 2,
             "partial delivery statistics incorrect");
     } else {
-        require(!first.pending && !first.healthy && first.ackedCount == 0 && calls == 1,
-            "expired ACK counted as effective delivery");
+        // Sent, then ACK after lease end: the send callback ran and the ACK reached the store before the
+        // expired-ACK outcome is judged; a refusal before sending fails here instead of passing.
+        const auto values = progressText(first, calls) + leaseProbe.text(lab);
+        expectValue("precondition: send callback calls (0 = refused before sending, lease budget used up)", calls, 1, values);
+        expectExpiredAck(lab, values);
+        expectValue("ackedCount (expired ACK counted as effective delivery)", static_cast<long long>(first.ackedCount), 0, values);
+        expectValue("pending", first.pending, 0, values);
+        expectValue("healthy", first.healthy, 0, values);
+        expectValue("store pending events", pendingCount(lab.options), 3, values);
     }
     const auto claimCount = lab.proxy.exchanges("ClaimBatch").size();
     rejects([&] { replay->runOnce(false); });
@@ -416,24 +501,81 @@ void batchFactory() {
         "batch-only factory failed or lost reversed confirms");
 }
 
+// Sent and confirmed inside the network deadline, then the storage lease ends, and only then is the ACK
+// sent: the store must refuse it and the sender must not count it. The callback and the ACK path are
+// preconditions checked on their own, so a refusal before sending can never pass as this scenario.
 void batchStorageExpiry(Profile profile) {
     Lab lab(profile);
     seed(lab);
     int calls = 0;
     bool allowed = true;
     auto options = pumpOptions(lab, calls, allowed);
-    options.leaseMs = 100; options.networkTimeoutMs = 10; options.completionReserveMs = 1;
-    options.sendBatch = [&](const auto&, const auto&, const auto&, const auto& attempt, const auto& confirm) {
+    options.leaseMs = kLeaseMs; options.networkTimeoutMs = kNetworkMs; options.completionReserveMs = kReserveMs;
+    LeaseProbe probe;
+    probe.attach(options.leaseClock);
+    bool attempted = false, confirmed = false;
+    options.sendBatch = [&](const auto&, const auto& call, const auto&, const auto& attempt, const auto& confirm) {
         ++calls;
-        attempt(2); confirm(2);
-        std::this_thread::sleep_for(std::chrono::milliseconds(130));
+        attempt(2); attempted = true;
+        confirm(2); confirmed = true;
+        waitLeaseEnd(call);
     };
     Pump pump(options);
     const auto result = pump.runOnceDetailed();
-    require(!result.pending && !result.healthy && result.ackedCount == 0 && calls == 1,
-        "expired sparse storage ACK counted as sent");
-    require(finishCount(lab, "AckBatch") == 1 && finishCount(lab, "ReleaseBatch") == 2 &&
-        pendingCount(lab.options) == 3, "expired ACK lost event or released failed ACK identity");
+    const auto values = progressText(result, calls) + probe.text(lab);
+    expectValue("precondition: send callback calls (0 = refused before sending, lease budget used up)", calls, 1, values);
+    require(attempted && confirmed, "precondition: attempt and confirm inside the network deadline did not both "
+        "return (attempted=" + std::to_string(attempted) + " confirmed=" + std::to_string(confirmed) + "; " + values + ")");
+    expectExpiredAck(lab, values);
+    expectValue("ackedCount (expired sparse storage ACK counted as sent)", static_cast<long long>(result.ackedCount), 0, values);
+    expectValue("pending", result.pending, 0, values);
+    expectValue("healthy", result.healthy, 0, values);
+    expectValue("ReleaseBatch items", static_cast<long long>(finishCount(lab, "ReleaseBatch")), 2, values);
+    expectValue("store pending events (expired ACK lost an event)", pendingCount(lab.options), 3, values);
+}
+
+// The claim reply reaches the sender only after the lease has ended (the proxy holds it for longer than the
+// lease, so the refusal does not depend on load): the sender must refuse before any network callback, send
+// no ACK, release the whole batch and keep every event pending; the next run delivers each event once.
+void batchLeaseShortBeforeSend(Profile profile) {
+    Lab lab(profile);
+    seed(lab);
+    int calls = 0;
+    bool allowed = true;
+    auto options = pumpOptions(lab, calls, allowed);
+    options.leaseMs = kLeaseMs; options.networkTimeoutMs = kNetworkMs; options.completionReserveMs = kReserveMs;
+    std::map<std::string, int> published;
+    options.sendBatch = [&](const auto& messages, const auto&, const auto&, const auto& attempt, const auto& confirm) {
+        ++calls;
+        for (std::size_t i = 0; i < messages.size(); ++i) {
+            attempt(i);
+            ++published[messages[i].eventId];
+            confirm(i);
+        }
+    };
+    lab.proxy.delayResponses("ClaimBatch", kLeaseMs + 100, 1);
+    Pump pump(options);
+    const auto refused = pump.runOnceDetailed();
+    const auto values = progressText(refused, calls);
+    expectValue("send callback calls", calls, 0, values);
+    expectValue("attemptedBytes", static_cast<long long>(refused.attemptedBytes), 0, values);
+    expectValue("AckBatch requests", static_cast<long long>(lab.proxy.exchanges("AckBatch").size()), 0, values);
+    expectValue("ReleaseBatch items", static_cast<long long>(finishCount(lab, "ReleaseBatch")), 3, values);
+    expectValue("ackedCount", static_cast<long long>(refused.ackedCount), 0, values);
+    expectValue("pending", refused.pending, 0, values);
+    expectValue("healthy", refused.healthy, 0, values);
+    require(refused.error == "sender authority or lease budget unavailable",
+        "refusal reason: expected lease budget, actual \"" + refused.error + "\"");
+    expectValue("store pending events after the refusal", pendingCount(lab.options), 3, values);
+    const auto recovered = pump.runOnceDetailed();
+    const auto after = progressText(recovered, calls);
+    expectValue("recovery: send callback calls (total)", calls, 1, after);
+    expectValue("recovery: ackedCount", static_cast<long long>(recovered.ackedCount), 3, after);
+    expectValue("recovery: pending", recovered.pending, 0, after);
+    expectValue("recovery: healthy", recovered.healthy, 1, after);
+    expectValue("recovery: store pending events", pendingCount(lab.options), 0, after);
+    expectValue("recovery: distinct events published", static_cast<long long>(published.size()), 3, after);
+    for (const auto& entry : published) expectValue("recovery: publishes of " + entry.first, entry.second, 1, after);
 }
 } // namespace
 
@@ -447,6 +589,8 @@ int main() {
     failed += !run("sender-batch-only-factory", batchFactory);
     failed += !run("sender-batch-storage-expiry-delete", [] { batchStorageExpiry(Profile::DeleteFull); });
     failed += !run("sender-batch-storage-expiry-wal", [] { batchStorageExpiry(Profile::WalFull); });
+    failed += !run("sender-batch-lease-short-before-send-delete", [] { batchLeaseShortBeforeSend(Profile::DeleteFull); });
+    failed += !run("sender-batch-lease-short-before-send-wal", [] { batchLeaseShortBeforeSend(Profile::WalFull); });
     failed += !run("sender-ack-unknown-delete", [] { lostFinish(Profile::DeleteFull, false); });
     failed += !run("sender-ack-unknown-wal", [] { lostFinish(Profile::WalFull, false); });
     failed += !run("sender-release-unknown", [] { lostFinish(Profile::DeleteFull, true); });
@@ -465,6 +609,6 @@ int main() {
         failed += !run(("sender-scope-delete-" + std::to_string(mode)).c_str(), [=] { scopeContract(Profile::DeleteFull, mode); });
         failed += !run(("sender-scope-wal-" + std::to_string(mode)).c_str(), [=] { scopeContract(Profile::WalFull, mode); });
     }
-    std::cout << "SUMMARY sender groups=68 failed=" << failed << std::endl;
+    std::cout << "SUMMARY sender groups=70 failed=" << failed << std::endl;
     return failed ? 1 : 0;
 }
