@@ -1,0 +1,4 @@
+# Preserve official exports byte-for-byte, including on Windows checkouts.
+edge-release-update.md -text
+edge-release-update.pdf binary
+SHA256SUMS.txt text eol=lf
